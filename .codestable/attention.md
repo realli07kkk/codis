@@ -8,9 +8,9 @@
 
 ### 编译与构建
 
-- 本仓库是旧式 GOPATH Go 项目，没有 `go.mod`；使用 legacy Go 工具链时保持路径为 `github.com/CodisLabs/codis`。
+- 本仓库已完成 Go modules 构建迁移，`go.mod` / `go.sum` 是默认 Go 依赖入口；不要恢复旧 GOPATH/vendor 构建路径。
 - 默认构建命令是 `make`；它会构建 Go 二进制、嵌入式 Redis、前端资源和默认配置。
-- 不要在未明确要求时把项目迁移到 Go modules，也不要顺手现代化依赖。
+- 不要顺手现代化 Go 依赖；依赖版本偏离必须有可复现的现代 Go 编译原因。
 - `cgo_jemalloc` 的 module mode 来源现在走 `go.mod` 的 `replace github.com/spinlock/jemalloc-go => ./third_party/jemalloc-go`；后续相关修改应改 `third_party/jemalloc-go`，不是旧 `vendor/github.com/spinlock/jemalloc-go`。
 
 ### 运行与本地起服务
@@ -27,11 +27,12 @@
 - `make codis-proxy` 和 `make codis-dashboard` 会刷新对应默认配置文件。
 - `make clean` 会删除 `bin/`、`scripts/tmp` 和测试临时文件；`make distclean` 还会清理嵌入式 Redis 与 jemalloc 构建输出。
 - 当前环境没有 `python` 命令；运行 `.codestable/tools/*.py` 时使用 `python3`。
+- 不要用全量 `go mod tidy` 收口本仓库；它会扫描 etcd 依赖测试链路，更新 `go.mod` 时优先用验收命令驱动最小机械变化。
 
 ### 路径与目录约定
 
 - 可执行入口在 `cmd/`；核心 Go 包在 `pkg/`；文档和图片在 `doc/`。
-- 避免编辑 `bin/` 生成物、`vendor/`、`Godeps/`、`extern/`，除非任务明确要求。
+- 避免编辑 `bin/` 生成物和 `extern/`；旧 `vendor/` / `Godeps/` 已退休，不要恢复。
 
 ### 环境变量与凭证
 

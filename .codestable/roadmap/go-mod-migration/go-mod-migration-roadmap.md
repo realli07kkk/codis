@@ -81,20 +81,12 @@ module github.com/CodisLabs/codis
 go 1.26.1
 ```
 
-**当前过渡态**：
-
-```text
-module github.com/CodisLabs/codis
-go 1.13
-toolchain go1.26.1
-```
-
 **约束**：
 
 - 常规 Go 依赖必须由 `go.mod/go.sum` 解析。
 - 普通 build/test 不再依赖 `vendor/` 或 `Godeps/`。
 - 依赖版本选择优先保持现有 Godeps 行为；确实无法在现代 Go 下编译的依赖升级必须单独记录原因。
-- `go 1.13` 仅用于旧 `vendor/` 清理前避免 Go 1.14+ 自动 vendor mode；`legacy-vendor-retirement` 完成后提升到当前工具链版本。
+- 旧 `vendor/` / `Godeps/` 已退休，不再通过源码级 vendor 副本保存依赖；如未来确实需要 vendor mode，必须另起 feature 用 `go mod vendor` 生成带 `vendor/modules.txt` 的一致 vendor tree。
 
 ### 4.2 构建命令契约
 
@@ -164,7 +156,7 @@ build tag: cgo_jemalloc
    - 依赖：无
    - 状态：done
    - 对应 feature：`2026-05-11-go-module-compile-baseline`
-   - 备注：最小闭环；当前 `go.mod` 临时使用 `go 1.13` + `toolchain go1.26.1`，旧 vendor 清理后再提升 directive。
+   - 备注：最小闭环；该阶段 `go.mod` 曾临时使用 `go 1.13` + `toolchain go1.26.1` 规避旧 vendor 自动接管，`legacy-vendor-retirement` 完成后已收口。
 
 2. **jemalloc-module-build** — 保留 `cgo_jemalloc` proxy 构建路径，解决 `github.com/spinlock/jemalloc-go` 的 C 源码与模块模式集成。
    - 所属模块：jemalloc-integration
@@ -182,8 +174,9 @@ build tag: cgo_jemalloc
 4. **legacy-vendor-retirement** — 移除或归档旧 `Godeps/` 与普通 `vendor/` 依赖，保留必要迁移说明。
    - 所属模块：module-manifest
    - 依赖：`makefile-module-mode`
-   - 状态：planned
-   - 对应 feature：未启动
+   - 状态：done
+   - 对应 feature：`2026-05-12-legacy-vendor-retirement`
+   - 备注：旧 `vendor/` / `Godeps/` tracked source 已删除；`go.mod` 已收口到 `go 1.26.1`，依赖来源为 `go.mod/go.sum` 与 `third_party/jemalloc-go` local replace。
 
 5. **module-migration-doc-notes** — 更新项目注意事项和相关工程说明，说明此后默认 Go modules 构建。
    - 所属模块：build-entrypoints

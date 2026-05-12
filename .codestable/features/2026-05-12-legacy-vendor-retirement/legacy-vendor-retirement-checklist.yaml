@@ -1,0 +1,93 @@
+feature: 2026-05-12-legacy-vendor-retirement
+created: 2026-05-12
+
+steps:
+  - action: "旧依赖目录退休：删除 tracked vendor/ 与 Godeps/"
+    exit_signal: "test ! -d vendor && test ! -d Godeps 成功，git status --short 显示这两个目录只作为预期删除"
+    status: done
+  - action: "module manifest 收口：把 go.mod 从临时 go 1.13 改为 go 1.26.1，并移除 vendor 过渡注释和冗余 toolchain 行"
+    exit_signal: "go.mod 无 go 1.13、Temporary: keep go < 1.14、toolchain go1.26.1 命中，jemalloc-go replace 保留"
+    status: done
+  - action: "module graph 验证：确认依赖解析不走旧 vendor，jemalloc replace 仍正确"
+    exit_signal: "GO111MODULE=on go list -m -json github.com/spinlock/jemalloc-go 的 Replace.Dir 指向 third_party/jemalloc-go，且没有 vendor/modules.txt"
+    status: done
+  - action: "构建测试回归：跑默认 cmd/pkg 测试、cgo_jemalloc proxy 构建和 Makefile 测试入口"
+    exit_signal: "GO111MODULE=on go test ./cmd/... ./pkg/...、GO111MODULE=on go build -tags cgo_jemalloc -o /tmp/codis-proxy-cgo-test ./cmd/proxy、make gotest 均通过"
+    status: done
+  - action: "范围守护：确认没有顺手改运行代码、部署脚本、第三方本地 jemalloc 或依赖版本"
+    exit_signal: "diff 仅包含 vendor/、Godeps/ 删除、go.mod 收口，以及本 feature/roadmap 状态文件"
+    status: done
+
+checks:
+  - item: "Godeps/ 与 vendor/ 从 tracked source 中删除，不新增 archive/、doc/vendor-archive/ 或源码级旧依赖副本"
+    source: 名词契约
+    status: passed
+  - item: "go.mod 使用 module github.com/CodisLabs/codis，并将 Go 版本声明收口为 go 1.26.1"
+    source: 名词契约
+    status: passed
+  - item: "go.mod 不再包含 go 1.13、Temporary: keep go < 1.14 或 toolchain go1.26.1"
+    source: 名词契约
+    status: passed
+  - item: "go.mod 保留 replace github.com/spinlock/jemalloc-go => ./third_party/jemalloc-go"
+    source: 名词契约
+    status: passed
+  - item: "third_party/jemalloc-go 保留为 cgo_jemalloc 的唯一仓库内第三方源码来源"
+    source: 名词契约
+    status: passed
+  - item: "实施顺序先移除旧 vendor/Godeps，再提升 go.mod，避免触发 Go 自动 vendor mode"
+    source: 编排骨架
+    status: passed
+  - item: "任何 vendor/modules.txt、-mod=vendor 或从 vendor/ 解析依赖的现象都视为未完成，不通过生成 vendor/modules.txt 修补"
+    source: 流程级约束
+    status: passed
+  - item: "重复执行验收命令不重新生成 vendor/、Godeps/、vendor/modules.txt，也不修改 tracked source"
+    source: 流程级约束
+    status: passed
+  - item: "vendor/ 删除后，feature 在构建依赖来源视角不再有旧 GOPATH vendor tree"
+    source: 挂载点
+    status: passed
+  - item: "Godeps/ 删除后，feature 在构建依赖来源视角不再有旧 Godeps 元数据入口"
+    source: 挂载点
+    status: passed
+  - item: "go.mod Go 版本声明从临时 go 1.13 + toolchain go1.26.1 改为长期 go 1.26.1"
+    source: 挂载点
+    status: passed
+  - item: "Diff 不包含 Dockerfile、scripts/docker.sh、kubernetes/、ansible/"
+    source: 范围守护
+    status: passed
+  - item: "Diff 不包含 README 或 doc/ 用户文档更新；.codestable/attention.md 只包含用户本轮明确要求的 Go modules 启动注意事项与 go mod tidy 命令陷阱"
+    source: 范围守护
+    status: passed
+  - item: "Diff 不包含 cmd/、pkg/、extern/ 运行逻辑改动"
+    source: 范围守护
+    status: passed
+  - item: "Diff 不修改 third_party/jemalloc-go/"
+    source: 范围守护
+    status: passed
+  - item: "Diff 不修改现有 require 版本或新增依赖升级"
+    source: 范围守护
+    status: passed
+  - item: "Diff 不生成 vendor/modules.txt 或新增 go mod vendor 输出"
+    source: 范围守护
+    status: passed
+  - item: "Diff 不删除或改向 replace github.com/spinlock/jemalloc-go => ./third_party/jemalloc-go"
+    source: 范围守护
+    status: passed
+  - item: "test ! -d vendor && test ! -d Godeps 成功"
+    source: 验收场景
+    status: passed
+  - item: "GO111MODULE=on go list -m -json github.com/spinlock/jemalloc-go 输出 Replace.Dir 指向 third_party/jemalloc-go 且不含 vendor"
+    source: 验收场景
+    status: passed
+  - item: "GO111MODULE=on go test ./cmd/... ./pkg/... 通过，不报 vendor/modules.txt 或 -mod=vendor 相关错误"
+    source: 验收场景
+    status: passed
+  - item: "GO111MODULE=on go build -tags cgo_jemalloc -o /tmp/codis-proxy-cgo-test ./cmd/proxy 通过"
+    source: 验收场景
+    status: passed
+  - item: "make gotest 通过，不依赖旧 vendor/ 或 Godeps/"
+    source: 验收场景
+    status: passed
+  - item: "重复执行验收命令后 git status --short 不出现新生成的 vendor/、Godeps/ 或 vendor/modules.txt"
+    source: 验收场景
+    status: passed

@@ -8,7 +8,7 @@ items:
     status: done
     feature: 2026-05-11-go-module-compile-baseline
     minimal_loop: true
-    notes: "已建立默认构建标签下的 go.mod/go.sum 编译测试闭环；go directive 临时保持 1.13 以规避旧 vendor 自动接管。"
+    notes: "已建立默认构建标签下的 go.mod/go.sum 编译测试闭环；该阶段曾临时保持 go directive 为 1.13 以规避旧 vendor 自动接管，legacy-vendor-retirement 后已收口。"
   - slug: jemalloc-module-build
     description: 保留 cgo_jemalloc proxy 构建路径并适配 jemalloc-go 的模块模式来源
     depends_on: [go-module-compile-baseline]
@@ -26,10 +26,10 @@ items:
   - slug: legacy-vendor-retirement
     description: 移除或归档旧 Godeps 与普通 vendor 依赖并保留迁移说明
     depends_on: [makefile-module-mode]
-    status: planned
-    feature: null
+    status: done
+    feature: 2026-05-12-legacy-vendor-retirement
     minimal_loop: false
-    notes: null
+    notes: "已删除旧 vendor/Godeps tracked source，go.mod 收口到 go 1.26.1，依赖来源保留为 go.mod/go.sum 与 third_party/jemalloc-go local replace。"
   - slug: module-migration-doc-notes
     description: 更新 CodeStable 注意事项和相关工程说明，记录此后默认 Go modules 构建
     depends_on: [legacy-vendor-retirement]
