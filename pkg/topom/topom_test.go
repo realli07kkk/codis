@@ -22,7 +22,7 @@ func init() {
 }
 
 func init() {
-	config.AdminAddr = "0.0.0.0:0"
+	config.AdminAddr = "127.0.0.1:0"
 	config.ProductName = "topom_test"
 	config.ProductAuth = "topom_auth"
 }
@@ -52,7 +52,7 @@ func openTopom() *Topom {
 
 func openProxy() (*models.Proxy, *proxy.ApiClient) {
 	config := proxy.NewDefaultConfig()
-	config.AdminAddr = "0.0.0.0:0"
+	config.AdminAddr = "127.0.0.1:0"
 	config.ProxyAddr = "0.0.0.0:0"
 	config.ProductName = "topom_test"
 	config.ProductAuth = "topom_auth"

@@ -15,16 +15,22 @@ if [ $? -eq 0 ]; then
     version="${version} @${describe}"
 fi
 
-cat << EOF | gofmt > pkg/utils/version.go
-package utils
-
-const (
-    Version = "$version"
-    Compile = "$compile"
-)
-EOF
+mkdir -p bin
 
 cat << EOF > bin/version
 version = $version
 compile = $compile
+EOF
+
+utils_pkg="github.com/CodisLabs/codis/pkg/utils"
+
+escape_ldflags_value() {
+    printf "%s" "$1" | sed "s/'/'\\\\''/g"
+}
+
+version_ldflags=$(escape_ldflags_value "$version")
+compile_ldflags=$(escape_ldflags_value "$compile")
+
+cat << EOF > bin/version.ldflags
+-X '${utils_pkg}.Version=${version_ldflags}' -X '${utils_pkg}.Compile=${compile_ldflags}'
 EOF
