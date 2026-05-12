@@ -1,0 +1,84 @@
+feature: 2026-05-11-go-module-compile-baseline
+created: 2026-05-11
+
+steps:
+  - action: "Module manifest 骨架：建立 go.mod，固定模块名和 Go 版本"
+    exit_signal: "GO111MODULE=on go test ./cmd/... ./pkg/... 不再停在 does not contain main module"
+    status: done
+  - action: "Version metadata 兜底：让 clean checkout 下 utils.Version 和 utils.Compile 总是存在"
+    exit_signal: "module mode 编译不再出现 undefined: utils.Version 或 undefined: utils.Compile"
+    status: done
+  - action: "依赖图收敛：按源码 import 和 Godeps baseline 生成 go.sum，并只做必要的最小依赖调整"
+    exit_signal: "GO111MODULE=on go test ./cmd/... ./pkg/... 完成依赖下载、编译和测试"
+    status: done
+  - action: "范围守护：确认 jemalloc、Makefile、vendor 清理、Dockerfile 和部署脚本没有被顺手修改"
+    exit_signal: "diff 中不存在范围外文件的行为性改动"
+    status: done
+
+checks:
+  - item: "go.mod 使用 module github.com/CodisLabs/codis，并临时使用 go 1.13 + toolchain go1.26.1"
+    source: 名词契约
+    status: passed
+  - item: "go.sum 存在，并由 module mode 依赖解析生成"
+    source: 名词契约
+    status: passed
+  - item: "pkg/utils 提供 Version 和 Compile 兜底定义"
+    source: 名词契约
+    status: passed
+  - item: "version 脚本不再覆盖 pkg/utils/version.go，Makefile 通过 bin/version.ldflags 注入真实版本"
+    source: 名词契约
+    status: passed
+  - item: "GO111MODULE=on go test ./cmd/... ./pkg/... 不再依赖 GOPATH 路径"
+    source: 编排骨架
+    status: passed
+  - item: "依赖版本调整必须能追溯到具体 module path 和编译原因"
+    source: 流程级约束
+    status: passed
+  - item: "不引入旧 vendor 机制作为 Go modules 的新依赖入口"
+    source: 流程级约束
+    status: passed
+  - item: "design 已记录长期方案：旧 vendor 清理后把 go directive 提升到 1.26.1"
+    source: 流程级约束
+    status: passed
+  - item: "go.mod 已注释 go 1.13 是旧 vendor 清理前的临时规避，不是长期最低版本承诺"
+    source: 流程级约束
+    status: passed
+  - item: "go.mod 挂载点已新增"
+    source: 挂载点
+    status: passed
+  - item: "go.sum 挂载点已新增"
+    source: 挂载点
+    status: passed
+  - item: "pkg/utils.Version 和 pkg/utils.Compile 挂载点已新增"
+    source: 挂载点
+    status: passed
+  - item: "Diff 不包含 Dockerfile"
+    source: 范围守护
+    status: passed
+  - item: "Diff 不删除 vendor 或 Godeps"
+    source: 范围守护
+    status: passed
+  - item: "Diff 不修改 pkg/proxy、pkg/topom、pkg/models 中的运行逻辑来绕过测试"
+    source: 范围守护
+    status: passed
+  - item: "Diff 不改 pkg/utils/unsafe2/je_malloc.go 或 jemalloc 源码"
+    source: 范围守护
+    status: passed
+  - item: "Diff 不把 Makefile 改造成 module mode 主入口"
+    source: 范围守护
+    status: passed
+  - item: "Diff 不生成 vendor/modules.txt 或改成 vendor mode 方案"
+    source: 范围守护
+    status: passed
+  - item: "仓库根目录执行 GO111MODULE=on go test ./cmd/... ./pkg/... 完成 cmd/pkg 编译和测试"
+    source: 验收场景
+    status: passed
+  - item: "clean checkout 未先运行 bash version 时，引用 utils.Version 和 utils.Compile 的包可编译"
+    source: 验收场景
+    status: passed
+  - item: "删除本地 module cache 后，module mode 测试可由 go.mod/go.sum 恢复依赖"
+    source: 验收场景
+    status: passed
+  - item: "默认构建标签下不要求 cgo_jemalloc 链路通过"
+    source: 验收场景
+    status: passed
