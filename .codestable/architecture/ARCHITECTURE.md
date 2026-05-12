@@ -40,7 +40,7 @@ flowchart LR
   Proxy --> Jodis[Jodis Registry]
 ```
 
-构建层面，仓库已有 `go.mod` / `go.sum`，`GO111MODULE=on go test ./cmd/... ./pkg/...`、`GO111MODULE=on go build ./cmd/... ./pkg/...` 和 `GO111MODULE=on go build -tags cgo_jemalloc ./cmd/proxy` 都可在 module mode 下通过。`go.mod` 暂时使用 `go 1.13` + `toolchain go1.26.1`，原因是顶层旧 `vendor/` 仍存在且没有 `vendor/modules.txt`；Go 1.14+ 会在存在 vendor 目录时默认进入 vendor mode。`cgo_jemalloc` 路径通过 `go.mod` 的 `replace github.com/spinlock/jemalloc-go => ./third_party/jemalloc-go` 指向仓库内受控的本地模块，不再依赖旧 `vendor/github.com/spinlock/jemalloc-go` 的预处理状态。`Makefile` 同时产出 `codis-dashboard`、`codis-proxy`、`codis-admin`、`codis-ha`、`codis-fe` 和嵌入式 `codis-server`；Go 二进制构建规则在 `Makefile:13` 到 `Makefile:28`，Redis Server 构建和配置刷新在 `Makefile:31` 到 `Makefile:40`。
+构建层面，仓库已有 `go.mod` / `go.sum`，`GO111MODULE=on go test ./cmd/... ./pkg/...`、`GO111MODULE=on go build ./cmd/... ./pkg/...` 和 `GO111MODULE=on go build -tags cgo_jemalloc ./cmd/proxy` 都可在 module mode 下通过。`go.mod` 暂时使用 `go 1.13` + `toolchain go1.26.1`，原因是顶层旧 `vendor/` 仍存在且没有 `vendor/modules.txt`；Go 1.14+ 会在存在 vendor 目录时默认进入 vendor mode。`cgo_jemalloc` 路径通过 `go.mod` 的 `replace github.com/spinlock/jemalloc-go => ./third_party/jemalloc-go` 指向仓库内受控的本地模块，不再依赖旧 `vendor/github.com/spinlock/jemalloc-go` 的预处理状态。`Makefile` 已切换到 module mode（移除了 `GO15VENDOREXPERIMENT` 和旧 `vendor/github.com/spinlock/jemalloc-go` 预处理调用），产出 `codis-dashboard`、`codis-proxy`、`codis-admin`、`codis-ha`、`codis-fe` 和嵌入式 `codis-server`；Go 二进制构建规则在 `Makefile:10` 到 `Makefile:25`，Redis Server 构建和配置刷新在 `Makefile:28` 到 `Makefile:37`。
 
 版本元数据由 `pkg/utils/version.go` 提供 clean checkout 默认值，`version` 脚本生成 `bin/version` 和 `bin/version.ldflags`，Makefile 通过 `-ldflags -X` 注入真实 git/date 信息。该文件不再由构建脚本覆盖，避免一次 `make` 后源码进入脏状态。
 
@@ -97,13 +97,13 @@ proxy 的内存状态包括身份认证 token、`models.Proxy`、两个 listener
 
 ## 6. 已知约束 / 边界情况
 
-- 当前仓库已建立 Go modules 编译闭环：默认 cmd/pkg module mode 可编译测试，`cgo_jemalloc` proxy 也可通过 `third_party/jemalloc-go` 的本地 replace 模块在 module mode 下构建；完整 Makefile module mode 和旧 `vendor/` / `Godeps/` 清理仍由 `.codestable/roadmap/go-mod-migration/` 后续条目处理。
+- 当前仓库已建立 Go modules 编译闭环：默认 cmd/pkg module mode 可编译测试，`cgo_jemalloc` proxy 也可通过 `third_party/jemalloc-go` 的本地 replace 模块在 module mode 下构建；`Makefile` 已完成 module mode 切换（`make gotest`、`make build-all` 均不再依赖 GOPATH/vendor 参数）；旧 `vendor/` / `Godeps/` 清理仍由 `.codestable/roadmap/go-mod-migration/` 后续条目处理。
 - `go.mod` 的 `go 1.13` 是旧 `vendor/` 清理前的临时规避，不是长期最低 Go 版本承诺；旧 `vendor/` 退休后应提升到当前工具链版本。
 - 对同一个业务集群，现有文档要求同一时刻最多一个 dashboard，且所有集群修改都经由 dashboard 完成，见 `doc/tutorial_zh.md:43` 到 `doc/tutorial_zh.md:46`。
 - proxy 通过普通 Redis 协议面向客户端，但并不支持所有 Redis 命令；现有 README 明确提到 unsupported command list，见 `README.md:23` 到 `README.md:26`。
 - slot 数固定为 1024，改变该常量会影响模型、路由、迁移和外部元数据兼容性，见 `pkg/models/slots.go:13`。
 - `product_name` 同时参与元数据命名空间、proxy/dashboard 鉴权和运行期路由隔离，格式校验在 `pkg/models/store.go:258` 到 `pkg/models/store.go:263`。
-- `Makefile` 的组件构建会刷新 `config/dashboard.toml`、`config/proxy.toml`、`config/redis.conf`、`config/sentinel.conf`，见 `Makefile:11` 到 `Makefile:38`。
+- `Makefile` 的组件构建会刷新 `config/dashboard.toml`、`config/proxy.toml`、`config/redis.conf`、`config/sentinel.conf`，见 `Makefile:12` 到 `Makefile:37`。
 
 ## 7. 相关文档
 

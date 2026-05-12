@@ -19,8 +19,8 @@ items:
   - slug: makefile-module-mode
     description: 更新 Makefile 构建和测试入口，移除 GOPATH/vendor 时代参数
     depends_on: [go-module-compile-baseline, jemalloc-module-build]
-    status: planned
-    feature: null
+    status: done
+    feature: 2026-05-12-makefile-module-mode
     minimal_loop: false
     notes: null
   - slug: legacy-vendor-retirement

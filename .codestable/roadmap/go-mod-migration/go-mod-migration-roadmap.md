@@ -176,8 +176,8 @@ build tag: cgo_jemalloc
 3. **makefile-module-mode** — 更新 Makefile，移除 GOPATH/vendor 时代构建参数，让 `make gotest` 和单组件 build 使用 module mode。
    - 所属模块：build-entrypoints
    - 依赖：`go-module-compile-baseline`, `jemalloc-module-build`
-   - 状态：planned
-   - 对应 feature：未启动
+   - 状态：done
+   - 对应 feature：`2026-05-12-makefile-module-mode`
 
 4. **legacy-vendor-retirement** — 移除或归档旧 `Godeps/` 与普通 `vendor/` 依赖，保留必要迁移说明。
    - 所属模块：module-manifest

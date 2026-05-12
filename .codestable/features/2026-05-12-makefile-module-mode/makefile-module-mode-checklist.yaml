@@ -1,0 +1,64 @@
+feature: 2026-05-12-makefile-module-mode
+created: 2026-05-12
+
+steps:
+  - action: "移除 GOPATH 环境变量：删除 Makefile L3 `export GO15VENDOREXPERIMENT=1`"
+    exit_signal: "`make gotest` 在 module mode 下不再受 GOPATH 环境变量干扰"
+    status: done
+
+  - action: "移除旧 jemalloc 预处理：从 `codis-deps` 删除 `make -C vendor/github.com/spinlock/jemalloc-go/`"
+    exit_signal: "`make codis-proxy` 的 `go build -tags cgo_jemalloc` 仍成功，jemalloc-go 由 module mode 解析"
+    status: done
+
+  - action: "更新 distclean：删除 `make -C vendor/github.com/spinlock/jemalloc-go/ distclean`"
+    exit_signal: "`make distclean` 不报错"
+    status: done
+
+  - action: "端到端验证：跑 `make gotest` 和 `make build-all`"
+    exit_signal: "两个命令均在 module mode 下成功完成"
+    status: done
+
+  - action: "范围回归：确认 vendor/、Godeps/、go.mod、third_party/jemalloc-go 未被顺手改动"
+    exit_signal: "`git diff --stat` 仅包含 `Makefile`"
+    status: done
+
+checks:
+  - item: "Makefile L3 不再有 `export GO15VENDOREXPERIMENT=1`"
+    source: 挂载点
+    status: passed
+
+  - item: "`codis-deps` 不再调用 `make -C vendor/github.com/spinlock/jemalloc-go/`"
+    source: 挂载点
+    status: passed
+
+  - item: "`distclean` 不再调用旧 jemalloc distclean"
+    source: 挂载点
+    status: passed
+
+  - item: "`make gotest` 在 module mode 下通过"
+    source: 验收场景
+    status: passed
+
+  - item: "`make codis-proxy` 在 module mode 下通过，jemalloc-go 由 go.mod replace 解析"
+    source: 验收场景
+    status: passed
+
+  - item: "`make codis-dashboard` 通过并刷新 config/dashboard.toml"
+    source: 验收场景
+    status: passed
+
+  - item: "`make build-all` Go 组件全部构建成功"
+    source: 验收场景
+    status: passed
+
+  - item: "`make distclean` 不报错"
+    source: 验收场景
+    status: passed
+
+  - item: "Diff 不包含 Dockerfile、go.mod、go.sum、vendor/、Godeps/、third_party/jemalloc-go/、version 脚本、pkg/、cmd/ 源码"
+    source: 范围守护
+    status: passed
+
+  - item: "Diff 不添加 GO111MODULE=on 到 Makefile"
+    source: 范围守护
+    status: passed

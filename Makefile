@@ -1,14 +1,11 @@
 .DEFAULT_GOAL := build-all
 
-export GO15VENDOREXPERIMENT=1
-
 VERSION_LDFLAGS = -ldflags "$$(cat bin/version.ldflags)"
 
 build-all: codis-server codis-dashboard codis-proxy codis-admin codis-ha codis-fe clean-gotest
 
 codis-deps:
 	@mkdir -p bin config && bash version
-	@make --no-print-directory -C vendor/github.com/spinlock/jemalloc-go/
 
 codis-dashboard: codis-deps
 	go build $(VERSION_LDFLAGS) -o bin/codis-dashboard ./cmd/dashboard
@@ -48,7 +45,6 @@ clean: clean-gotest
 
 distclean: clean
 	@make --no-print-directory --quiet -C extern/redis-3.2.11 distclean
-	@make --no-print-directory --quiet -C vendor/github.com/spinlock/jemalloc-go/ distclean
 
 gotest: codis-deps
 	go test $(VERSION_LDFLAGS) ./cmd/... ./pkg/...
