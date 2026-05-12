@@ -33,7 +33,7 @@ items:
   - slug: module-migration-doc-notes
     description: 更新 CodeStable 注意事项和相关工程说明，记录此后默认 Go modules 构建
     depends_on: [legacy-vendor-retirement]
-    status: planned
-    feature: null
+    status: done
+    feature: 2026-05-12-module-migration-doc-notes
     minimal_loop: false
     notes: null

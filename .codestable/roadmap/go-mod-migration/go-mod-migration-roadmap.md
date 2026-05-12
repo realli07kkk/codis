@@ -1,7 +1,7 @@
 ---
 doc_type: roadmap
 slug: go-mod-migration
-status: active
+status: completed
 created: 2026-05-11
 last_reviewed: 2026-05-12
 tags: [go, modules, build]
@@ -181,8 +181,8 @@ build tag: cgo_jemalloc
 5. **module-migration-doc-notes** — 更新项目注意事项和相关工程说明，说明此后默认 Go modules 构建。
    - 所属模块：build-entrypoints
    - 依赖：`legacy-vendor-retirement`
-   - 状态：planned
-   - 对应 feature：未启动
+   - 状态：done
+   - 对应 feature：`2026-05-12-module-migration-doc-notes`
 
 **最小闭环**：第 1 条 `go-module-compile-baseline` 做完后，clean checkout 在默认 module mode 下可以跑通 `GO111MODULE=on go test ./cmd/... ./pkg/...`，即证明 Go modules 迁移的最窄路径可行。
 

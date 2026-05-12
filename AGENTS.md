@@ -2,7 +2,7 @@
 
 ## Project Structure & Module Organization
 
-Codis is an older GOPATH-style Go repository; there is no `go.mod`. Keep the checkout at `github.com/CodisLabs/codis` when using legacy Go tooling. Executable entry points live in `cmd/` (`dashboard`, `proxy`, `admin`, `ha`, `fe`). Core packages live in `pkg/`, including proxy routing, topology management, models, Redis protocol helpers, and utilities. Runtime configs are under `config/`. Deployment resources are in `deploy/`, `kubernetes/`, and `ansible/`. Documentation and images are in `doc/`; examples and helper scripts are in `example/` and `scripts/`. Third-party and embedded Redis sources are kept in `vendor/`, `Godeps/`, and `extern/`.
+Codis uses Go modules (`go.mod` / `go.sum`, `go 1.26.1`) as its default build path; the module is `github.com/CodisLabs/codis`. Executable entry points live in `cmd/` (`dashboard`, `proxy`, `admin`, `ha`, `fe`). Core packages live in `pkg/`, including proxy routing, topology management, models, Redis protocol helpers, and utilities. Runtime configs are under `config/`. Deployment resources are in `deploy/`, `kubernetes/`, and `ansible/`. Documentation and images are in `doc/`; examples and helper scripts are in `example/` and `scripts/`. Embedded Redis sources are in `extern/`; the `cgo_jemalloc` build tag uses `third_party/jemalloc-go` via `go.mod` replace. Old `vendor/` and `Godeps/` directories have been retired.
 
 ## Build, Test, and Development Commands
 
@@ -16,7 +16,7 @@ Codis is an older GOPATH-style Go repository; there is no `go.mod`. Keep the che
 
 ## Coding Style & Naming Conventions
 
-Use standard Go formatting: run `gofmt` on changed `.go` files. Follow existing naming: short lowercase package names, clear exported identifiers, and `*_test.go` beside the package under test. Preserve the project’s error style (`log.PanicError`, utility wrappers, and explicit error returns). Do not modernize dependencies or convert to modules unless that is the explicit task.
+Use standard Go formatting: run `gofmt` on changed `.go` files. Follow existing naming: short lowercase package names, clear exported identifiers, and `*_test.go` beside the package under test. Preserve the project’s error style (`log.PanicError`, utility wrappers, and explicit error returns). Do not restore old vendor/Godeps dependency paths or downgrade from Go modules to GOPATH builds unless that is the explicit task.
 
 ## Testing Guidelines
 

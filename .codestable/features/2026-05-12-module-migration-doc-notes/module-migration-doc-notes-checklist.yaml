@@ -1,0 +1,51 @@
+feature: 2026-05-12-module-migration-doc-notes
+created: 2026-05-12
+
+steps:
+  - action: "CLAUDE.md 构建描述更新：替换 line 3（仓库类型描述）、line 5（依赖来源）、line 19（迁移方向约束）为当前 Go modules 现实"
+    exit_signal: "grep 'older GOPATH-style\\|no go\\.mod' CLAUDE.md 无命中；grep 'go\\.mod\\|Go modules' CLAUDE.md 命中当前构建描述"
+    status: done
+  - action: "attention.md 验证：读取编译与构建节，逐条确认与当前仓库现实一致"
+    exit_signal: "四条正确（Go modules 默认入口、make 构建、依赖版本策略、jemalloc 来源），无需修改；如有偏差则单条修正"
+    status: done
+  - action: "ARCHITECTURE.md 待办移除：将 line 102 的 module-migration-doc-notes 待办引用替换为迁移完成声明"
+    exit_signal: "grep 'module-migration-doc-notes' ARCHITECTURE.md 无命中；构建层描述（lines 22-45）不变"
+    status: done
+  - action: "范围守护：确认没有改动 tutorial、README、Dockerfile、部署配置、Go 代码"
+    exit_signal: "git diff --stat 仅含 CLAUDE.md、ARCHITECTURE.md 和本 feature/roadmap 状态文件"
+    status: done
+
+checks:
+  - item: "grep 'older GOPATH-style\\|no go\\.mod' CLAUDE.md 无命中"
+    source: 验收场景
+    status: passed
+  - item: "CLAUDE.md 中 vendor/ 和 Godeps/ 的依赖来源描述仅标记为已退休，不作为活跃依赖入口"
+    source: 验收场景
+    status: passed
+  - item: "CLAUDE.md 中迁移方向约束从 'Do not modernize dependencies or convert to modules' 翻转为 'Do not restore old vendor/Godeps or downgrade from Go modules'"
+    source: 验收场景
+    status: passed
+  - item: "grep 'module-migration-doc-notes' .codestable/architecture/ARCHITECTURE.md 无命中"
+    source: 验收场景
+    status: passed
+  - item: "attention.md 编译与构建节四条完整正确（Go modules 默认入口、make 构建、依赖版本策略、jemalloc 来源）"
+    source: 验收场景
+    status: passed
+  - item: "git diff --stat 仅含 CLAUDE.md、ARCHITECTURE.md、本 feature 目录下 design/checklist 文件和 roadmap items.yaml"
+    source: 范围守护
+    status: passed
+  - item: "Diff 不包含 doc/tutorial_zh.md、doc/tutorial_en.md、README.md"
+    source: 范围守护
+    status: passed
+  - item: "Diff 不包含 Dockerfile、deploy/、kubernetes/、ansible/、scripts/"
+    source: 范围守护
+    status: passed
+  - item: "Diff 不包含 cmd/、pkg/、extern/、third_party/"
+    source: 范围守护
+    status: passed
+  - item: "Diff 不包含 go.mod、go.sum、Makefile"
+    source: 范围守护
+    status: passed
+  - item: "Diff 不新增文件到 vendor/、Godeps/"
+    source: 范围守护
+    status: passed
