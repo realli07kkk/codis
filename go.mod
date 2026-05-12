@@ -22,7 +22,10 @@ require (
 	github.com/martini-contrib/render v0.0.0-20150707142108-ec18f8345a11
 	github.com/oxtoacart/bpool v0.0.0-20150712133111-4e1c5567d7c2
 	github.com/samuel/go-zookeeper v0.0.0-20161028232340-1d7be4effb13
+	github.com/spinlock/jemalloc-go v0.0.0-20161230074307-26719b2ee618
 	github.com/ugorji/go v1.2.14
 	golang.org/x/net v0.0.0-20170118032911-242b6b35177e
 	gopkg.in/alexcesaro/statsd.v2 v2.0.0
 )
+
+replace github.com/spinlock/jemalloc-go => ./third_party/jemalloc-go
