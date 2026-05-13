@@ -34,7 +34,7 @@ These commands are disallowed in codis proxy, if you use them, proxy will close 
 |                  |                  |
 |   Server         | BGREWRITEAOF     |
 |                  | BGSAVE           |
-|                  | CLIENT           |
+|                  | CLIENT (except CLIENT LIST) |
 |                  | CONFIG           |
 |                  | DBSIZE           |
 |                  | DEBUG            |
@@ -62,6 +62,11 @@ These commands are disallowed in codis proxy, if you use them, proxy will close 
 |                  | SLOTSMGRTTAGSLOT |
 
 
+`CLIENT LIST` is supported by codis proxy and returns the client connections
+attached to the current proxy instance. Other `CLIENT` subcommands are still
+disallowed.
+
+
 These commands is "half-supported". Codis does not support cross-node operation, so you must use Hash Tags (See [this blog](http://oldblog.antirez.com/post/redis-presharding.html)'s "Hash tags" section) to put all the keys which may shown in one request into the same slot then you can use these commands. Codis does not check if the keys have same tag, so if you don't use tag, your program will get wrong response.
 
 |   Command Type   |   Command Name   |
@@ -82,4 +87,3 @@ These commands is "half-supported". Codis does not support cross-node operation,
 |                  |                  |
 |   Scripting      | EVAL             |
 |                  | EVALSHA          |
-

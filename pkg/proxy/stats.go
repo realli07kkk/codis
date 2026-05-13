@@ -142,7 +142,7 @@ func ResetStats() {
 	cmdstats.total.Set(0)
 	cmdstats.fails.Set(0)
 	cmdstats.redis.errors.Set(0)
-	sessions.total.Set(sessions.alive.Int64())
+	sessions.total.Set(SessionsAlive())
 }
 
 func incrOpTotal(n int64) {
@@ -169,16 +169,10 @@ func incrOpStats(e *opStats) {
 
 var sessions struct {
 	total atomic2.Int64
-	alive atomic2.Int64
 }
 
-func incrSessions() int64 {
+func incrSessions() {
 	sessions.total.Incr()
-	return sessions.alive.Incr()
-}
-
-func decrSessions() {
-	sessions.alive.Decr()
 }
 
 func SessionsTotal() int64 {
@@ -186,7 +180,7 @@ func SessionsTotal() int64 {
 }
 
 func SessionsAlive() int64 {
-	return sessions.alive.Int64()
+	return clientSessions.count()
 }
 
 type SysUsage struct {

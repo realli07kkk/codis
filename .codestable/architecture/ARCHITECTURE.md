@@ -4,7 +4,7 @@ slug: system-overview
 scope: Codis 仓库当前整体架构
 summary: Codis 通过 proxy 层隐藏 Redis 分片细节，由 dashboard/topom 维护拓扑、迁移和高可用状态，并用 models 抽象的 coordinator 存储集群元数据。
 status: current
-last_reviewed: 2026-05-12
+last_reviewed: 2026-05-13
 tags: [redis, proxy, topology]
 depends_on: []
 implements: [redis-cluster-service]
@@ -48,9 +48,9 @@ flowchart LR
 
 proxy 内部先建立两个监听器：对客户端的 Redis 协议监听和对管理面的 HTTP API 监听，分别由 `Proxy.setup` 填入 model，见 `pkg/proxy/proxy.go:105` 到 `pkg/proxy/proxy.go:143`。`Proxy.New` 创建 router、启动 admin/proxy 服务并启动 metrics reporter，见 `pkg/proxy/proxy.go:58` 到 `pkg/proxy/proxy.go:102`。
 
-客户端连接在 `serveProxy` 中被 accept 后创建 `Session`，每个 session 拆出 reader 和 writer 两条 goroutine；reader 解码 Redis multi bulk、生成 `Request` 并交给 router，writer 等待后端响应后按原顺序写回，见 `pkg/proxy/proxy.go:396`、`pkg/proxy/session.go:114`、`pkg/proxy/session.go:152` 和 `pkg/proxy/session.go:199`。
+客户端连接在 `serveProxy` 中被 accept 后创建 `Session`，每个 session 拆出 reader 和 writer 两条 goroutine；reader 解码 Redis multi bulk、生成 `Request` 并交给 router，writer 等待后端响应后按原顺序写回，见 `pkg/proxy/proxy.go:396`、`pkg/proxy/session.go:114`、`pkg/proxy/session.go:152` 和 `pkg/proxy/session.go:199`。已通过上线检查的活动 session 会注册进 proxy 进程内的 session registry，用于当前 proxy 实例的连接观测；该 registry 不进入 coordinator，也不跨 proxy 同步，见 `pkg/proxy/client_list.go:18` 和 `pkg/proxy/session.go:122`。
 
-命令路由的第一层在 `Session.handleRequest`。它先处理 `QUIT`、`AUTH`、`SELECT` 等本地命令，再对 `MGET`、`MSET`、`DEL`、`EXISTS`、`SLOTSINFO`、`SLOTSSCAN`、`SLOTSMAPPING` 做特殊处理，其余命令走 `Router.dispatch`，见 `pkg/proxy/session.go:257` 到 `pkg/proxy/session.go:308`。`Router.dispatch` 用 hash key 计算 slot id 后调用 slot 的 forward method，见 `pkg/proxy/router.go:139` 到 `pkg/proxy/router.go:143`。
+命令路由的第一层在 `Session.handleRequest`。它先处理 `QUIT`、`AUTH`、`SELECT`、`CLIENT LIST` 等本地命令，再对 `MGET`、`MSET`、`DEL`、`EXISTS`、`SLOTSINFO`、`SLOTSSCAN`、`SLOTSMAPPING` 做特殊处理，其余命令走 `Router.dispatch`，见 `pkg/proxy/session.go:257` 到 `pkg/proxy/session.go:308`。`CLIENT LIST` 在 proxy 本地生成当前 proxy 实例的活动客户端连接快照，返回 RESP bulk string 的 Redis `key=value` 行，不转发到后端 Redis，见 `pkg/proxy/client_list.go:155` 到 `pkg/proxy/client_list.go:239`。`Router.dispatch` 用 hash key 计算 slot id 后调用 slot 的 forward method，见 `pkg/proxy/router.go:139` 到 `pkg/proxy/router.go:143`。
 
 slot 路由状态由 dashboard 下发到 proxy。`Topom.reinitProxy` 会向 proxy 填充 slot、启动 proxy 并设置 sentinel；局部 slot 变化通过 `resyncSlotMappings` 并发调用所有 proxy 的 `FillSlots`，见 `pkg/topom/topom_proxy.go:126` 到 `pkg/topom/topom_proxy.go:170`。proxy 侧 `FillSlot` 根据 `models.Slot` 更新 backend、migrate、replicaGroups 和 forward method，见 `pkg/proxy/router.go:102` 到 `pkg/proxy/router.go:120` 以及 `pkg/proxy/router.go:168` 到 `pkg/proxy/router.go:213`。
 
@@ -66,7 +66,7 @@ dashboard 的管理 API 在 `pkg/topom/topom_api.go:31` 注册。它暴露 proxy
 
 dashboard/topom 的内存状态分为 model、store、cache、action、stats、ha 几块：cache 保存 slots/group/proxy/sentinel 快照，action 保存迁移执行状态，stats 保存 Redis 和 proxy 统计，ha 保存 sentinel 观察到的 masters，见 `pkg/topom/topom.go:28` 到 `pkg/topom/topom.go:78`。
 
-proxy 的内存状态包括身份认证 token、`models.Proxy`、两个 listener、router、HA sentinel monitor 和可选 Jodis 注册器，见 `pkg/proxy/proxy.go:29` 到 `pkg/proxy/proxy.go:54`。router 持有 1024 个 slot、主从后端连接池和 online/closed 状态，见 `pkg/proxy/router.go:18` 到 `pkg/proxy/router.go:30`。
+proxy 的内存状态包括身份认证 token、`models.Proxy`、两个 listener、router、HA sentinel monitor、可选 Jodis 注册器和活动 session registry，见 `pkg/proxy/proxy.go:29` 到 `pkg/proxy/proxy.go:54` 以及 `pkg/proxy/client_list.go:18` 到 `pkg/proxy/client_list.go:55`。router 持有 1024 个 slot、主从后端连接池和 online/closed 状态，见 `pkg/proxy/router.go:18` 到 `pkg/proxy/router.go:30`。session registry 以进程内递增 id 索引活动 `Session`，是 `SessionsAlive()` 和 `CLIENT LIST` 的当前活动连接权威来源；`stats.go` 中的 `sessions.total` 只表示累计连接数，见 `pkg/proxy/stats.go:169` 到 `pkg/proxy/stats.go:183`。
 
 后端 Redis 数据本身不进入 coordinator；coordinator 只保存拓扑和动作状态。Codis Server 基于嵌入式 Redis 源码构建，并增加 slot 查询、slot 删除和迁移相关命令，说明见 `doc/redis_change_zh.md:1` 到 `doc/redis_change_zh.md:17` 以及 `doc/redis_change_zh.md:84` 到 `doc/redis_change_zh.md:103`。
 
@@ -77,6 +77,7 @@ proxy 的内存状态包括身份认证 token、`models.Proxy`、两个 listener
 - `cmd/proxy/main.go:main` — proxy 进程入口、配置解析、上线方式选择。
 - `pkg/proxy.Proxy` — proxy 运行态对象，持有 listener、router、HA、Jodis 和 metrics。
 - `pkg/proxy.Session` — 客户端连接生命周期、Redis 命令解析、pipeline 读写。
+- `pkg/proxy/client_list.go` — `CLIENT LIST` 的本地命令处理、session registry、活动连接快照和 Redis `key=value` 输出格式。
 - `pkg/proxy.Router` — slot 到后端连接的路由表和 master/replica 选择。
 - `pkg/proxy.forwardSync` / `forwardSemiAsync` — slot 迁移期间的请求转发策略。
 - `cmd/dashboard/main.go:main` — dashboard 进程入口、coordinator client 创建、topom 启动。
@@ -100,7 +101,7 @@ proxy 的内存状态包括身份认证 token、`models.Proxy`、两个 listener
 - 当前仓库已建立 Go modules 编译闭环：默认 cmd/pkg module mode 可编译测试，`cgo_jemalloc` proxy 也可通过 `third_party/jemalloc-go` 的本地 replace 模块在 module mode 下构建；`Makefile` 已完成 module mode 切换（`make gotest`、`make build-all` 均不再依赖 GOPATH/vendor 参数）；旧 `vendor/` / `Godeps/` 已退休。
 - `go.mod` 使用当前本地工具链版本 `go 1.26.1`；Go modules 构建迁移全部完成，编译契约和注意事项已落档入 `CLAUDE.md` 和 `.codestable/attention.md`。
 - 对同一个业务集群，现有文档要求同一时刻最多一个 dashboard，且所有集群修改都经由 dashboard 完成，见 `doc/tutorial_zh.md:43` 到 `doc/tutorial_zh.md:46`。
-- proxy 通过普通 Redis 协议面向客户端，但并不支持所有 Redis 命令；现有 README 明确提到 unsupported command list，见 `README.md:23` 到 `README.md:26`。
+- proxy 通过普通 Redis 协议面向客户端，但并不支持所有 Redis 命令；现有 README 明确提到 unsupported command list，见 `README.md:23` 到 `README.md:26`。`CLIENT` 命令族只支持 `CLIENT LIST`，且语义限定为当前 proxy 实例的活动客户端连接快照；它不聚合多个 proxy，不下探后端 Redis，不承诺 Redis 8.6.3 的全字段 parity，其余 `CLIENT` 子命令仍不支持，见 `doc/unsupported_cmds.md:37` 和 `pkg/proxy/client_list.go:155` 到 `pkg/proxy/client_list.go:239`。
 - slot 数固定为 1024，改变该常量会影响模型、路由、迁移和外部元数据兼容性，见 `pkg/models/slots.go:13`。
 - `product_name` 同时参与元数据命名空间、proxy/dashboard 鉴权和运行期路由隔离，格式校验在 `pkg/models/store.go:258` 到 `pkg/models/store.go:263`。
 - `Makefile` 的组件构建会刷新 `config/dashboard.toml`、`config/proxy.toml`、`config/redis.conf`、`config/sentinel.conf`，见 `Makefile:12` 到 `Makefile:37`。

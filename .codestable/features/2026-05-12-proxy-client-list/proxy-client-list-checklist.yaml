@@ -1,0 +1,96 @@
+feature: 2026-05-12-proxy-client-list
+created: 2026-05-13
+
+steps:
+  - action: "命令入口骨架：让 CLIENT 顶层命令进入本地分支，CLIENT LIST 先返回空 bulk string，其他子命令返回不支持错误"
+    exit_signal: "CLIENT LIST 不再触发 command 'CLIENT' is not allowed，也不会转发到 backend"
+    status: done
+  - action: "session registry：建立进程内 session id、注册/注销和快照能力"
+    exit_signal: "并发创建/关闭 session 后，registry 中活动数量与 SessionsAlive() 一致"
+    status: done
+  - action: "CLIENT LIST 语义：实现无参数、TYPE、ID 三类 Redis 8.6.3 兼容解析路径"
+    exit_signal: "正常过滤、未知 TYPE、无效 ID、错误参数数量都有确定响应"
+    status: done
+  - action: "字段格式化：按 Redis key=value 行格式输出 Codis 可证明字段子集"
+    exit_signal: "输出每行包含 id/addr/laddr/age/idle/flags/db/cmd/user 等核心字段，行尾以 \\n 分隔，值不包含空格"
+    status: done
+  - action: "文档与兼容边界：更新 unsupported command 文档，把 CLIENT 调整为仅 CLIENT LIST 支持，其余子命令不支持"
+    exit_signal: "doc/unsupported_cmds.md 不再宣称整个 CLIENT 都不可用"
+    status: done
+  - action: "验证覆盖：补齐 proxy package 单测和必要的端到端连接测试"
+    exit_signal: "目标测试覆盖命令解析、鉴权、输出格式、过滤和 registry 生命周期"
+    status: done
+
+checks:
+  - item: "CLIENT LIST 在 proxy 本地实现，不转发到后端 Redis"
+    source: 名词契约
+    status: passed
+  - item: "CLIENT LIST 返回 RESP bulk string，内容为按行分隔的 key=value 客户端信息"
+    source: 名词契约
+    status: passed
+  - item: "CLIENT LIST 只列出当前 proxy 进程的客户端连接，不跨多个 proxy 聚合"
+    source: 流程级约束
+    status: passed
+  - item: "除 CLIENT LIST 外的 CLIENT 子命令返回不支持/不允许错误，且不进入 backend router"
+    source: 范围守护
+    status: passed
+  - item: "CLIENT LIST 和 SELECT、INFO 一样受 SessionAuth 保护"
+    source: 流程级约束
+    status: passed
+  - item: "session registry snapshot 在短锁内复制快照，格式化时不持有 registry 锁"
+    source: 流程级约束
+    status: passed
+  - item: "CLIENT LIST 仍走现有 request/response pipeline 并保持请求响应顺序"
+    source: 编排骨架
+    status: passed
+  - item: "命令表挂载点允许 CLIENT 进入本地命令分支"
+    source: 挂载点
+    status: passed
+  - item: "Session.handleRequest 挂载点新增 CLIENT 本地处理分支"
+    source: 挂载点
+    status: passed
+  - item: "session lifecycle 挂载点注册/注销活动连接集合"
+    source: 挂载点
+    status: passed
+  - item: "已认证连接执行 CLIENT LIST 返回至少包含当前连接一行"
+    source: 验收场景
+    status: passed
+  - item: "未认证连接在 SessionAuth 非空时执行 CLIENT LIST 返回 NOAUTH Authentication required"
+    source: 验收场景
+    status: passed
+  - item: "CLIENT LIST TYPE normal 返回当前 proxy 普通客户端连接列表"
+    source: 验收场景
+    status: passed
+  - item: "CLIENT LIST TYPE replica、master 或 pubsub 返回空 bulk string"
+    source: 验收场景
+    status: passed
+  - item: "CLIENT LIST TYPE unknown 返回 unknown client type 错误"
+    source: 验收场景
+    status: passed
+  - item: "CLIENT LIST ID existing-id 只返回该 id 对应连接"
+    source: 验收场景
+    status: passed
+  - item: "CLIENT LIST ID not-number 返回 invalid client ID 错误"
+    source: 验收场景
+    status: passed
+  - item: "CLIENT KILL 或 CLIENT SETNAME 返回不支持/不允许错误，不转发到 backend"
+    source: 验收场景
+    status: passed
+  - item: "大量连接并发建立、关闭，同时执行 CLIENT LIST 不 panic、不 data race"
+    source: 验收场景
+    status: passed
+  - item: "Diff 不出现 dashboard/topom 聚合所有 proxy 连接的 API"
+    source: 范围守护
+    status: passed
+  - item: "Diff 不出现向 backend Redis 发送 CLIENT LIST 的调用"
+    source: 范围守护
+    status: passed
+  - item: "Diff 不实现 CLIENT KILL、CLIENT SETNAME、CLIENT INFO、CLIENT ID 等其他子命令的成功路径"
+    source: 范围守护
+    status: passed
+  - item: "Diff 不引入 RESP3 encoder 类型或改变现有 RESP2 encoder 公共行为"
+    source: 范围守护
+    status: passed
+  - item: "输出不包含需要虚假填充的 Redis 8.x 字段"
+    source: 范围守护
+    status: passed

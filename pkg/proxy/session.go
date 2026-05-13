@@ -19,12 +19,16 @@ import (
 )
 
 type Session struct {
+	Id   int64
 	Conn *redis.Conn
+
+	mu sync.RWMutex
 
 	Ops int64
 
 	CreateUnix int64
 	LastOpUnix int64
+	lastOpStr  string
 
 	database int32
 
@@ -49,13 +53,17 @@ type Session struct {
 }
 
 func (s *Session) String() string {
+	s.mu.RLock()
+	ops, lastop := s.Ops, s.LastOpUnix
+	s.mu.RUnlock()
+
 	o := &struct {
 		Ops        int64  `json:"ops"`
 		CreateUnix int64  `json:"create"`
 		LastOpUnix int64  `json:"lastop,omitempty"`
 		RemoteAddr string `json:"remote"`
 	}{
-		s.Ops, s.CreateUnix, s.LastOpUnix,
+		ops, s.CreateUnix, lastop,
 		s.Conn.RemoteAddr(),
 	}
 	b, _ := json.Marshal(o)
@@ -72,6 +80,7 @@ func NewSession(sock net.Conn, config *Config) *Session {
 	c.SetKeepAlivePeriod(config.SessionKeepAlivePeriod.Duration())
 
 	s := &Session{
+		Id:   clientSessions.nextID(),
 		Conn: c, config: config,
 		CreateUnix: time.Now().Unix(),
 	}
@@ -113,33 +122,34 @@ var RespOK = redis.NewString([]byte("OK"))
 
 func (s *Session) Start(d *Router) {
 	s.start.Do(func() {
-		if int(incrSessions()) > s.config.ProxyMaxClients {
+		incrSessions()
+
+		if !clientSessions.register(s, s.config.ProxyMaxClients) {
 			go func() {
 				s.Conn.Encode(redis.NewErrorf("ERR max number of clients reached"), true)
 				s.CloseWithError(ErrTooManySessions)
 				s.incrOpFails(nil, nil)
 				s.flushOpStats(true)
 			}()
-			decrSessions()
 			return
 		}
 
 		if !d.isOnline() {
+			clientSessions.unregister(s)
 			go func() {
 				s.Conn.Encode(redis.NewErrorf("ERR router is not online"), true)
 				s.CloseWithError(ErrRouterNotOnline)
 				s.incrOpFails(nil, nil)
 				s.flushOpStats(true)
 			}()
-			decrSessions()
 			return
 		}
 
 		tasks := NewRequestChanBuffer(1024)
 
 		go func() {
+			defer clientSessions.unregister(s)
 			s.loopWriter(tasks)
-			decrSessions()
 		}()
 
 		go func() {
@@ -174,13 +184,12 @@ func (s *Session) loopReader(tasks *RequestChan, d *Router) (err error) {
 		}
 
 		start := time.Now()
-		s.LastOpUnix = start.Unix()
-		s.Ops++
+		s.recordOperationStart(start)
 
 		r := &Request{}
 		r.Multi = multi
 		r.Batch = &sync.WaitGroup{}
-		r.Database = s.database
+		r.Database = s.getDatabase()
 		r.UnixNano = start.UnixNano()
 
 		if err := s.handleRequest(r, d); err != nil {
@@ -262,6 +271,7 @@ func (s *Session) handleRequest(r *Request, d *Router) error {
 	r.OpStr = opstr
 	r.OpFlag = flag
 	r.Broken = &s.broken
+	s.setLastOpStr(opstr)
 
 	if flag.IsNotAllowed() {
 		return fmt.Errorf("command '%s' is not allowed", opstr)
@@ -274,12 +284,12 @@ func (s *Session) handleRequest(r *Request, d *Router) error {
 		return s.handleAuth(r)
 	}
 
-	if !s.authorized {
+	if !s.isAuthorized() {
 		if s.config.SessionAuth != "" {
 			r.Resp = redis.NewErrorf("NOAUTH Authentication required")
 			return nil
 		}
-		s.authorized = true
+		s.setAuthorized(true)
 	}
 
 	switch opstr {
@@ -289,6 +299,8 @@ func (s *Session) handleRequest(r *Request, d *Router) error {
 		return s.handleRequestPing(r, d)
 	case "INFO":
 		return s.handleRequestInfo(r, d)
+	case "CLIENT":
+		return clientSessions.handleRequestClient(s, r)
 	case "MGET":
 		return s.handleRequestMGet(r, d)
 	case "MSET":
@@ -323,10 +335,10 @@ func (s *Session) handleAuth(r *Request) error {
 	case s.config.SessionAuth == "":
 		r.Resp = redis.NewErrorf("ERR Client sent AUTH, but no password is set")
 	case s.config.SessionAuth != string(r.Multi[1].Value):
-		s.authorized = false
+		s.setAuthorized(false)
 		r.Resp = redis.NewErrorf("ERR invalid password")
 	default:
-		s.authorized = true
+		s.setAuthorized(true)
 		r.Resp = RespOK
 	}
 	return nil
@@ -344,7 +356,7 @@ func (s *Session) handleSelect(r *Request) error {
 		r.Resp = redis.NewErrorf("ERR invalid DB index, only accept DB [0,%d)", s.config.BackendNumberDatabases)
 	default:
 		r.Resp = RespOK
-		s.database = int32(db)
+		s.setDatabase(int32(db))
 	}
 	return nil
 }
@@ -635,6 +647,43 @@ func (s *Session) handleRequestSlotsMapping(r *Request, d *Router) error {
 
 func (s *Session) incrOpTotal() {
 	s.stats.total.Incr()
+}
+
+func (s *Session) recordOperationStart(start time.Time) {
+	s.mu.Lock()
+	s.LastOpUnix = start.Unix()
+	s.Ops++
+	s.mu.Unlock()
+}
+
+func (s *Session) setLastOpStr(opstr string) {
+	s.mu.Lock()
+	s.lastOpStr = opstr
+	s.mu.Unlock()
+}
+
+func (s *Session) getDatabase() int32 {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.database
+}
+
+func (s *Session) setDatabase(database int32) {
+	s.mu.Lock()
+	s.database = database
+	s.mu.Unlock()
+}
+
+func (s *Session) isAuthorized() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.authorized
+}
+
+func (s *Session) setAuthorized(authorized bool) {
+	s.mu.Lock()
+	s.authorized = authorized
+	s.mu.Unlock()
 }
 
 func (s *Session) getOpStats(opstr string) *opStats {
