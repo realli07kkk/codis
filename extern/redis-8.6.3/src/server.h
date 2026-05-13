@@ -3710,6 +3710,9 @@ static inline unsigned int codisHashSlot(const char *key, size_t keylen) {
 }
 void slotshashkeyCommand(client *c);
 void slotsinfoCommand(client *c);
+void slotsscanCommand(client *c);
+void slotsdelCommand(client *c);
+void slotscheckCommand(client *c);
 zskiplist *codisTagIndexCreate(void);
 void codisTagIndexFree(zskiplist *index);
 void codisTagIndexReset(redisDb *db);

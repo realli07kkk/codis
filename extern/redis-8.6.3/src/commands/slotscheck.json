@@ -1,0 +1,21 @@
+{
+    "SLOTSCHECK": {
+        "summary": "Checks Codis slot keyspace consistency in the current database.",
+        "complexity": "O(N) where N is the number of keys in the current database.",
+        "group": "server",
+        "since": "3.2.0",
+        "arity": 1,
+        "function": "slotscheckCommand",
+        "command_flags": [
+            "READONLY"
+        ],
+        "acl_categories": [
+            "KEYSPACE"
+        ],
+        "reply_schema": {
+            "const": "OK",
+            "description": "OK if the Codis slot keyspace is consistent.",
+            "type": "string"
+        }
+    }
+}

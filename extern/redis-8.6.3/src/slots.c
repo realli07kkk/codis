@@ -133,11 +133,12 @@ static int parseSlotCount(client *c, robj *obj, int *count) {
     long long val;
 
     if (getLongLongFromObjectOrReply(c, obj, &val, NULL) != C_OK) return C_ERR;
-    if (val < 0 || val > CODIS_SLOTS) {
+    if (val < 0) {
         addReplyErrorFormat(c, "invalid slot count = %lld", val);
         return C_ERR;
     }
-    *count = (int)val;
+    /* Redis 3 Codis clamps overlarge SLOTSINFO count instead of returning an error. */
+    *count = val > CODIS_SLOTS ? CODIS_SLOTS : (int)val;
     return C_OK;
 }
 
@@ -151,6 +152,31 @@ static int codisSlotKeyCount(redisDb *db, int slot, unsigned long *count) {
     dict *d = codisSlotKeyDict(db, slot);
     *count = d ? dictSize(d) : 0;
     return C_OK;
+}
+
+typedef struct codisSlotScanData {
+    list *keys;
+    unsigned long sampled;
+} codisSlotScanData;
+
+static void codisSlotScanCallback(void *privdata, const dictEntry *de, dictEntryLink plink) {
+    UNUSED(plink);
+    codisSlotScanData *data = privdata;
+    kvobj *kv = dictGetKV(de);
+    listAddNodeTail(data->keys, sdsdup(kvobjGetKey(kv)));
+    data->sampled++;
+}
+
+static void codisSlotCollectKeyCallback(void *privdata, const dictEntry *de, dictEntryLink plink) {
+    UNUSED(plink);
+    list *keys = privdata;
+    kvobj *kv = dictGetKV(de);
+    sds key = kvobjGetKey(kv);
+    listAddNodeTail(keys, createStringObject(key, sdslen(key)));
+}
+
+static void codisDecrRefCountVoid(void *o) {
+    decrRefCount(o);
 }
 
 void slotshashkeyCommand(client *c) {
@@ -195,4 +221,144 @@ void slotsinfoCommand(client *c) {
         addReplyLongLong(c, i);
         addReplyLongLong(c, size);
     }
+}
+
+void slotsscanCommand(client *c) {
+    int slot;
+    unsigned long long cursor;
+    unsigned long count = 10;
+
+    if (!server.codis_enabled) {
+        addReplyError(c, "codis mode is disabled");
+        return;
+    }
+    if (c->argc != 3 && c->argc != 5) {
+        addReplyErrorFormat(c, "wrong number of arguments for '%s' command", c->cmd->fullname);
+        return;
+    }
+    if (parseSlot(c, c->argv[1], &slot) != C_OK) return;
+    if (parseScanCursorOrReply(c, c->argv[2], &cursor) == C_ERR) return;
+    if (c->argc == 5) {
+        if (strcasecmp(c->argv[3]->ptr, "count") != 0) {
+            addReplyError(c, "syntax error");
+            return;
+        }
+        long parsed_count;
+        if (getLongFromObjectOrReply(c, c->argv[4], &parsed_count, NULL) != C_OK) return;
+        if (parsed_count < 1) {
+            addReplyError(c, "syntax error");
+            return;
+        }
+        count = (unsigned long)parsed_count;
+    }
+
+    codisSlotScanData data = {
+        .keys = listCreate(),
+        .sampled = 0,
+    };
+    listSetFreeMethod(data.keys, sdsfreegeneric);
+    unsigned long maxiterations = count * 10;
+    do {
+        cursor = kvstoreScan(c->db->keys, cursor, slot, codisSlotScanCallback, NULL, &data);
+    } while (cursor != 0 && maxiterations-- && data.sampled < count);
+
+    addReplyArrayLen(c, 2);
+    addReplyBulkLongLong(c, cursor);
+    addReplyArrayLen(c, listLength(data.keys));
+    listNode *node;
+    while ((node = listFirst(data.keys)) != NULL) {
+        sds key = listNodeValue(node);
+        addReplyBulkCBuffer(c, key, sdslen(key));
+        listDelNode(data.keys, node);
+    }
+    listRelease(data.keys);
+}
+
+void slotsdelCommand(client *c) {
+    if (!server.codis_enabled) {
+        addReplyError(c, "codis mode is disabled");
+        return;
+    }
+    if (c->argc < 2) {
+        addReplyErrorFormat(c, "wrong number of arguments for '%s' command", c->cmd->fullname);
+        return;
+    }
+
+    int nslots = c->argc - 1;
+    int *slots = zmalloc(sizeof(int) * nslots);
+    for (int i = 0; i < nslots; i++) {
+        if (parseSlot(c, c->argv[i + 1], &slots[i]) != C_OK) {
+            zfree(slots);
+            return;
+        }
+    }
+
+    for (int i = 0; i < nslots; i++) {
+        unsigned long long cursor = 0;
+        /* Keep the scan callback read-only: collect key object copies for each batch,
+         * then delete outside dictScan/kvstoreScan before advancing the cursor. */
+        do {
+            list *keys = listCreate();
+            listSetFreeMethod(keys, codisDecrRefCountVoid);
+            cursor = kvstoreScan(c->db->keys, cursor, slots[i], codisSlotCollectKeyCallback, NULL, keys);
+            listNode *node;
+            while ((node = listFirst(keys)) != NULL) {
+                robj *key = listNodeValue(node);
+                if (dbSyncDelete(c->db, key)) {
+                    keyModified(c, c->db, key, NULL, 1);
+                    server.dirty++;
+                }
+                listDelNode(keys, node);
+            }
+            listRelease(keys);
+        } while (cursor != 0);
+    }
+
+    addReplyArrayLen(c, nslots);
+    for (int i = 0; i < nslots; i++) {
+        unsigned long size = 0;
+        if (codisSlotKeyCount(c->db, slots[i], &size) != C_OK) size = 0;
+        addReplyArrayLen(c, 2);
+        addReplyLongLong(c, slots[i]);
+        addReplyLongLong(c, size);
+    }
+    zfree(slots);
+}
+
+void slotscheckCommand(client *c) {
+    if (!server.codis_enabled) {
+        addReplyError(c, "codis mode is disabled");
+        return;
+    }
+    if (c->argc != 1) {
+        addReplyErrorFormat(c, "wrong number of arguments for '%s' command", c->cmd->fullname);
+        return;
+    }
+
+    dictEntry *de;
+    kvstoreIterator it;
+    kvstoreIteratorInit(&it, c->db->keys);
+    while ((de = kvstoreIteratorNext(&it)) != NULL) {
+        int slot = kvstoreIteratorGetCurrentDictIndex(&it);
+        kvobj *kv = dictGetKV(de);
+        sds key = kvobjGetKey(kv);
+        codisHashInfo info = codisHashInfoForKey(key, sdslen(key));
+        if (slot != (int)info.slot) {
+            kvstoreIteratorReset(&it);
+            sds keyrepr = sdscatrepr(sdsempty(), key, sdslen(key));
+            addReplyErrorFormat(c, "codis slot keyspace mismatch: key %s is in slot %d, expected %u",
+                                keyrepr, slot, info.slot);
+            sdsfree(keyrepr);
+            return;
+        }
+    }
+    kvstoreIteratorReset(&it);
+
+    sds err = NULL;
+    if (codisTagIndexAssert(c->db, &err) != C_OK) {
+        addReplyErrorFormat(c, "codis tag index check failed: %s", err ? err : "unknown error");
+        sdsfree(err);
+        return;
+    }
+    addReply(c, shared.ok);
 }

@@ -1,0 +1,54 @@
+{
+    "SLOTSSCAN": {
+        "summary": "Iterates over key names in a Codis slot in the current database.",
+        "complexity": "O(1) for every call. O(N) for a complete iteration of the slot.",
+        "group": "server",
+        "since": "3.2.0",
+        "arity": -3,
+        "function": "slotsscanCommand",
+        "command_flags": [
+            "READONLY"
+        ],
+        "acl_categories": [
+            "KEYSPACE"
+        ],
+        "command_tips": [
+            "NONDETERMINISTIC_OUTPUT"
+        ],
+        "reply_schema": {
+            "description": "cursor and slot scan response in array form",
+            "type": "array",
+            "minItems": 2,
+            "maxItems": 2,
+            "items": [
+                {
+                    "description": "cursor",
+                    "type": "string"
+                },
+                {
+                    "description": "list of keys",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            ]
+        },
+        "arguments": [
+            {
+                "name": "slot",
+                "type": "integer"
+            },
+            {
+                "name": "cursor",
+                "type": "integer"
+            },
+            {
+                "token": "COUNT",
+                "name": "count",
+                "type": "integer",
+                "optional": true
+            }
+        ]
+    }
+}

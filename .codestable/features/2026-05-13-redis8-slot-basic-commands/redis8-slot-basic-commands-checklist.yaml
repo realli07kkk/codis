@@ -1,0 +1,172 @@
+feature: 2026-05-13-redis8-slot-basic-commands
+created: 2026-05-13
+
+steps:
+  - action: "命令注册骨架：补齐新增基础 slot 命令的 command JSON、命令表生成产物和函数声明，命令体先返回明确占位错误"
+    exit_signal: "make codis-server-redis8 能编译，COMMAND INFO 可发现 SLOTSSCAN/SLOTSDEL/SLOTSCHECK"
+    status: done
+
+  - action: "read-only 命令收口：校正 SLOTSHASHKEY/SLOTSINFO 边界，并实现 SLOTSSCAN 的 slot、cursor、COUNT 解析和 per-slot scan"
+    exit_signal: "hash/tag、SLOTSINFO 范围截断、SLOTSSCAN 空 slot/非空 slot/COUNT 用例通过"
+    status: done
+
+  - action: "write 命令删除路径：实现 SLOTSDEL 的全量参数预校验、slot key 快照收集、正常删除路径调用和剩余 count 返回"
+    exit_signal: "单 slot、多 slot、重复 slot、跨 DB 删除场景通过，删除后 tag assert 仍为 OK"
+    status: done
+
+  - action: "一致性检查命令：实现 SLOTSCHECK 的 per-slot hash 校验和 tag index 校验"
+    exit_signal: "正常 keyspace 返回 OK；codis mode disabled、错误 arity 和可构造的内部不一致场景返回 Redis error reply"
+    status: done
+
+  - action: "Tcl 覆盖与协议回归：扩展 tests/unit/codis.tcl，覆盖正常、边界、错误和当前 DB 语义"
+    exit_signal: "./runtest --single unit/codis 通过，返回结构与 Redis 3 Codis 文档一致"
+    status: done
+
+  - action: "范围守护与构建回归：运行构建并 grep 禁止项"
+    exit_signal: "make codis-server-redis8 通过；diff 不包含 hash_slots、迁移命令、Go 代码、Redis Cluster 协议行为或默认构建切换"
+    status: done
+
+checks:
+  - item: "基础 slot 命令集限定为 SLOTSHASHKEY、SLOTSINFO、SLOTSSCAN、SLOTSDEL、SLOTSCHECK"
+    source: 名词契约
+    status: passed
+
+  - item: "slot keyspace 只以 Redis 8 1024-slot kvstore 为权威来源"
+    source: 名词契约
+    status: passed
+
+  - item: "SLOTSSCAN 使用 per-slot scan，返回 [cursor, [key...]]，不做全 DB scan 后过滤"
+    source: 名词契约
+    status: passed
+
+  - item: "SLOTSDEL 通过 Redis 8 正常删除路径触发 tag index、dirty 和 key modified 副作用"
+    source: 名词契约
+    status: passed
+
+  - item: "SLOTSCHECK 校验 key 所在 kvstore dict 与 Codis hash slot 一致，并复用 tag index assert"
+    source: 名词契约
+    status: passed
+
+  - item: "命令入口统一处理 arity、codis mode、slot、cursor、count 错误语义"
+    source: 编排骨架
+    status: passed
+
+  - item: "SLOTSDEL 在执行删除前完成所有 slot 参数预校验"
+    source: 流程级约束
+    status: passed
+
+  - item: "所有 keyspace 命令只作用于当前 DB，SELECT 后不跨 DB"
+    source: 流程级约束
+    status: passed
+
+  - item: "SLOTSSCAN 单次 scan 受 COUNT 采样约束，SLOTSDEL/SLOTSCHECK 不标记为 fast path"
+    source: 流程级约束
+    status: passed
+
+  - item: "Redis command registry 新增 SLOTSSCAN"
+    source: 挂载点
+    status: passed
+
+  - item: "Redis command registry 新增 SLOTSDEL"
+    source: 挂载点
+    status: passed
+
+  - item: "Redis command registry 新增 SLOTSCHECK"
+    source: 挂载点
+    status: passed
+
+  - item: "SLOTSHASHKEY/SLOTSINFO metadata 保持基础命令可发现且协议兼容"
+    source: 挂载点
+    status: passed
+
+  - item: "Diff 不新增 hash_slots、hashSlotType 或 dictCreate(&hashSlotType...)"
+    source: 范围守护
+    status: passed
+
+  - item: "Diff 不注册 SLOTSMGRT*、SLOTSRESTORE* 或 SLOTSRESTORE-ASYNC* 命令"
+    source: 范围守护
+    status: passed
+
+  - item: "Diff 不修改 Go pkg/ 或 cmd/ 代码"
+    source: 范围守护
+    status: passed
+
+  - item: "Diff 不切换默认 make/codis-server 到 Redis 8"
+    source: 范围守护
+    status: passed
+
+  - item: "Diff 不修改 Redis Cluster keyHashSlot() 的 CRC16/16384 语义"
+    source: 范围守护
+    status: passed
+
+  - item: "SLOTSSCAN 不接受 MATCH/TYPE 作为有效选项"
+    source: 范围守护
+    status: passed
+
+  - item: "make codis-server-redis8 通过"
+    source: 验收场景
+    status: passed
+
+  - item: "./runtest --single unit/codis 通过"
+    source: 验收场景
+    status: passed
+
+  - item: "SLOTSHASHKEY alpha、tagged key、空 tag 的结果保持 {362 899 899 0}"
+    source: 验收场景
+    status: passed
+
+  - item: "SLOTSHASHKEY 不带 key 返回空 array"
+    source: 验收场景
+    status: passed
+
+  - item: "SLOTSINFO 返回 [[slot, count]]，超大 count 被截断而不是报错"
+    source: 验收场景
+    status: passed
+
+  - item: "SLOTSINFO/SLOTSSCAN 在 SELECT 后只观察当前 DB"
+    source: 验收场景
+    status: passed
+
+  - item: "SLOTSSCAN 循环到 cursor 0 后收集到的 key 全部 hash 到指定 slot"
+    source: 验收场景
+    status: passed
+
+  - item: "SLOTSSCAN 空 slot 返回 cursor 0 和空 key array"
+    source: 验收场景
+    status: passed
+
+  - item: "SLOTSSCAN 对越界 slot、非法 cursor、COUNT 0、MATCH 返回 Redis error reply"
+    source: 验收场景
+    status: passed
+
+  - item: "SLOTSDEL 多 slot 删除返回每个输入 slot 的剩余 count，并保留其他 slot key"
+    source: 验收场景
+    status: passed
+
+  - item: "SLOTSDEL 重复 slot 返回重复结果且不报错"
+    source: 验收场景
+    status: passed
+
+  - item: "SLOTSDEL 在 DB1 删除不影响 DB0 同 slot key"
+    source: 验收场景
+    status: passed
+
+  - item: "SLOTSDEL 后 SLOTSCHECK 和 DEBUG CODIS-TAGINDEX-ASSERT 均返回 OK"
+    source: 验收场景
+    status: passed
+
+  - item: "正常 keyspace 下 SLOTSCHECK 返回 OK"
+    source: 验收场景
+    status: passed
+
+  - item: "非 Codis mode 下 SLOTSINFO/SLOTSSCAN/SLOTSDEL/SLOTSCHECK 返回 codis mode disabled 类错误"
+    source: 验收场景
+    status: passed
+
+  - item: "非 Codis mode 下 SLOTSHASHKEY 仍可做纯 hash 计算"
+    source: 验收场景
+    status: passed
+
+  - item: "COMMAND INFO SLOTSSCAN SLOTSDEL SLOTSCHECK 可发现三条命令，且 SLOTSDEL 是 write 命令"
+    source: 验收场景
+    status: passed

@@ -281,9 +281,9 @@ SLOTSRESTORE-ASYNC-AUTH2 username password  # 如 Redis 8 ACL 需要
 4. **redis8-slot-basic-commands** — 移植 `SLOTSHASHKEY`、`SLOTSINFO`、`SLOTSSCAN`、`SLOTSDEL`、`SLOTSCHECK` 并逐条补 Tcl 测试。
    - 所属模块：slot-keyspace-core
    - 依赖：`redis8-slot-index-and-tag-index-core`
-   - 状态：planned
-   - 对应 feature：未启动
-   - 备注：返回格式必须兼容现有 Go proxy/topom parser。
+   - 状态：done
+   - 对应 feature：2026-05-13-redis8-slot-basic-commands
+   - 备注：已补齐 Redis 8 Codis mode 基础 slot 命令与 Tcl 回归，返回格式保持现有 Go proxy/topom parser 兼容。
 
 5. **redis8-sync-migration-and-rdb-fragments** — 移植同步迁移命令和 `SLOTSRESTORE`，验证 Redis 8 RDB fragment 与灰度跨版本迁移边界。
    - 所属模块：migration-protocol

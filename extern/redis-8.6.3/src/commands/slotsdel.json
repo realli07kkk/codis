@@ -1,0 +1,43 @@
+{
+    "SLOTSDEL": {
+        "summary": "Deletes all keys in one or more Codis slots in the current database.",
+        "complexity": "O(N) where N is the number of keys in the requested slots.",
+        "group": "server",
+        "since": "3.2.0",
+        "arity": -2,
+        "function": "slotsdelCommand",
+        "command_flags": [
+            "WRITE"
+        ],
+        "acl_categories": [
+            "KEYSPACE"
+        ],
+        "reply_schema": {
+            "type": "array",
+            "description": "Codis slot entries after deletion.",
+            "items": {
+                "type": "array",
+                "minItems": 2,
+                "maxItems": 2,
+                "items": [
+                    {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 1023
+                    },
+                    {
+                        "type": "integer",
+                        "minimum": 0
+                    }
+                ]
+            }
+        },
+        "arguments": [
+            {
+                "name": "slot",
+                "type": "integer",
+                "multiple": true
+            }
+        ]
+    }
+}
