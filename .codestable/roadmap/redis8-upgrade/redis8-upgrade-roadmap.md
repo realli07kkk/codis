@@ -274,9 +274,9 @@ SLOTSRESTORE-ASYNC-AUTH2 username password  # 如 Redis 8 ACL 需要
 3. **redis8-slot-index-and-tag-index-core** — 基于 Redis 8 `kvstore` 主存储实现 Codis slot keyspace 能力，并补齐 `codis_tagged_keys` 生命周期维护。
    - 所属模块：slot-keyspace-core
    - 依赖：`redis8-codis-mode-foundation`
-   - 状态：planned
-   - 对应 feature：未启动
-   - 备注：覆盖 `db.c`、`expire.c`、`evict.c`、RDB load 后 tag index rebuild。
+   - 状态：done
+   - 对应 feature：2026-05-13-redis8-slot-index-and-tag-index-core
+   - 备注：已基于 Redis 8 `kvstore` 收口 slot keyspace helper，并补齐 `codis_tagged_keys` 的 DB 生命周期、key add/delete、flush/lazyfree、RDB load 和 replica full sync rebuild 覆盖。
 
 4. **redis8-slot-basic-commands** — 移植 `SLOTSHASHKEY`、`SLOTSINFO`、`SLOTSSCAN`、`SLOTSDEL`、`SLOTSCHECK` 并逐条补 Tcl 测试。
    - 所属模块：slot-keyspace-core

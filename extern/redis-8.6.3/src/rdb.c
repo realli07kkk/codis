@@ -4042,6 +4042,11 @@ int rdbLoadRioWithLoadingCtx(rio *rdb, int rdbflags, rdbSaveInfo *rsi, rdbLoadin
         }
     }
 
+    if (server.codis_enabled) {
+        for (int j = 0; j < server.dbnum; j++)
+            codisTagIndexRebuild(rdb_loading_ctx->dbarray+j);
+    }
+
     if (empty_keys_skipped) {
         serverLog(LL_NOTICE,
             "Done loading RDB, keys loaded: %lld, keys expired: %lld, empty keys skipped: %lld.",

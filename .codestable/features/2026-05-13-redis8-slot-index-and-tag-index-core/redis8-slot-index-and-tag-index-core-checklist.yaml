@@ -1,0 +1,120 @@
+feature: 2026-05-13-redis8-slot-index-and-tag-index-core
+created: 2026-05-13
+
+steps:
+  - action: "tag/hash helper：补齐返回 slot、完整 CRC32、has_tag 的 Codis hash 信息接口"
+    exit_signal: "SLOTSHASHKEY 结果不变，空 tag 和普通 key 的 helper 结果符合 foundation 测试"
+    status: done
+
+  - action: "tag index 状态管理：在 DB init、temp DB、empty、swap、lazyfree 路径接入 codis_tagged_keys 创建、清空、交换和释放"
+    exit_signal: "Codis mode 下空 DB、FLUSHDB、FLUSHALL、async flush 后 DEBUG tag assert 均为 OK"
+    status: done
+
+  - action: "运行期 key 生命周期 hook：在新增和删除主路径维护 tag index，并确认 overwrite 同名 key 不产生重复节点"
+    exit_signal: "SET、DEL、UNLINK、RENAME、MOVE、COPY、overwrite、expire、evict 后 tag assert 均为 OK"
+    status: done
+
+  - action: "full-load rebuild：RDB load 和 replica full sync temp DB 载入完成后从 kvstore 重建 tag index"
+    exit_signal: "DEBUG RELOAD 或等价 RDB reload 后，tag assert 对带 tag 和不带 tag key 都通过"
+    status: done
+
+  - action: "slot keyspace helper 收口：把 SLOTSINFO 和后续命令需要的 per-slot count/dict 访问沉到 helper"
+    exit_signal: "SLOTSINFO 现有 Tcl 场景全部通过，diff 中没有新增 hash_slots"
+    status: done
+
+  - action: "Tcl 覆盖与范围回归：扩展 tests/unit/codis.tcl 覆盖 tag index 正常、边界、错误和 full-load 场景"
+    exit_signal: "./runtest --single unit/codis 通过，且测试不依赖后续 SLOTSSCAN/SLOTSDEL/SLOTSCHECK"
+    status: done
+
+  - action: "构建与反向核对：运行 Redis 8 构建，grep 范围守护项"
+    exit_signal: "make codis-server-redis8 通过，diff 不包含 Go 代码、默认构建切换、Redis Cluster 协议行为或 Redis 3 hash_slots 平行索引"
+    status: done
+
+checks:
+  - item: "Codis slot keyspace 继续只以 Redis 8 kvstore 为 slot index"
+    source: 名词契约
+    status: passed
+
+  - item: "Codis tag hash helper 返回 slot、完整 CRC32、has_tag，且空 tag {} 视为 tagged key"
+    source: 名词契约
+    status: passed
+
+  - item: "redisDb.codis_tagged_keys 仅在 Codis mode 下维护，节点按完整 CRC32 分组"
+    source: 名词契约
+    status: passed
+
+  - item: "tag index helper 封装 skiplist 内存所有权，生命周期调用点不直接操作 skiplist"
+    source: 名词契约
+    status: passed
+
+  - item: "RDB load 和 replica full sync 后从 kvstore full-load rebuild tag index"
+    source: 编排骨架
+    status: passed
+
+  - item: "新增、删除、rename、move、copy、expire、evict、flush 后 tag index 与 kvstore 一致"
+    source: 流程级约束
+    status: passed
+
+  - item: "DEBUG CODIS-TAGINDEX-ASSERT 只作为测试可观测点，不属于 Codis 业务命令协议"
+    source: 流程级约束
+    status: passed
+
+  - item: "本 feature 不引入新的对外业务挂入点"
+    source: 挂载点
+    status: passed
+
+  - item: "Diff 不新增 hash_slots 字段、数组或 dictCreate(&hashSlotType...) 路径"
+    source: 范围守护
+    status: passed
+
+  - item: "Diff 不注册 SLOTSSCAN、SLOTSDEL、SLOTSCHECK、SLOTSMGRT*、SLOTSRESTORE* 业务命令"
+    source: 范围守护
+    status: passed
+
+  - item: "Diff 不修改 Go pkg/ 或 cmd/ 代码，不切换默认 codis-server 构建目标"
+    source: 范围守护
+    status: passed
+
+  - item: "Diff 不修改 Redis Cluster keyHashSlot() 的 CRC16/16384 语义"
+    source: 范围守护
+    status: passed
+
+  - item: "Diff 不把 tag index 写入 RDB/AOF 持久化格式"
+    source: 范围守护
+    status: passed
+
+  - item: "make codis-server-redis8 通过"
+    source: 验收场景
+    status: passed
+
+  - item: "./runtest --single unit/codis 通过"
+    source: 验收场景
+    status: passed
+
+  - item: "SET tagged/untagged key 后 DEBUG CODIS-TAGINDEX-ASSERT 返回 OK"
+    source: 验收场景
+    status: passed
+
+  - item: "同一个 tagged key 多次 overwrite 后 tag index 不出现重复节点"
+    source: 验收场景
+    status: passed
+
+  - item: "DEL、UNLINK、expire、evict 后 deleted tagged key 不残留在 tag index"
+    source: 验收场景
+    status: passed
+
+  - item: "RENAME、MOVE、COPY REPLACE 后源/目标 DB tag index 都和各自 kvstore 一致"
+    source: 验收场景
+    status: passed
+
+  - item: "FLUSHDB、FLUSHALL、lazy user flush 后 tag index 被重置且可继续接收新 tagged key"
+    source: 验收场景
+    status: passed
+
+  - item: "DEBUG RELOAD 或等价 RDB reload 后 tag index 由 kvstore 重建并通过 assert"
+    source: 验收场景
+    status: passed
+
+  - item: "SLOTSINFO 返回格式保持上一阶段一致，只反映当前 DB 的 slot key count"
+    source: 验收场景
+    status: passed

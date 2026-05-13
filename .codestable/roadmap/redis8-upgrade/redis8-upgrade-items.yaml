@@ -19,8 +19,8 @@ items:
   - slug: redis8-slot-index-and-tag-index-core
     description: 基于 Redis 8 kvstore 主存储实现 Codis slot keyspace 能力，并补齐 codis_tagged_keys 生命周期维护
     depends_on: [redis8-codis-mode-foundation]
-    status: planned
-    feature: null
+    status: done
+    feature: 2026-05-13-redis8-slot-index-and-tag-index-core
     minimal_loop: false
     notes: "不再维护 Redis 3 的 hash_slots 平行索引；覆盖 db.c、expire.c、evict.c、RDB load 后 tag index rebuild。"
   - slug: redis8-slot-basic-commands

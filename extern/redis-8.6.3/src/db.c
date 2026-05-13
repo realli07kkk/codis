@@ -418,6 +418,7 @@ kvobj *dbAddInternal(redisDb *db, robj *key, robj **valref, dictEntryLink *link,
     kvobj *kv = kvobjSet(key->ptr, val, keymeta->metabits);
     initObjectLRUOrLFU(kv);
     kvstoreDictSetAtLink(db->keys, slot, kv, link, 1);
+    codisTagIndexAdd(db, key->ptr);
     
     /* Handle metadata (expiration and modules metadata) */
     if (keymeta->metabits) {
@@ -851,6 +852,7 @@ int dbGenericDelete(redisDb *db, robj *key, int async, int flags) {
 
         int64_t oldlen = (int64_t) getObjectLength(kv);
         int type = kv->type;
+        codisTagIndexDelete(db, key->ptr);
 
         /* If hash object with expiry on fields, remove it from HFE DS of DB */
         if (type == OBJ_HASH)
@@ -997,6 +999,7 @@ long long emptyDbStructure(redisDb *dbarray, int dbnum, int async,
             /* Destroy sub-expires before deleting the kv-objects since ebuckets
              * data structure is embedded in the stored kv-objects. */
             estoreEmpty(dbarray[j].subexpires);
+            codisTagIndexReset(&dbarray[j]);
             kvstoreEmpty(dbarray[j].keys, callback);
             kvstoreEmpty(dbarray[j].expires, callback);
             dictEmpty(dbarray[j].stream_idmp_keys, callback);
@@ -1086,6 +1089,7 @@ redisDb *initTempDb(void) {
         tempDb[i].expires = kvstoreCreate(&kvstoreBaseType, &dbExpiresDictType,
                                           slot_count_bits, flags);
         tempDb[i].subexpires = estoreCreate(&subexpiresBucketsType, slot_count_bits);
+        tempDb[i].codis_tagged_keys = codisTagIndexCreate();
         tempDb[i].stream_idmp_keys = dictCreate(&objectKeyPointerValueDictType);
     }
 
@@ -1102,6 +1106,7 @@ void discardTempDb(redisDb *tempDb) {
         /* Destroy sub-expires before deleting the kv-objects since ebuckets
          * data structure is embedded in the stored kv-objects. */
         estoreRelease(tempDb[i].subexpires);
+        codisTagIndexFree(tempDb[i].codis_tagged_keys);
         kvstoreRelease(tempDb[i].keys);
         kvstoreRelease(tempDb[i].expires);
         dictRelease(tempDb[i].stream_idmp_keys);
@@ -2546,6 +2551,7 @@ int dbSwapDatabases(int id1, int id2) {
     db1->keys = db2->keys;
     db1->expires = db2->expires;
     db1->subexpires = db2->subexpires;
+    db1->codis_tagged_keys = db2->codis_tagged_keys;
     db1->stream_idmp_keys = db2->stream_idmp_keys;
     db1->avg_ttl = db2->avg_ttl;
     db1->expires_cursor = db2->expires_cursor;
@@ -2553,6 +2559,7 @@ int dbSwapDatabases(int id1, int id2) {
     db2->keys = aux.keys;
     db2->expires = aux.expires;
     db2->subexpires = aux.subexpires;
+    db2->codis_tagged_keys = aux.codis_tagged_keys;
     db2->stream_idmp_keys = aux.stream_idmp_keys;
     db2->avg_ttl = aux.avg_ttl;
     db2->expires_cursor = aux.expires_cursor;
@@ -2592,6 +2599,7 @@ void swapMainDbWithTempDb(redisDb *tempDb) {
         activedb->keys = newdb->keys;
         activedb->expires = newdb->expires;
         activedb->subexpires = newdb->subexpires;
+        activedb->codis_tagged_keys = newdb->codis_tagged_keys;
         activedb->stream_idmp_keys = newdb->stream_idmp_keys;
         activedb->avg_ttl = newdb->avg_ttl;
         activedb->expires_cursor = newdb->expires_cursor;
@@ -2599,6 +2607,7 @@ void swapMainDbWithTempDb(redisDb *tempDb) {
         newdb->keys = aux.keys;
         newdb->expires = aux.expires;
         newdb->subexpires = aux.subexpires;
+        newdb->codis_tagged_keys = aux.codis_tagged_keys;
         newdb->stream_idmp_keys = aux.stream_idmp_keys;
         newdb->avg_ttl = aux.avg_ttl;
         newdb->expires_cursor = aux.expires_cursor;

@@ -398,6 +398,8 @@ void debugCommand(client *c) {
 "CHANGE-REPL-ID",
 "    Change the replication IDs of the instance.",
 "    Dangerous: should be used only for testing the replication subsystem.",
+"CODIS-TAGINDEX-ASSERT",
+"    Assert Codis tag index matches the current DB keyspace.",
 "CONFIG-REWRITE-FORCE-ALL",
 "    Like CONFIG REWRITE but writes all configuration options, including",
 "    keywords not listed in original configuration file or default values.",
@@ -554,6 +556,13 @@ NULL
         if (getLongLongFromObjectOrReply(c, c->argv[2], &flag, NULL) != C_OK)
             return;
         server.dbg_assert_keysizes = (flag != 0);
+        addReply(c, shared.ok);
+    } else if (!strcasecmp(c->argv[1]->ptr,"CODIS-TAGINDEX-ASSERT") && c->argc == 2) {
+        sds err = NULL;
+        if (codisTagIndexAssert(c->db, &err) != C_OK) {
+            addReplyErrorSds(c, err);
+            return;
+        }
         addReply(c, shared.ok);
     } else if (!strcasecmp(c->argv[1]->ptr,"ALLOCSIZE-SLOTS-ASSERT") && c->argc == 3) {
         long long flag;

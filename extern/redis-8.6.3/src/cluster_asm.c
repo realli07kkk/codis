@@ -2982,7 +2982,7 @@ void asmTriggerBackgroundTrim(slotRangeArray *slots) {
         }
     }
 
-    emptyDbDataAsync(keys, expires, subexpires, stream_idmp_keys);
+    emptyDbDataAsync(keys, expires, subexpires, NULL, stream_idmp_keys);
 
     sds str = slotRangeArrayToString(slots);
     serverLog(LL_NOTICE, "Background trim started for slots: %s to trim %zu keys.", str, total_keys);

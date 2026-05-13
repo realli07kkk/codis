@@ -389,6 +389,27 @@ static void zslDelete(zskiplist *zsl, zskiplistNode *node) {
     zslFreeNode(zsl, node);
 }
 
+int zslDeleteByScoreAndElement(zskiplist *zsl, double score, sds ele) {
+    zskiplistNode *update[ZSKIPLIST_MAXLEVEL], *x;
+    int i;
+
+    x = zsl->header;
+    for (i = zsl->level-1; i >= 0; i--) {
+        while (zslCompareWithNode(score, ele, x->level[i].forward) > 0) {
+            x = x->level[i].forward;
+        }
+        update[i] = x;
+    }
+
+    x = x->level[0].forward;
+    if (x && x->score == score && sdscmp(zslGetNodeElement(x), ele) == 0) {
+        zslUnlinkNode(zsl, x, update);
+        zslFreeNode(zsl, x);
+        return 1;
+    }
+    return 0;
+}
+
 /* Update the score of an element inside the sorted set skiplist.
  * If the new score would keep the node in its current position, updates in-place and returns NULL.
  * Otherwise, unlinks the node, updates score, reinserts at correct position, and returns node.

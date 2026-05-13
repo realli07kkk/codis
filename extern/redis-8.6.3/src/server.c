@@ -2959,6 +2959,7 @@ void initServer(void) {
         server.db[j].keys = kvstoreCreate(&kvstoreExType, &dbDictType, db_slot_count_bits, flags);
         server.db[j].expires = kvstoreCreate(&kvstoreBaseType, &dbExpiresDictType, db_slot_count_bits, flags);
         server.db[j].subexpires = estoreCreate(&subexpiresBucketsType, db_slot_count_bits);
+        server.db[j].codis_tagged_keys = codisTagIndexCreate();
         server.db[j].expires_cursor = 0;
         server.db[j].blocking_keys = dictCreate(&keylistDictType);
         server.db[j].blocking_keys_unblock_on_nokey = dictCreate(&objectKeyPointerValueDictType);

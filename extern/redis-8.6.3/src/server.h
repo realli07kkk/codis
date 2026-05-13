@@ -715,6 +715,12 @@ typedef enum {
 #define CODIS_SLOTS (1<<CODIS_SLOT_MASK_BITS)
 #define CODIS_SLOT_MASK ((unsigned long long)(CODIS_SLOTS - 1))
 
+typedef struct codisHashInfo {
+    unsigned int slot;
+    uint32_t crc;
+    int has_tag;
+} codisHashInfo;
+
 /* IO thread pause status */
 #define IO_THREAD_UNPAUSED      0
 #define IO_THREAD_PAUSING       1
@@ -881,6 +887,7 @@ struct moduleLoadQueueEntry;
 struct RedisModuleCommand;
 struct clusterState;
 struct slotRangeArray;
+typedef struct zskiplist zskiplist;
 
 /* Each module type implementation should export a set of methods in order
  * to serialize and deserialize the value in the RDB file, rewrite the AOF
@@ -1170,6 +1177,7 @@ typedef struct redisDb {
     kvstore *keys;              /* The keyspace for this DB. As metadata, holds keysizes histogram */
     kvstore *expires;           /* Timeout of keys with a timeout set */
     estore *subexpires;         /* Timeout of sub-keys with a timeout set. (Currently only used for hashes) */
+    zskiplist *codis_tagged_keys; /* Codis tagged keys grouped by full CRC32. */
     dict *blocking_keys;        /* Keys with clients waiting for data (BLPOP)*/
     dict *blocking_keys_unblock_on_nokey;   /* Keys with clients waiting for
                                              * data, and should be unblocked if key is deleted (XREADEDGROUP).
@@ -3541,6 +3549,7 @@ size_t zslAllocSize(const zskiplist *zsl);
 sds zslGetNodeElement(const zskiplistNode *node);
 int zslCompareWithNode(double score, sds ele, const zskiplistNode *n);
 zskiplistNode *zslInsert(zskiplist *zsl, double score, sds ele);
+int zslDeleteByScoreAndElement(zskiplist *zsl, double score, sds ele);
 unsigned char *zzlInsert(unsigned char *zl, sds ele, double score);
 zskiplistNode *zslNthInRange(zskiplist *zsl, zrangespec *range, long n, unsigned long *out_rank);
 double zzlGetScore(unsigned char *sptr);
@@ -3670,10 +3679,12 @@ uint32_t crc32_checksum(const char *buf, int len);
 /* Codis follows the proxy Hash() semantics: the first {...} substring is a
  * hash tag even when it is empty. Redis Cluster's keyHashSlot() treats {}
  * as no tag, so keep this difference explicit. */
-static inline unsigned int codisHashSlot(const char *key, size_t keylen) {
+static inline codisHashInfo codisHashInfoForKey(const char *key, size_t keylen) {
     size_t s, e;
     const char *tag = key;
     size_t taglen = keylen;
+    codisHashInfo info;
+    info.has_tag = 0;
 
     for (s = 0; s < keylen; s++) {
         if (key[s] == '{') break;
@@ -3685,13 +3696,27 @@ static inline unsigned int codisHashSlot(const char *key, size_t keylen) {
         if (e < keylen) {
             tag = key + s + 1;
             taglen = e - s - 1;
+            info.has_tag = 1;
         }
     }
 
-    return crc32_checksum(tag, (int)taglen) & CODIS_SLOT_MASK;
+    info.crc = crc32_checksum(tag, (int)taglen);
+    info.slot = info.crc & CODIS_SLOT_MASK;
+    return info;
+}
+
+static inline unsigned int codisHashSlot(const char *key, size_t keylen) {
+    return codisHashInfoForKey(key, keylen).slot;
 }
 void slotshashkeyCommand(client *c);
 void slotsinfoCommand(client *c);
+zskiplist *codisTagIndexCreate(void);
+void codisTagIndexFree(zskiplist *index);
+void codisTagIndexReset(redisDb *db);
+void codisTagIndexAdd(redisDb *db, sds key);
+void codisTagIndexDelete(redisDb *db, sds key);
+void codisTagIndexRebuild(redisDb *db);
+int codisTagIndexAssert(redisDb *db, sds *err);
 
 /* kvstore wrappers */
 int dbExpand(redisDb *db, uint64_t db_size, int try_expand);
@@ -4000,7 +4025,7 @@ int parseScanCursorOrReply(client *c, robj *o, unsigned long long *cursor);
 int dbAsyncDelete(redisDb *db, robj *key);
 void emptyDbAsync(redisDb *db);
 void streamMoveIdmpKeys(dict *src, dict *dst, int slot);
-void emptyDbDataAsync(kvstore *keys, kvstore *expires, ebuckets hexpires, dict *stream_idmp_keys);
+void emptyDbDataAsync(kvstore *keys, kvstore *expires, ebuckets hexpires, zskiplist *codis_tagged_keys, dict *stream_idmp_keys);
 size_t lazyfreeGetPendingObjectsCount(void);
 size_t lazyfreeGetFreedObjectsCount(void);
 void lazyfreeResetStats(void);
