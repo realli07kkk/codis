@@ -1,0 +1,120 @@
+feature: 2026-05-13-redis8-sync-migration-and-rdb-fragments
+created: 2026-05-13
+
+steps:
+  - action: "编排骨架：在 slots.c 中加入 5 个命令空实现 + socket 缓存初始化/清理 stub，server.h 新增 slotsmgrt_sockfd typedef 和 redisServer.slotsmgrt_cached_sockets 字段，server.c 中 initServer 和 serverCron 加入 hook，编写 5 个命令 JSON 定义文件并注册命令"
+    exit_signal: "make codis-server-redis8 编译成功，redis-cli-redis8 连接后 COMMAND INFO 可看到 5 个新命令（函数存在但返回 -ERR not implemented）"
+    status: done
+
+  - action: "socket 缓存层：实现 slotsmgrt_get_sockfd / slotsmgrt_close_socket / slotsmgrt_cleanup，完成 TCP 非阻塞连接建立 + AE_WRITABLE 等待 + socket 缓存增删查和超时清理"
+    exit_signal: "编译成功，通过临时测试验证 TCP 连接能建立和关闭，空闲 socket 在 serverCron 超时后被清理"
+    status: done
+
+  - action: "计算节点 SLOTSRESTORE：实现完整的 slotsrestoreCommand，适配 verifyDumpPayload(rdbver_ptr=NULL) + rdbLoadType + rdbResolveKeyType + rdbLoadObject(key, dbid, &error) + dbAddInternal 路径，支持 string/list/hash/set/zset/stream 类型和 TTL 设置，覆盖已有 key 场景"
+    exit_signal: "通过 redis-cli-redis8 手动发 SLOTSRESTORE 写入 key 后 GET/HGETALL/LRANGE 等能读回正确数据，TTL 正确，覆盖已有 key 时旧值被替换"
+    status: done
+
+  - action: "计算节点 slotsmgrt 内核：实现 slotsmgrt（createDumpPayload 适配新签名 + 拼 RESP + syncWrite + syncReadLine 校验三级响应）+ slotsmgrtone_command（lookupKeyWrite + slotsmgrt + dbSyncDelete 删除）"
+    exit_signal: "两个 Redis 8 实例之间 SLOTSMGRTONE 能成功迁移一个 key，源端 key 被删除，目标端 key 可读且值一致"
+    status: done
+
+  - action: "计算节点 tag 感知 + slot 随机：实现 slotsmgrttag_command（查询 codis_tagged_keys 找同 CRC key）+ slotsmgrtslotCommand + slotsmgrttagslotCommand + slotsmgrttagoneCommand，使用 kvstoreGetDict 访问 slot dict"
+    exit_signal: "SLOTSMGRTTAGONE 迁移含 {tag} 的 key 时连带同 tag key 一起迁移；SLOTSMGRTTAGSLOT 返回 [migrated_count, remaining_count]；空 slot 返回 [0, 0]"
+    status: done
+
+  - action: "测试覆盖：补齐 Tcl 测试覆盖正常路径（各类型 key 迁移、tag 迁移、多 key SLOTSRESTORE）、边界（空 slot、不存在 key、超时、TTL 保持）和错误路径（目标不可达、密码错误、无效 payload），并覆盖源端删除向 replication stream 传播为 DEL，确保已有 codis.tcl 无回归"
+    exit_signal: "所有 Tcl 测试通过，make codis-server-redis8 无误，手动验证迁移往返数据一致"
+    status: done
+
+checks:
+  - item: "SLOTSMGRTSLOT/SLOTSMGRTONE/SLOTSMGRTTAGSLOT/SLOTSMGRTTAGONE 返回格式与 Go parser 兼容（[migrated_count, remaining_count] 或 migrated_count）"
+    source: 名词契约
+    status: passed
+
+  - item: "SLOTSRESTORE 接受 key ttlms payload 三元组并正确写入所有 Redis 类型"
+    source: 名词契约
+    status: passed
+
+  - item: "slotsmgrt_sockfd typedef 和 redisServer.slotsmgrt_cached_sockets 字段正确声明"
+    source: 名词契约
+    status: passed
+
+  - item: "同步迁移主流程：connect → AUTH/SELECT → createDumpPayload → syncWrite → syncReadLine → dbSyncDelete → 返回结果"
+    source: 编排骨架
+    status: passed
+
+  - item: "slot dict 访问使用 kvstoreGetDict(c->db->keys, slot)，不使用 hash_slots 平行索引"
+    source: 编排骨架
+    status: passed
+
+  - item: "tag 感知迁移通过 codis_tagged_keys skiplist 查找同 CRC key，使用 zslNthInRange"
+    source: 编排骨架
+    status: passed
+
+  - item: "I/O 错误不丢数据：任何 connect/write/read 失败 → 关闭 socket 缓存 → 返回 IOERR → 不删除源端 key"
+    source: 流程级约束
+    status: passed
+
+  - item: "SLOTSRESTORE 先 dbDelete 已有 key 再 dbAddInternal（覆盖语义 + Redis 8 metadata-aware 写入），迁移重试安全"
+    source: 流程级约束
+    status: passed
+
+  - item: "make codis-server-redis8 编译通过"
+    source: 挂载点
+    status: passed
+
+  - item: "5 个命令 JSON 定义文件存在且 commands.def 已生成对应 MAKE_CMD 条目"
+    source: 挂载点
+    status: passed
+
+  - item: "server.h 新增 slotsmgrt_sockfd 和 slotsmgrt_cached_sockets 字段"
+    source: 挂载点
+    status: passed
+
+  - item: "server.c initServer 初始化 slotsmgrt_cached_sockets，serverCron 调用 slotsmgrt_cleanup"
+    source: 挂载点
+    status: passed
+
+  - item: "代码中不出现 slots_async.c 相关内容（pthread、lazy release worker、batchedObjectIterator、CLIENT_SLOTSMGRT_ASYNC_*）"
+    source: 范围守护
+    status: passed
+
+  - item: "不在 redisServer 中新增 slotsmgrt_lazy_release、slotsmgrt_cached_clients 字段"
+    source: 范围守护
+    status: passed
+
+  - item: "不在 client 中新增 slotsmgrt_flags、slotsmgrt_fenceq 字段"
+    source: 范围守护
+    status: passed
+
+  - item: "不出现 SLOTSMGRT-EXEC-WRAPPER、SLOTSMGRT-ASYNC-FENCE/CANCEL/STATUS、SLOTSRESTORE-ASYNC* 命令注册"
+    source: 范围守护
+    status: passed
+
+  - item: "Go pkg/ 代码不变"
+    source: 范围守护
+    status: passed
+
+  - item: "SLOTSMGRTONE 单 key 迁移往返：源 → 目标，key 类型+值+TTL 一致"
+    source: 验收场景
+    status: passed
+
+  - item: "SLOTSMGRTSLOT 空 slot → [0, 0]；不存在的 key → :0"
+    source: 验收场景
+    status: passed
+
+  - item: "SLOTSMGRTTAGONE 迁移含 {tag} 的 key → 同 tag 全部 key 被迁移"
+    source: 验收场景
+    status: passed
+
+  - item: "SLOTSRESTORE 覆盖已有 key → 旧值被替换"
+    source: 验收场景
+    status: passed
+
+  - item: "目标不可达 → -IOERR；密码错误 → auth failed；无效 payload → checksum error"
+    source: 验收场景
+    status: passed
+
+  - item: "socket 缓存复用：同目标连续迁移不新建连接；>15 秒空闲被 serverCron 清理"
+    source: 验收场景
+    status: passed

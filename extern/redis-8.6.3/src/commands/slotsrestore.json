@@ -1,0 +1,63 @@
+{
+    "SLOTSRESTORE": {
+        "summary": "Restore keys from RDB dump payloads in a Codis migration context.",
+        "complexity": "O(1) for each key-value pair. O(N) for N total pairs.",
+        "group": "server",
+        "since": "3.2.0",
+        "arity": -4,
+        "function": "slotsrestoreCommand",
+        "command_flags": [
+            "WRITE",
+            "DENYOOM"
+        ],
+        "acl_categories": [
+            "KEYSPACE",
+            "DANGEROUS"
+        ],
+        "key_specs": [
+            {
+                "flags": [
+                    "OW",
+                    "UPDATE"
+                ],
+                "begin_search": {
+                    "index": {
+                        "pos": 1
+                    }
+                },
+                "find_keys": {
+                    "range": {
+                        "lastkey": -1,
+                        "step": 3,
+                        "limit": 0
+                    }
+                }
+            }
+        ],
+        "reply_schema": {
+            "const": "OK"
+        },
+        "arguments": [
+            {
+                "name": "key-ttl-payload",
+                "type": "block",
+                "multiple": true,
+                "arguments": [
+                    {
+                        "name": "key",
+                        "type": "key",
+                        "key_spec_index": 0
+                    },
+                    {
+                        "name": "ttl-ms",
+                        "type": "integer"
+                    },
+                    {
+                        "name": "serialized-value",
+                        "type": "string"
+                    }
+                ]
+            }
+        ]
+    }
+}

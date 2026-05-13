@@ -1,0 +1,47 @@
+{
+    "SLOTSMGRTTAGSLOT": {
+        "summary": "Synchronously migrate a random key from a Codis slot with hash-tag awareness.",
+        "complexity": "O(N) where N is the number of keys sharing the same hash tag.",
+        "group": "server",
+        "since": "3.2.0",
+        "arity": 5,
+        "function": "slotsmgrttagslotCommand",
+        "command_flags": [
+            "WRITE"
+        ],
+        "acl_categories": [
+            "KEYSPACE",
+            "DANGEROUS"
+        ],
+        "command_tips": [
+            "NONDETERMINISTIC_OUTPUT"
+        ],
+        "reply_schema": {
+            "type": "array",
+            "description": "A pair of [migrated_count, remaining_count].",
+            "items": {
+                "type": "integer"
+            }
+        },
+        "arguments": [
+            {
+                "name": "host",
+                "type": "string"
+            },
+            {
+                "name": "port",
+                "type": "integer"
+            },
+            {
+                "name": "timeout",
+                "type": "integer"
+            },
+            {
+                "name": "slot",
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 1023
+            }
+        ]
+    }
+}

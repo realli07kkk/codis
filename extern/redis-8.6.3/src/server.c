@@ -1707,6 +1707,7 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
     /* Cleanup expired MIGRATE cached sockets. */
     run_with_period(1000) {
         migrateCloseTimedoutSockets();
+        slotsmgrt_cleanup();
     }
 
     /* Cleanup expired IDMP entries from tracked streams */
@@ -2346,6 +2347,7 @@ void initServerConfig(void) {
     server.cluster_module_flags = CLUSTER_MODULE_FLAG_NONE;
     server.cluster_module_trim_disablers = 0;
     server.migrate_cached_sockets = dictCreate(&migrateCacheDictType);
+    server.slotsmgrt_cached_sockets = dictCreate(&migrateCacheDictType);
     server.next_client_id = 1; /* Client IDs, start from 1 .*/
     server.page_size = sysconf(_SC_PAGESIZE);
     server.pause_cron = 0;

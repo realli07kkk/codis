@@ -33,8 +33,8 @@ items:
   - slug: redis8-sync-migration-and-rdb-fragments
     description: 移植同步迁移命令和 SLOTSRESTORE，验证 Redis 8 RDB fragment 与灰度跨版本迁移边界
     depends_on: [redis8-slot-basic-commands]
-    status: planned
-    feature: null
+    status: done
+    feature: 2026-05-13-redis8-sync-migration-and-rdb-fragments
     minimal_loop: false
     notes: "明确区分 SLOTSRESTORE 内部 RDB fragment 兼容性与持久化 RDB/AOF 降级能力。"
   - slug: redis8-async-migration

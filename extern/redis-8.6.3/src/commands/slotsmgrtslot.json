@@ -1,0 +1,47 @@
+{
+    "SLOTSMGRTSLOT": {
+        "summary": "Synchronously migrate a random key from a Codis slot to the target node.",
+        "complexity": "O(1)",
+        "group": "server",
+        "since": "3.2.0",
+        "arity": 5,
+        "function": "slotsmgrtslotCommand",
+        "command_flags": [
+            "WRITE"
+        ],
+        "acl_categories": [
+            "KEYSPACE",
+            "DANGEROUS"
+        ],
+        "command_tips": [
+            "NONDETERMINISTIC_OUTPUT"
+        ],
+        "reply_schema": {
+            "type": "array",
+            "description": "A pair of [migrated_count, remaining_count].",
+            "items": {
+                "type": "integer"
+            }
+        },
+        "arguments": [
+            {
+                "name": "host",
+                "type": "string"
+            },
+            {
+                "name": "port",
+                "type": "integer"
+            },
+            {
+                "name": "timeout",
+                "type": "integer"
+            },
+            {
+                "name": "slot",
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 1023
+            }
+        ]
+    }
+}

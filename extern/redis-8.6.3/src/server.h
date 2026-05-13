@@ -721,6 +721,13 @@ typedef struct codisHashInfo {
     int has_tag;
 } codisHashInfo;
 
+typedef struct {
+    int fd;
+    int db;
+    int authorized;
+    time_t lasttime;
+} slotsmgrt_sockfd;
+
 /* IO thread pause status */
 #define IO_THREAD_UNPAUSED      0
 #define IO_THREAD_PAUSING       1
@@ -2020,6 +2027,7 @@ struct redisServer {
     pause_event client_pause_per_purpose[NUM_PAUSE_PURPOSES];
     char neterr[ANET_ERR_LEN];   /* Error buffer for anet.c */
     dict *migrate_cached_sockets;/* MIGRATE cached sockets */
+    dict *slotsmgrt_cached_sockets;/* Codis sync migration cached sockets */
     redisAtomic uint64_t next_client_id; /* Next client unique ID. Incremental. */
     int protected_mode;         /* Don't accept external connections. */
     int io_threads_num;         /* Number of IO threads to use. */
@@ -3713,6 +3721,13 @@ void slotsinfoCommand(client *c);
 void slotsscanCommand(client *c);
 void slotsdelCommand(client *c);
 void slotscheckCommand(client *c);
+void slotsmgrtslotCommand(client *c);
+void slotsmgrtoneCommand(client *c);
+void slotsmgrttagslotCommand(client *c);
+void slotsmgrttagoneCommand(client *c);
+void slotsrestoreCommand(client *c);
+void slotsmgrt_cleanup(void);
+void createDumpPayload(rio *payload, robj *o, robj *key, int dbid, int skip_checksum);
 zskiplist *codisTagIndexCreate(void);
 void codisTagIndexFree(zskiplist *index);
 void codisTagIndexReset(redisDb *db);

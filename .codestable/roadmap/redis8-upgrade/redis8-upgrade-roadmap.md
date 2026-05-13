@@ -288,9 +288,9 @@ SLOTSRESTORE-ASYNC-AUTH2 username password  # 如 Redis 8 ACL 需要
 5. **redis8-sync-migration-and-rdb-fragments** — 移植同步迁移命令和 `SLOTSRESTORE`，验证 Redis 8 RDB fragment 与灰度跨版本迁移边界。
    - 所属模块：migration-protocol
    - 依赖：`redis8-slot-basic-commands`
-   - 状态：planned
-   - 对应 feature：未启动
-   - 备注：明确区分 RDB fragment 兼容性与持久化 RDB/AOF 降级能力。
+   - 状态：done
+   - 对应 feature：2026-05-13-redis8-sync-migration-and-rdb-fragments
+   - 备注：已完成 Redis 8 ↔ Redis 8 同步迁移命令、`SLOTSRESTORE`、socket 缓存和 Tcl 回归；Redis 3 ↔ Redis 8 RDB fragment 双向兼容仍作为灰度验证边界，不等同于持久化 RDB/AOF 降级能力。
 
 6. **redis8-async-migration** — 移植异步迁移、restore async、fence/cancel/status/auth，并评估 pthread lazy release 是否改接 Redis 8 `bio` / lazyfree。
    - 所属模块：migration-protocol

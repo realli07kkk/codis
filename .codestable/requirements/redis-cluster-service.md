@@ -24,7 +24,11 @@ tags: [redis, cluster, operations]
 
 ## 怎么解决
 
-业务流量先进 proxy，proxy 根据 key 所在 slot 转发到后端 Redis；dashboard 维护集群拓扑、slot 归属和迁移动作，并把状态同步给各个 proxy；FE、admin 和 HA 工具围绕 dashboard 提供可视化、命令行和巡检维护入口。proxy 还在 Redis 协议面提供有限的本地观测命令，例如 `CLIENT LIST` 返回当前 proxy 实例的活动客户端连接快照。底层元数据放在 filesystem、Zookeeper 或 Etcd 这类 coordinator 中。
+业务流量先进 proxy，proxy 根据 key 所在 slot 转发到后端 Redis；dashboard 维护集群拓扑、slot 归属和迁移动作，并把状态同步给各个 proxy；FE、admin 和 HA 工具围绕 dashboard 提供可视化、命令行和巡检维护入口。proxy 还在 Redis 协议面提供有限的本地观测命令，例如 `CLIENT LIST` 返回当前 proxy 实例的活动客户端连接快照。后端 Codis Server 承载 slot keyspace、slot 查询/删除和迁移命令；Redis 8 Codis Server 支线已具备 Redis 8 ↔ Redis 8 同步迁移与 `SLOTSRESTORE` RDB fragment restore 能力。底层元数据放在 filesystem、Zookeeper 或 Etcd 这类 coordinator 中。
+
+## 实现进展
+
+- 2026-05-13：Redis 8 Codis Server 支线完成同步迁移命令和 `SLOTSRESTORE` 移植，覆盖 `SLOTSMGRTSLOT`、`SLOTSMGRTONE`、`SLOTSMGRTTAGSLOT`、`SLOTSMGRTTAGONE` 与 Redis 8 RDB fragment restore。该进展不改变业务客户端协议，不切换默认 Redis 3 Codis Server 构建，也不承诺 Redis 3 ↔ Redis 8 RDB fragment 双向兼容。
 
 ## 边界
 
