@@ -458,17 +458,21 @@ kvobj *dbAddByLink(redisDb *db, robj *key, robj **valref, dictEntryLink *link) {
     return dbAddInternal(db, key, valref, link, &keyMetaEmpty);
 }
 
-/* Returns key's hash slot when cluster mode is enabled, or 0 when disabled.
+/* Returns key's hash slot when cluster or Codis mode is enabled, or 0 when disabled.
  * The only difference between this function and getKeySlot, is that it's not using cached key slot from the current_client
  * and always calculates CRC hash.
  * This is useful when slot needs to be calculated for a key that user didn't request for, such as in case of eviction. */
 int calculateKeySlot(sds key) {
-    return server.cluster_enabled ? keyHashSlot(key, (int) sdslen(key)) : 0;
+    if (server.cluster_enabled) return keyHashSlot(key, (int) sdslen(key));
+    if (server.codis_enabled) return codisHashSlot(key, sdslen(key));
+    return 0;
 }
 
-/* Return slot-specific dictionary for key based on key's hash slot when cluster mode is enabled, else 0.*/
+/* Return slot-specific dictionary for key based on key's hash slot when cluster
+ * or Codis mode is enabled, else 0. */
 int getKeySlot(sds key) {
-    if (!server.cluster_enabled) return 0;
+    if (!server.cluster_enabled && !server.codis_enabled) return 0;
+    if (server.codis_enabled) return codisHashSlot(key, sdslen(key));
     /* This is performance optimization that uses pre-set slot id from the current command,
      * in order to avoid calculation of the key hash.
      *
@@ -1069,6 +1073,9 @@ redisDb *initTempDb(void) {
     int flags = KVSTORE_ALLOCATE_DICTS_ON_DEMAND;
     if (server.cluster_enabled) {
         slot_count_bits = CLUSTER_SLOT_MASK_BITS;
+        flags |= KVSTORE_FREE_EMPTY_DICTS;
+    } else if (server.codis_enabled) {
+        slot_count_bits = CODIS_SLOT_MASK_BITS;
         flags |= KVSTORE_FREE_EMPTY_DICTS;
     }
     redisDb *tempDb = zcalloc(sizeof(redisDb)*server.dbnum);
@@ -2996,6 +3003,9 @@ static int dbExpandGeneric(kvstore *kvs, uint64_t db_size, int try_expand) {
         if (slots == 0) return C_OK;
         db_size = db_size / slots;
         ret = kvstoreExpand(kvs, db_size, try_expand, dbExpandSkipSlot);
+    } else if (server.codis_enabled) {
+        db_size = db_size / CODIS_SLOTS;
+        ret = kvstoreExpand(kvs, db_size, try_expand, NULL);
     } else {
         ret = kvstoreExpand(kvs, db_size, try_expand, NULL);
     }

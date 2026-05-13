@@ -288,6 +288,9 @@ void emptyDbAsync(redisDb *db) {
     if (server.cluster_enabled) {
         slot_count_bits = CLUSTER_SLOT_MASK_BITS;
         flags |= KVSTORE_FREE_EMPTY_DICTS;
+    } else if (server.codis_enabled) {
+        slot_count_bits = CODIS_SLOT_MASK_BITS;
+        flags |= KVSTORE_FREE_EMPTY_DICTS;
     }
     kvstore *oldkeys = db->keys, *oldexpires = db->expires;
     estore *oldsubexpires = db->subexpires;

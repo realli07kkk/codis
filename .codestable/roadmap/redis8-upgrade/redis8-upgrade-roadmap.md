@@ -267,9 +267,9 @@ SLOTSRESTORE-ASYNC-AUTH2 username password  # 如 Redis 8 ACL 需要
 2. **redis8-codis-mode-foundation** — 增加 `codis-enabled`、1024 slot `kvstore`、Codis CRC32 slot 计算和最小 Tcl smoke test。
    - 所属模块：codis-mode-foundation
    - 依赖：`redis8-patch-inventory-and-build-harness`
-   - 状态：planned
-   - 对应 feature：未启动
-   - 备注：最小闭环；完成后 Redis 8 Codis Server 可启动、写入 key、按 1024 slot 统计。
+   - 状态：done
+   - 对应 feature：2026-05-13-redis8-codis-mode-foundation
+   - 备注：最小闭环已完成；Redis 8 Codis Server 可启动、写入 key、按 1024 slot 统计，并通过 `SLOTSHASHKEY` / `SLOTSINFO` 验证 slot 语义。
 
 3. **redis8-slot-index-and-tag-index-core** — 基于 Redis 8 `kvstore` 主存储实现 Codis slot keyspace 能力，并补齐 `codis_tagged_keys` 生命周期维护。
    - 所属模块：slot-keyspace-core

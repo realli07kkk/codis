@@ -1,0 +1,49 @@
+{
+    "SLOTSINFO": {
+        "summary": "Returns non-empty Codis slots and key counts in the current database.",
+        "complexity": "O(1024)",
+        "group": "server",
+        "since": "3.2.0",
+        "arity": -1,
+        "function": "slotsinfoCommand",
+        "command_flags": [
+            "READONLY",
+            "FAST"
+        ],
+        "acl_categories": [
+            "KEYSPACE"
+        ],
+        "reply_schema": {
+            "type": "array",
+            "description": "Non-empty Codis slot entries.",
+            "items": {
+                "type": "array",
+                "minItems": 2,
+                "maxItems": 2,
+                "items": [
+                    {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 1023
+                    },
+                    {
+                        "type": "integer",
+                        "minimum": 1
+                    }
+                ]
+            }
+        },
+        "arguments": [
+            {
+                "name": "start",
+                "type": "integer",
+                "optional": true
+            },
+            {
+                "name": "count",
+                "type": "integer",
+                "optional": true
+            }
+        ]
+    }
+}

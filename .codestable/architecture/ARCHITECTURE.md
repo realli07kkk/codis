@@ -40,7 +40,7 @@ flowchart LR
   Proxy --> Jodis[Jodis Registry]
 ```
 
-构建层面，仓库已有 `go.mod` / `go.sum`，`go.mod` 使用 `go 1.26.1`，旧 `vendor/` / `Godeps/` 依赖目录已经退休。常规 Go 依赖由 `go.mod/go.sum` 解析，`GO111MODULE=on go test ./cmd/... ./pkg/...`、`GO111MODULE=on go build ./cmd/... ./pkg/...` 和 `GO111MODULE=on go build -tags cgo_jemalloc ./cmd/proxy` 都可在 module mode 下通过。`cgo_jemalloc` 路径通过 `go.mod` 的 `replace github.com/spinlock/jemalloc-go => ./third_party/jemalloc-go` 指向仓库内受控的本地模块，不再依赖旧 `vendor/github.com/spinlock/jemalloc-go` 的预处理状态。`Makefile` 已切换到 module mode（移除了 `GO15VENDOREXPERIMENT` 和旧 `vendor/github.com/spinlock/jemalloc-go` 预处理调用），产出 `codis-dashboard`、`codis-proxy`、`codis-admin`、`codis-ha`、`codis-fe` 和嵌入式 `codis-server`；Go 二进制构建规则在 `Makefile:12` 到 `Makefile:28`，默认 Redis 3 Codis Server 构建和配置刷新在 `Makefile:30` 到 `Makefile:39`。Redis 8 升级路线已有独立 harness：`make codis-server-redis8` 从 `extern/redis-8.6.3/` 构建 Redis 8 server，复制为 `bin/codis-server-redis8`、`bin/redis-cli-redis8`、`bin/redis-benchmark-redis8`、`bin/redis-sentinel-redis8`，并生成 ignored 的 `config/redis8.conf` / `config/sentinel8.conf`；该支线在 `Makefile:41` 到 `Makefile:50`，不会改变默认 `codis-server` 仍指向 Redis 3 的语义。
+构建层面，仓库已有 `go.mod` / `go.sum`，`go.mod` 使用 `go 1.26.1`，旧 `vendor/` / `Godeps/` 依赖目录已经退休。常规 Go 依赖由 `go.mod/go.sum` 解析，`GO111MODULE=on go test ./cmd/... ./pkg/...`、`GO111MODULE=on go build ./cmd/... ./pkg/...` 和 `GO111MODULE=on go build -tags cgo_jemalloc ./cmd/proxy` 都可在 module mode 下通过。`cgo_jemalloc` 路径通过 `go.mod` 的 `replace github.com/spinlock/jemalloc-go => ./third_party/jemalloc-go` 指向仓库内受控的本地模块，不再依赖旧 `vendor/github.com/spinlock/jemalloc-go` 的预处理状态。`Makefile` 已切换到 module mode（移除了 `GO15VENDOREXPERIMENT` 和旧 `vendor/github.com/spinlock/jemalloc-go` 预处理调用），产出 `codis-dashboard`、`codis-proxy`、`codis-admin`、`codis-ha`、`codis-fe` 和嵌入式 `codis-server`；Go 二进制构建规则在 `Makefile:12` 到 `Makefile:28`，默认 Redis 3 Codis Server 构建和配置刷新在 `Makefile:30` 到 `Makefile:39`。Redis 8 升级路线已有独立 harness：`make codis-server-redis8` 从 `extern/redis-8.6.3/` 构建 Redis 8 server，复制为 `bin/codis-server-redis8`、`bin/redis-cli-redis8`、`bin/redis-benchmark-redis8`、`bin/redis-sentinel-redis8`，并生成 ignored 的 `config/redis8.conf` / `config/sentinel8.conf`；该支线在 `Makefile:41` 到 `Makefile:50`，不会改变默认 `codis-server` 仍指向 Redis 3 的语义。当前 Redis 8 支线已具备 `codis-enabled yes` 最小运行模式：Redis 8 server 可在不启用 Redis Cluster 协议的前提下按 Codis 1024 slot 组织 keyspace，并通过 `SLOTSHASHKEY` / `SLOTSINFO` 验证 CRC32 slot 语义。
 
 版本元数据由 `pkg/utils/version.go` 提供 clean checkout 默认值，`version` 脚本生成 `bin/version` 和 `bin/version.ldflags`，Makefile 通过 `-ldflags -X` 注入真实 git/date 信息。该文件不再由构建脚本覆盖，避免一次 `make` 后源码进入脏状态。
 
@@ -68,7 +68,7 @@ dashboard/topom 的内存状态分为 model、store、cache、action、stats、h
 
 proxy 的内存状态包括身份认证 token、`models.Proxy`、两个 listener、router、HA sentinel monitor、可选 Jodis 注册器和活动 session registry，见 `pkg/proxy/proxy.go:29` 到 `pkg/proxy/proxy.go:54` 以及 `pkg/proxy/client_list.go:18` 到 `pkg/proxy/client_list.go:55`。router 持有 1024 个 slot、主从后端连接池和 online/closed 状态，见 `pkg/proxy/router.go:18` 到 `pkg/proxy/router.go:30`。session registry 以进程内递增 id 索引活动 `Session`，是 `SessionsAlive()` 和 `CLIENT LIST` 的当前活动连接权威来源；`stats.go` 中的 `sessions.total` 只表示累计连接数，见 `pkg/proxy/stats.go:169` 到 `pkg/proxy/stats.go:183`。
 
-后端 Redis 数据本身不进入 coordinator；coordinator 只保存拓扑和动作状态。Codis Server 基于嵌入式 Redis 源码构建，并增加 slot 查询、slot 删除和迁移相关命令，说明见 `doc/redis_change_zh.md:1` 到 `doc/redis_change_zh.md:17` 以及 `doc/redis_change_zh.md:84` 到 `doc/redis_change_zh.md:103`。
+后端 Redis 数据本身不进入 coordinator；coordinator 只保存拓扑和动作状态。Codis Server 基于嵌入式 Redis 源码构建，并增加 slot 查询、slot 删除和迁移相关命令，说明见 `doc/redis_change_zh.md:1` 到 `doc/redis_change_zh.md:17` 以及 `doc/redis_change_zh.md:84` 到 `doc/redis_change_zh.md:103`。Redis 8 支线新增独立的 `server.codis_enabled` 状态和 `codis-enabled` immutable config；`cluster-enabled` 与 `codis-enabled` 互斥，Codis mode 保留 standalone 多 DB 行为，DB 的 `keys`、`expires`、`subexpires` 在该模式下使用 10-bit `kvstore` / `estore` slot 分区。
 
 运行指标在 proxy 和 dashboard 两侧都有。proxy 的 HTTP stats/model/slots API 见 `pkg/proxy/proxy_api.go:104` 到 `pkg/proxy/proxy_api.go:149`，并可上报 JSON、InfluxDB、StatsD，见 `pkg/proxy/metrics.go:42` 到 `pkg/proxy/metrics.go:174`。dashboard 周期刷新 Redis 和 proxy stats，见 `pkg/topom/topom.go:204` 到 `pkg/topom/topom.go:226`。
 
@@ -92,7 +92,8 @@ proxy 的内存状态包括身份认证 token、`models.Proxy`、两个 listener
 - `cmd/admin/main.go` — admin CLI 参数分发。
 - `cmd/ha/main.go` — HA 巡检和自动维护循环。
 - `Makefile` — 二进制、嵌入式 Redis、默认配置的构建入口。
-- `extern/redis-8.6.3/src/Makefile` / `extern/redis-8.6.3/src/slots.c` / `extern/redis-8.6.3/src/slots_async.c` / `extern/redis-8.6.3/src/crc32.c` — Redis 8 Codis Server harness 的最小构建挂载；当前只把 Codis stub objects 接入 Redis 8 server link，不注册 Codis 命令、不启用 Codis 模式。
+- `extern/redis-8.6.3/src/config.c` / `server.h` / `server.c` / `db.c` / `lazyfree.c` — Redis 8 `codis-enabled` 模式、1024 slot `kvstore` keyspace、Codis CRC32 slot 计算和 flush/temp DB 重建路径。
+- `extern/redis-8.6.3/src/slots.c` / `extern/redis-8.6.3/src/commands/slotshashkey.json` / `extern/redis-8.6.3/src/commands/slotsinfo.json` / `extern/redis-8.6.3/tests/unit/codis.tcl` — Redis 8 Codis mode 最小观察命令和 Tcl smoke test。
 - `go.mod` / `go.sum` — Go modules 最小编译闭环的依赖入口和校验锁定。
 - `third_party/jemalloc-go` — `github.com/spinlock/jemalloc-go` 的本地 replace 模块，提供 `cgo_jemalloc` 构建所需的 Go wrapper、头文件和 C 源码。
 - `pkg/utils/version.go` / `version` — clean checkout 版本元数据兜底和 Makefile 构建时的 ldflags 注入来源。
@@ -100,7 +101,7 @@ proxy 的内存状态包括身份认证 token、`models.Proxy`、两个 listener
 ## 6. 已知约束 / 边界情况
 
 - 当前仓库已建立 Go modules 编译闭环：默认 cmd/pkg module mode 可编译测试，`cgo_jemalloc` proxy 也可通过 `third_party/jemalloc-go` 的本地 replace 模块在 module mode 下构建；`Makefile` 已完成 module mode 切换（`make gotest`、`make build-all` 均不再依赖 GOPATH/vendor 参数）；旧 `vendor/` / `Godeps/` 已退休。
-- Redis 8 Codis Server 目前只有独立 build harness：`make codis-server-redis8` 可编译带 `slots.o`、`slots_async.o`、`crc32.o` stub objects 的 Redis 8 二进制；默认 `make` / `make codis-server` 仍构建 Redis 3 Codis Server。正式切换默认产物必须等 `redis8-upgrade` roadmap 后续 `redis8-codis-mode-foundation`、迁移命令和 packaging 条目完成。
+- Redis 8 Codis Server 目前仍是独立支线：`make codis-server-redis8` 可编译 Redis 8 二进制，`--codis-enabled yes` 可启动最小 Codis mode 并验证 1024 slot keyspace；默认 `make` / `make codis-server` 仍构建 Redis 3 Codis Server。完整 slot 命令、tag index、迁移协议、Go 组件适配和正式默认产物切换仍等待 `redis8-upgrade` 后续条目完成。
 - `go.mod` 使用当前本地工具链版本 `go 1.26.1`；Go modules 构建迁移全部完成，编译契约和注意事项已落档入 `CLAUDE.md` 和 `.codestable/attention.md`。
 - 对同一个业务集群，现有文档要求同一时刻最多一个 dashboard，且所有集群修改都经由 dashboard 完成，见 `doc/tutorial_zh.md:43` 到 `doc/tutorial_zh.md:46`。
 - proxy 通过普通 Redis 协议面向客户端，但并不支持所有 Redis 命令；现有 README 明确提到 unsupported command list，见 `README.md:23` 到 `README.md:26`。`CLIENT` 命令族只支持 `CLIENT LIST`，且语义限定为当前 proxy 实例的活动客户端连接快照；它不聚合多个 proxy，不下探后端 Redis，不承诺 Redis 8.6.3 的全字段 parity，其余 `CLIENT` 子命令仍不支持，见 `doc/unsupported_cmds.md:37` 和 `pkg/proxy/client_list.go:155` 到 `pkg/proxy/client_list.go:239`。

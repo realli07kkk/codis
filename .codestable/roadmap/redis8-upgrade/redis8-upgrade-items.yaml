@@ -12,8 +12,8 @@ items:
   - slug: redis8-codis-mode-foundation
     description: 增加 codis-enabled、1024 slot kvstore、Codis CRC32 slot 计算和最小 Tcl smoke test
     depends_on: [redis8-patch-inventory-and-build-harness]
-    status: planned
-    feature: null
+    status: done
+    feature: 2026-05-13-redis8-codis-mode-foundation
     minimal_loop: true
     notes: "最小闭环；完成后 Redis 8 Codis Server 可启动、写入 key、按 1024 slot 统计，并通过 SLOTSHASHKEY/SLOTSINFO 验证 slot 语义。"
   - slug: redis8-slot-index-and-tag-index-core

@@ -1,0 +1,64 @@
+feature: 2026-05-13-redis8-codis-mode-foundation
+created: 2026-05-13
+
+steps:
+  - action: "配置基座：新增 codis_enabled 状态、codis-enabled config 和 cluster 互斥检查"
+    exit_signal: "codis-enabled yes 可启动，和 cluster-enabled yes 同开会失败"
+    status: done
+
+  - action: "slot keyspace：让 initServer/initTempDb/emptyDbAsync/getKeySlot/calculateKeySlot 使用 Codis 10-bit slot"
+    exit_signal: "Codis mode 写入 key 后 kvstore per-slot 计数不再集中在 slot 0"
+    status: done
+
+  - action: "观察命令：实现并注册 SLOTSHASHKEY / SLOTSINFO"
+    exit_signal: "命令返回格式兼容 Redis 3 Codis 的只读观察面，且只覆盖当前 DB"
+    status: done
+
+  - action: "Tcl smoke test：新增 Redis 8 Codis mode 单测"
+    exit_signal: "测试覆盖 CRC32 exact slot、hash tag 共享 slot、SLOTSINFO count、SELECT 当前 DB 语义和互斥配置失败"
+    status: done
+
+  - action: "构建与范围回归：运行 Redis 8 构建和目标 Tcl 测试，核对未进入后续迁移/扫描/删除范围"
+    exit_signal: "make codis-server-redis8 通过，目标 Tcl 测试通过，diff 不包含 Go 代码或迁移命令实现"
+    status: done
+
+checks:
+  - item: "codis-enabled 是 Redis 8 immutable bool config，默认 no"
+    source: 名词契约
+    status: passed
+
+  - item: "codis-enabled yes 与 cluster-enabled yes 启动期互斥"
+    source: 验收场景
+    status: passed
+
+  - item: "Codis mode 不改变 dbnum，不启用 Redis Cluster 协议"
+    source: 决策与约束
+    status: passed
+
+  - item: "getKeySlot/calculateKeySlot 在 Codis mode 下返回 crc32(hash_tag_or_key) & 0x3ff"
+    source: 名词契约
+    status: passed
+
+  - item: "keys/expires/subexpires 在 Codis mode 下使用 1024 slot kvstore/estore"
+    source: 名词契约
+    status: passed
+
+  - item: "FLUSHALL/FLUSHDB 后重建的 DB 仍保持 Codis 1024 slot keyspace"
+    source: 验收场景
+    status: passed
+
+  - item: "SLOTSHASHKEY 返回 Codis slot id 数组"
+    source: 验收场景
+    status: passed
+
+  - item: "SLOTSINFO [start] [count] 返回当前 DB 的非空 slot 计数"
+    source: 验收场景
+    status: passed
+
+  - item: "Redis 8 Codis Tcl smoke test 覆盖 exact slot、hash tag、当前 DB 和互斥配置"
+    source: 验收场景
+    status: passed
+
+  - item: "Diff 不包含 Go 代码、默认构建切换、迁移命令或 Redis 3 hash_slots 平行索引"
+    source: 范围守护
+    status: passed

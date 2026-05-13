@@ -1,0 +1,34 @@
+{
+    "SLOTSHASHKEY": {
+        "summary": "Returns the Codis slot id for one or more keys.",
+        "complexity": "O(N) where N is the number of keys.",
+        "group": "server",
+        "since": "3.2.0",
+        "arity": -1,
+        "function": "slotshashkeyCommand",
+        "command_flags": [
+            "READONLY",
+            "FAST"
+        ],
+        "acl_categories": [
+            "KEYSPACE"
+        ],
+        "reply_schema": {
+            "type": "array",
+            "description": "Codis slot ids for the provided keys.",
+            "items": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 1023
+            }
+        },
+        "arguments": [
+            {
+                "name": "key",
+                "type": "string",
+                "optional": true,
+                "multiple": true
+            }
+        ]
+    }
+}

@@ -709,6 +709,12 @@ typedef enum {
 #define CLUSTER_SLOT_STATS_MEM 4  /* Track memory usage per slot. */
 #define CLUSTER_SLOT_STATS_ALL (CLUSTER_SLOT_STATS_CPU | CLUSTER_SLOT_STATS_NET | CLUSTER_SLOT_STATS_MEM)
 
+/* Codis slot constants. Codis keeps a fixed 1024-slot model and does not use
+ * Redis Cluster's CRC16/16384 slot space. */
+#define CODIS_SLOT_MASK_BITS 10
+#define CODIS_SLOTS (1<<CODIS_SLOT_MASK_BITS)
+#define CODIS_SLOT_MASK ((unsigned long long)(CODIS_SLOTS - 1))
+
 /* IO thread pause status */
 #define IO_THREAD_UNPAUSED      0
 #define IO_THREAD_PAUSING       1
@@ -2408,6 +2414,7 @@ struct redisServer {
     unsigned int watching_clients; /* # of clients are wathcing keys */
     /* Cluster */
     int cluster_enabled;      /* Is cluster enabled? */
+    int codis_enabled;        /* Is Codis 1024-slot mode enabled? */
     int cluster_port;         /* Set the cluster port for a node. */
     mstime_t cluster_node_timeout; /* Cluster node timeout. */
     mstime_t cluster_ping_interval;    /* A debug configuration for setting how often cluster nodes send ping messages. */
@@ -3658,6 +3665,33 @@ int clientsCronRunClient(client *c);
 int restartServer(int flags, mstime_t delay);
 int getKeySlot(sds key);
 int calculateKeySlot(sds key);
+uint32_t crc32_checksum(const char *buf, int len);
+
+/* Codis follows the proxy Hash() semantics: the first {...} substring is a
+ * hash tag even when it is empty. Redis Cluster's keyHashSlot() treats {}
+ * as no tag, so keep this difference explicit. */
+static inline unsigned int codisHashSlot(const char *key, size_t keylen) {
+    size_t s, e;
+    const char *tag = key;
+    size_t taglen = keylen;
+
+    for (s = 0; s < keylen; s++) {
+        if (key[s] == '{') break;
+    }
+    if (s < keylen) {
+        for (e = s + 1; e < keylen; e++) {
+            if (key[e] == '}') break;
+        }
+        if (e < keylen) {
+            tag = key + s + 1;
+            taglen = e - s - 1;
+        }
+    }
+
+    return crc32_checksum(tag, (int)taglen) & CODIS_SLOT_MASK;
+}
+void slotshashkeyCommand(client *c);
+void slotsinfoCommand(client *c);
 
 /* kvstore wrappers */
 int dbExpand(redisDb *db, uint64_t db_size, int try_expand);
@@ -4006,6 +4040,7 @@ int delexGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult 
 int bitfieldGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
 
 unsigned short crc16(const char *buf, int len);
+void crc32_init(void);
 
 /* Sentinel */
 void initSentinelConfig(void);

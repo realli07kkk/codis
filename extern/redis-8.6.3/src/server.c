@@ -2944,16 +2944,21 @@ void initServer(void) {
     server.db = zmalloc(sizeof(redisDb)*server.dbnum);
 
     /* Create the Redis databases, and initialize other internal state. */
-    int slot_count_bits = 0;
+    int db_slot_count_bits = 0;
+    int pubsubshard_slot_count_bits = 0;
     int flags = KVSTORE_ALLOCATE_DICTS_ON_DEMAND;
     if (server.cluster_enabled) {
-        slot_count_bits = CLUSTER_SLOT_MASK_BITS;
+        db_slot_count_bits = CLUSTER_SLOT_MASK_BITS;
+        pubsubshard_slot_count_bits = CLUSTER_SLOT_MASK_BITS;
+        flags |= KVSTORE_FREE_EMPTY_DICTS;
+    } else if (server.codis_enabled) {
+        db_slot_count_bits = CODIS_SLOT_MASK_BITS;
         flags |= KVSTORE_FREE_EMPTY_DICTS;
     }
     for (j = 0; j < server.dbnum; j++) {
-        server.db[j].keys = kvstoreCreate(&kvstoreExType, &dbDictType, slot_count_bits, flags);
-        server.db[j].expires = kvstoreCreate(&kvstoreBaseType, &dbExpiresDictType, slot_count_bits, flags);
-        server.db[j].subexpires = estoreCreate(&subexpiresBucketsType, slot_count_bits);
+        server.db[j].keys = kvstoreCreate(&kvstoreExType, &dbDictType, db_slot_count_bits, flags);
+        server.db[j].expires = kvstoreCreate(&kvstoreBaseType, &dbExpiresDictType, db_slot_count_bits, flags);
+        server.db[j].subexpires = estoreCreate(&subexpiresBucketsType, db_slot_count_bits);
         server.db[j].expires_cursor = 0;
         server.db[j].blocking_keys = dictCreate(&keylistDictType);
         server.db[j].blocking_keys_unblock_on_nokey = dictCreate(&objectKeyPointerValueDictType);
@@ -2974,7 +2979,7 @@ void initServer(void) {
     server.pubsub_patterns = dictCreate(&objToDictDictType);
     server.pubsubshard_channels = kvstoreCreate(
         &kvstoreBaseType, &objToDictDictType,
-        slot_count_bits, KVSTORE_ALLOCATE_DICTS_ON_DEMAND | KVSTORE_FREE_EMPTY_DICTS);
+        pubsubshard_slot_count_bits, KVSTORE_ALLOCATE_DICTS_ON_DEMAND | KVSTORE_FREE_EMPTY_DICTS);
     server.pubsub_clients = 0;
     server.watching_clients = 0;
     server.cronloops = 0;
@@ -7742,6 +7747,7 @@ int main(int argc, char **argv) {
     srandom(time(NULL)^getpid()^tv.tv_usec);
     init_genrand64(((long long) tv.tv_sec * 1000000 + tv.tv_usec) ^ getpid());
     crc64_init();
+    crc32_init();
 
     /* Store umask value. Because umask(2) only offers a set-and-get API we have
      * to reset it and restore it back. We do this early to avoid a potential

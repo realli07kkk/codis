@@ -626,6 +626,11 @@ void loadServerConfigFromString(char *config) {
         goto loaderr;
     }
 
+    if (server.cluster_enabled && server.codis_enabled) {
+        err = "codis-enabled and cluster-enabled are mutually exclusive";
+        goto loaderr;
+    }
+
     /* in case cluster mode is enabled dbnum must be 1 */
     if (server.cluster_enabled && server.dbnum > 1) {
         serverLog(LL_WARNING, "WARNING: Changing databases number from %d to 1 since we are in cluster mode", server.dbnum);
@@ -3153,6 +3158,7 @@ standardConfig static_configs[] = {
     createBoolConfig("activedefrag", NULL, DEBUG_CONFIG | MODIFIABLE_CONFIG, server.active_defrag_enabled, 0, isValidActiveDefrag, NULL),
     createBoolConfig("syslog-enabled", NULL, IMMUTABLE_CONFIG, server.syslog_enabled, 0, NULL, NULL),
     createBoolConfig("cluster-enabled", NULL, IMMUTABLE_CONFIG, server.cluster_enabled, 0, NULL, NULL),
+    createBoolConfig("codis-enabled", NULL, IMMUTABLE_CONFIG, server.codis_enabled, 0, NULL, NULL),
     createBoolConfig("appendonly", NULL, MODIFIABLE_CONFIG, server.aof_enabled, 0, NULL, updateAppendonly),
     createBoolConfig("cluster-allow-reads-when-down", NULL, MODIFIABLE_CONFIG, server.cluster_allow_reads_when_down, 0, NULL, NULL),
     createBoolConfig("cluster-allow-pubsubshard-when-down", NULL, MODIFIABLE_CONFIG, server.cluster_allow_pubsubshard_when_down, 1, NULL, NULL),
