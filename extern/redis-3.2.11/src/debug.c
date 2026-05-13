@@ -649,7 +649,7 @@ void bugReportStart(void) {
 
 #ifdef HAVE_BACKTRACE
 static void *getMcontextEip(ucontext_t *uc) {
-#if defined(__APPLE__) && !defined(MAC_OS_X_VERSION_10_6)
+#if defined(__APPLE__) && !defined(MAC_OS_10_6_DETECTED)
     /* OSX < 10.6 */
     #if defined(__x86_64__)
     return (void*) uc->uc_mcontext->__ss.__rip;
@@ -658,12 +658,14 @@ static void *getMcontextEip(ucontext_t *uc) {
     #else
     return (void*) uc->uc_mcontext->__ss.__srr0;
     #endif
-#elif defined(__APPLE__) && defined(MAC_OS_X_VERSION_10_6)
+#elif defined(__APPLE__) && defined(MAC_OS_10_6_DETECTED)
     /* OSX >= 10.6 */
     #if defined(_STRUCT_X86_THREAD_STATE64) && !defined(__i386__)
     return (void*) uc->uc_mcontext->__ss.__rip;
-    #else
+    #elif defined(__i386__)
     return (void*) uc->uc_mcontext->__ss.__eip;
+    #else
+    return (void*) arm_thread_state64_get_pc(uc->uc_mcontext->__ss);
     #endif
 #elif defined(__linux__)
     /* Linux */
@@ -698,7 +700,7 @@ void logRegisters(ucontext_t *uc) {
     serverLog(LL_WARNING|LL_RAW, "\n------ REGISTERS ------\n");
 
 /* OSX */
-#if defined(__APPLE__) && defined(MAC_OS_X_VERSION_10_6)
+#if defined(__APPLE__) && defined(MAC_OS_10_6_DETECTED)
   /* OSX AMD64 */
     #if defined(_STRUCT_X86_THREAD_STATE64) && !defined(__i386__)
     serverLog(LL_WARNING,
@@ -731,7 +733,7 @@ void logRegisters(ucontext_t *uc) {
         (unsigned long) uc->uc_mcontext->__ss.__gs
     );
     logStackContent((void**)uc->uc_mcontext->__ss.__rsp);
-    #else
+    #elif defined(__i386__)
     /* OSX x86 */
     serverLog(LL_WARNING,
     "\n"
@@ -757,6 +759,11 @@ void logRegisters(ucontext_t *uc) {
         (unsigned long) uc->uc_mcontext->__ss.__gs
     );
     logStackContent((void**)uc->uc_mcontext->__ss.__esp);
+    #else
+    UNUSED(uc);
+    serverLog(LL_WARNING,
+    "\n"
+    "Dumping of registers is not supported for this OS/arch");
     #endif
 /* Linux */
 #elif defined(__linux__)

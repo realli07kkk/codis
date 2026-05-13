@@ -1,0 +1,67 @@
+roadmap: redis8-upgrade
+created: 2026-05-13
+
+items:
+  - slug: redis8-patch-inventory-and-build-harness
+    description: 建立 Redis 3 patch 到 Redis 8 的文件级移植矩阵，并接通 Redis 8 Codis Server 最小编译目标
+    depends_on: []
+    status: done
+    feature: 2026-05-13-redis8-patch-inventory-and-build-harness
+    minimal_loop: false
+    notes: "本阶段的可编译目标只要求 slots/crc32 等 Codis 目标文件能链接进 Redis 8 二进制，Codis 逻辑可以尚未触发。"
+  - slug: redis8-codis-mode-foundation
+    description: 增加 codis-enabled、1024 slot kvstore、Codis CRC32 slot 计算和最小 Tcl smoke test
+    depends_on: [redis8-patch-inventory-and-build-harness]
+    status: planned
+    feature: null
+    minimal_loop: true
+    notes: "最小闭环；完成后 Redis 8 Codis Server 可启动、写入 key、按 1024 slot 统计，并通过 SLOTSHASHKEY/SLOTSINFO 验证 slot 语义。"
+  - slug: redis8-slot-index-and-tag-index-core
+    description: 基于 Redis 8 kvstore 主存储实现 Codis slot keyspace 能力，并补齐 codis_tagged_keys 生命周期维护
+    depends_on: [redis8-codis-mode-foundation]
+    status: planned
+    feature: null
+    minimal_loop: false
+    notes: "不再维护 Redis 3 的 hash_slots 平行索引；覆盖 db.c、expire.c、evict.c、RDB load 后 tag index rebuild。"
+  - slug: redis8-slot-basic-commands
+    description: 移植 SLOTSHASHKEY、SLOTSINFO、SLOTSSCAN、SLOTSDEL、SLOTSCHECK 并逐条补 Redis Tcl 测试
+    depends_on: [redis8-slot-index-and-tag-index-core]
+    status: planned
+    feature: null
+    minimal_loop: false
+    notes: "返回格式必须兼容现有 Go proxy/topom parser。"
+  - slug: redis8-sync-migration-and-rdb-fragments
+    description: 移植同步迁移命令和 SLOTSRESTORE，验证 Redis 8 RDB fragment 与灰度跨版本迁移边界
+    depends_on: [redis8-slot-basic-commands]
+    status: planned
+    feature: null
+    minimal_loop: false
+    notes: "明确区分 SLOTSRESTORE 内部 RDB fragment 兼容性与持久化 RDB/AOF 降级能力。"
+  - slug: redis8-async-migration
+    description: 移植异步迁移、restore async、fence/cancel/status/auth，并评估 pthread lazy release 是否改接 Redis 8 bio/lazyfree
+    depends_on: [redis8-sync-migration-and-rdb-fragments]
+    status: planned
+    feature: null
+    minimal_loop: false
+    notes: "需评估自建 pthread 与 Redis 8 bio、jemalloc thread cache、lazyfree 的资源竞争。"
+  - slug: redis8-go-component-adapters
+    description: 验证并适配 Go proxy/topom/admin 对 Redis 8 Codis Server 的命令、INFO、CONFIG、AUTH、SELECT 和返回格式兼容性
+    depends_on: [redis8-slot-basic-commands, redis8-sync-migration-and-rdb-fragments]
+    status: planned
+    feature: null
+    minimal_loop: false
+    notes: "覆盖 SLAVEOF/REPLICAOF、INFO 字段、CONFIG REWRITE、CLIENT KILL TYPE normal、ACL/AUTH、SELECT、SLOTSINFO 返回格式。"
+  - slug: redis8-build-config-packaging
+    description: 完成 Redis 8 Codis Server 的正式构建、配置模板、命令 metadata 和打包切换
+    depends_on: [redis8-async-migration, redis8-go-component-adapters]
+    status: planned
+    feature: null
+    minimal_loop: false
+    notes: "第 1 步已接最小构建；本阶段负责正式默认构建和发布包装。"
+  - slug: redis8-validation-cutover
+    description: 完成端到端迁移演练、性能基线、灰度切换和回滚策略
+    depends_on: [redis8-build-config-packaging]
+    status: planned
+    feature: null
+    minimal_loop: false
+    notes: "必须覆盖 proxy/topom/dashboard/admin 联调和 Redis Tcl + Go 测试组合。"

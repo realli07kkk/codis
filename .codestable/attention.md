@@ -33,6 +33,7 @@
 
 - 可执行入口在 `cmd/`；核心 Go 包在 `pkg/`；文档和图片在 `doc/`。
 - 避免编辑 `bin/` 生成物和 `extern/`；旧 `vendor/` / `Godeps/` 已退休，不要恢复。
+- Redis 8 源码固定在 `extern/redis-8.6.3/`，不要再使用根目录 `redis-8.6.3/`；该目录不应被 `.gitignore` 忽略，后续 Redis 8 patch 改动必须能被 `git status` 看到。
 
 ### 环境变量与凭证
 

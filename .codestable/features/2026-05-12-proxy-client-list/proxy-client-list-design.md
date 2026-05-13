@@ -11,7 +11,7 @@ tags: [proxy, redis-protocol, client-list, observability]
 
 ## 0. 术语约定
 
-- **CLIENT LIST**：Redis connection group 下的 `CLIENT LIST` 子命令。Redis 8.6.3 的定义见 `redis-8.6.3/src/commands/client-list.json`，实现入口是 `redis-8.6.3/src/networking.c:4181` 的 `clientCommand`，列表行由 `catClientInfoString` 拼装。
+- **CLIENT LIST**：Redis connection group 下的 `CLIENT LIST` 子命令。Redis 8.6.3 的定义见 `extern/redis-8.6.3/src/commands/client-list.json`，实现入口是 `extern/redis-8.6.3/src/networking.c:4181` 的 `clientCommand`，列表行由 `catClientInfoString` 拼装。
 - **Proxy client session**：连接到 Codis Proxy Redis 协议端口的客户端连接，对应 `pkg/proxy/session.go` 的 `Session`。它不是 proxy 到后端 Redis 的 backend connection。
 - **Session registry**：本 feature 新增的 proxy 进程内活动 session 索引，用于给 `CLIENT LIST` 提供快照。现有代码只有 `sessions.total/alive` 计数，不能枚举连接。
 - **Redis field subset**：Codis Proxy 能真实提供的 `CLIENT LIST` 字段集合。Redis 8.6.3 字段很多，包含 ACL、RESP3、tracking、pubsub、query buffer、output buffer、IO thread 等；Codis Proxy 当前没有这些完整状态，不做虚假的 full parity。
@@ -80,7 +80,7 @@ tags: [proxy, redis-protocol, client-list, observability]
 ```text
 输入：CLIENT LIST
 输出：bulk string，每行一个 proxy client session，行内字段为 key=value，以 \n 结尾
-来源：redis-8.6.3/src/networking.c clientCommand / catClientInfoString
+来源：extern/redis-8.6.3/src/networking.c clientCommand / catClientInfoString
 ```
 
 ```text

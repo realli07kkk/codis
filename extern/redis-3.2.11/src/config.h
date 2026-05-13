@@ -34,13 +34,17 @@
 #include <AvailabilityMacros.h>
 #endif
 
+#if defined(__APPLE__) && defined(__MAC_OS_X_VERSION_MAX_ALLOWED) && __MAC_OS_X_VERSION_MAX_ALLOWED >= 1060
+#define MAC_OS_10_6_DETECTED
+#endif
+
 #ifdef __linux__
 #include <linux/version.h>
 #include <features.h>
 #endif
 
 /* Define redis_fstat to fstat or fstat64() */
-#if defined(__APPLE__) && !defined(MAC_OS_X_VERSION_10_6)
+#if defined(__APPLE__) && !defined(MAC_OS_10_6_DETECTED)
 #define redis_fstat fstat64
 #define redis_stat stat64
 #else

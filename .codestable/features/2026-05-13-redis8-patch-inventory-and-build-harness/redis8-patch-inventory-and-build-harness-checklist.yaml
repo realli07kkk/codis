@@ -1,0 +1,56 @@
+feature: 2026-05-13-redis8-patch-inventory-and-build-harness
+created: 2026-05-13
+
+steps:
+  - action: "规划交付物：写 Redis 3 patch 到 Redis 8 的文件级移植矩阵"
+    exit_signal: "矩阵覆盖 roadmap review 中列出的 Redis 原始文件和 Codis 新增源文件，并标明后续归属 feature"
+    status: done
+
+  - action: "构建入口：在根 Makefile 增加 Redis 8 独立构建目标"
+    exit_signal: "目标不改变默认 codis-server，且产物使用 -redis8 后缀避免覆盖默认 Redis 3 产物"
+    status: done
+
+  - action: "Redis 8 object 挂载：在 Redis 8 src Makefile 加入 Codis stub objects，并新增 stub source"
+    exit_signal: "Redis 8 server link 命令实际依赖 slots.o、slots_async.o、crc32.o"
+    status: done
+
+  - action: "构建验证：运行 Redis 8 独立构建和 Redis 3 默认构建冒烟"
+    exit_signal: "make codis-server-redis8 与 make codis-server 均通过"
+    status: done
+
+  - action: "范围回归：核对没有提前进入 codis mode、slot 命令、Go 组件适配范围"
+    exit_signal: "diff 不包含 Redis 8 command JSON / commands.def、Go 源码、getKeySlot() 或 codis-enabled 实现"
+    status: done
+
+checks:
+  - item: "migration matrix 覆盖 Redis 3 patch 修改的原始 Redis 文件和 Codis 新增源文件"
+    source: 验收场景
+    status: passed
+
+  - item: "根 Makefile 新增 codis-server-redis8 独立目标，默认 codis-server 仍构建 Redis 3"
+    source: 挂载点
+    status: passed
+
+  - item: "Redis 8 REDIS_SERVER_OBJ 包含 slots.o、slots_async.o、crc32.o"
+    source: 名词契约
+    status: passed
+
+  - item: ".gitignore 不再忽略 extern/redis-8.6.3 源码目录，Redis 8 suffixed config 构建产物仍被忽略"
+    source: 挂载点
+    status: passed
+
+  - item: "make codis-server-redis8 通过并产出 suffixed Redis 8 binaries/configs"
+    source: 验收场景
+    status: passed
+
+  - item: "make codis-server 通过，默认 Redis 3 构建路径未切换"
+    source: 验收场景
+    status: passed
+
+  - item: "Diff 不包含 Redis 8 command JSON、commands.def、Go 源码、codis_enabled/getKeySlot 实现"
+    source: 范围守护
+    status: passed
+
+  - item: "Redis 3 默认构建路径只做 macOS fstat/ARM64 mcontext 检测兼容修复，不改 Codis patch 运行逻辑"
+    source: 范围守护
+    status: passed

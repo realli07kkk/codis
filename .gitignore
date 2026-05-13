@@ -11,7 +11,8 @@
 
 /bin
 /tmp
+/config/redis8.conf
+/config/sentinel8.conf
 
 makefile
-redis-8.6.3/
 redis-6.2.22/

@@ -40,7 +40,7 @@ flowchart LR
   Proxy --> Jodis[Jodis Registry]
 ```
 
-构建层面，仓库已有 `go.mod` / `go.sum`，`go.mod` 使用 `go 1.26.1`，旧 `vendor/` / `Godeps/` 依赖目录已经退休。常规 Go 依赖由 `go.mod/go.sum` 解析，`GO111MODULE=on go test ./cmd/... ./pkg/...`、`GO111MODULE=on go build ./cmd/... ./pkg/...` 和 `GO111MODULE=on go build -tags cgo_jemalloc ./cmd/proxy` 都可在 module mode 下通过。`cgo_jemalloc` 路径通过 `go.mod` 的 `replace github.com/spinlock/jemalloc-go => ./third_party/jemalloc-go` 指向仓库内受控的本地模块，不再依赖旧 `vendor/github.com/spinlock/jemalloc-go` 的预处理状态。`Makefile` 已切换到 module mode（移除了 `GO15VENDOREXPERIMENT` 和旧 `vendor/github.com/spinlock/jemalloc-go` 预处理调用），产出 `codis-dashboard`、`codis-proxy`、`codis-admin`、`codis-ha`、`codis-fe` 和嵌入式 `codis-server`；Go 二进制构建规则在 `Makefile:10` 到 `Makefile:25`，Redis Server 构建和配置刷新在 `Makefile:28` 到 `Makefile:37`。
+构建层面，仓库已有 `go.mod` / `go.sum`，`go.mod` 使用 `go 1.26.1`，旧 `vendor/` / `Godeps/` 依赖目录已经退休。常规 Go 依赖由 `go.mod/go.sum` 解析，`GO111MODULE=on go test ./cmd/... ./pkg/...`、`GO111MODULE=on go build ./cmd/... ./pkg/...` 和 `GO111MODULE=on go build -tags cgo_jemalloc ./cmd/proxy` 都可在 module mode 下通过。`cgo_jemalloc` 路径通过 `go.mod` 的 `replace github.com/spinlock/jemalloc-go => ./third_party/jemalloc-go` 指向仓库内受控的本地模块，不再依赖旧 `vendor/github.com/spinlock/jemalloc-go` 的预处理状态。`Makefile` 已切换到 module mode（移除了 `GO15VENDOREXPERIMENT` 和旧 `vendor/github.com/spinlock/jemalloc-go` 预处理调用），产出 `codis-dashboard`、`codis-proxy`、`codis-admin`、`codis-ha`、`codis-fe` 和嵌入式 `codis-server`；Go 二进制构建规则在 `Makefile:12` 到 `Makefile:28`，默认 Redis 3 Codis Server 构建和配置刷新在 `Makefile:30` 到 `Makefile:39`。Redis 8 升级路线已有独立 harness：`make codis-server-redis8` 从 `extern/redis-8.6.3/` 构建 Redis 8 server，复制为 `bin/codis-server-redis8`、`bin/redis-cli-redis8`、`bin/redis-benchmark-redis8`、`bin/redis-sentinel-redis8`，并生成 ignored 的 `config/redis8.conf` / `config/sentinel8.conf`；该支线在 `Makefile:41` 到 `Makefile:50`，不会改变默认 `codis-server` 仍指向 Redis 3 的语义。
 
 版本元数据由 `pkg/utils/version.go` 提供 clean checkout 默认值，`version` 脚本生成 `bin/version` 和 `bin/version.ldflags`，Makefile 通过 `-ldflags -X` 注入真实 git/date 信息。该文件不再由构建脚本覆盖，避免一次 `make` 后源码进入脏状态。
 
@@ -92,6 +92,7 @@ proxy 的内存状态包括身份认证 token、`models.Proxy`、两个 listener
 - `cmd/admin/main.go` — admin CLI 参数分发。
 - `cmd/ha/main.go` — HA 巡检和自动维护循环。
 - `Makefile` — 二进制、嵌入式 Redis、默认配置的构建入口。
+- `extern/redis-8.6.3/src/Makefile` / `extern/redis-8.6.3/src/slots.c` / `extern/redis-8.6.3/src/slots_async.c` / `extern/redis-8.6.3/src/crc32.c` — Redis 8 Codis Server harness 的最小构建挂载；当前只把 Codis stub objects 接入 Redis 8 server link，不注册 Codis 命令、不启用 Codis 模式。
 - `go.mod` / `go.sum` — Go modules 最小编译闭环的依赖入口和校验锁定。
 - `third_party/jemalloc-go` — `github.com/spinlock/jemalloc-go` 的本地 replace 模块，提供 `cgo_jemalloc` 构建所需的 Go wrapper、头文件和 C 源码。
 - `pkg/utils/version.go` / `version` — clean checkout 版本元数据兜底和 Makefile 构建时的 ldflags 注入来源。
@@ -99,6 +100,7 @@ proxy 的内存状态包括身份认证 token、`models.Proxy`、两个 listener
 ## 6. 已知约束 / 边界情况
 
 - 当前仓库已建立 Go modules 编译闭环：默认 cmd/pkg module mode 可编译测试，`cgo_jemalloc` proxy 也可通过 `third_party/jemalloc-go` 的本地 replace 模块在 module mode 下构建；`Makefile` 已完成 module mode 切换（`make gotest`、`make build-all` 均不再依赖 GOPATH/vendor 参数）；旧 `vendor/` / `Godeps/` 已退休。
+- Redis 8 Codis Server 目前只有独立 build harness：`make codis-server-redis8` 可编译带 `slots.o`、`slots_async.o`、`crc32.o` stub objects 的 Redis 8 二进制；默认 `make` / `make codis-server` 仍构建 Redis 3 Codis Server。正式切换默认产物必须等 `redis8-upgrade` roadmap 后续 `redis8-codis-mode-foundation`、迁移命令和 packaging 条目完成。
 - `go.mod` 使用当前本地工具链版本 `go 1.26.1`；Go modules 构建迁移全部完成，编译契约和注意事项已落档入 `CLAUDE.md` 和 `.codestable/attention.md`。
 - 对同一个业务集群，现有文档要求同一时刻最多一个 dashboard，且所有集群修改都经由 dashboard 完成，见 `doc/tutorial_zh.md:43` 到 `doc/tutorial_zh.md:46`。
 - proxy 通过普通 Redis 协议面向客户端，但并不支持所有 Redis 命令；现有 README 明确提到 unsupported command list，见 `README.md:23` 到 `README.md:26`。`CLIENT` 命令族只支持 `CLIENT LIST`，且语义限定为当前 proxy 实例的活动客户端连接快照；它不聚合多个 proxy，不下探后端 Redis，不承诺 Redis 8.6.3 的全字段 parity，其余 `CLIENT` 子命令仍不支持，见 `doc/unsupported_cmds.md:37` 和 `pkg/proxy/client_list.go:155` 到 `pkg/proxy/client_list.go:239`。
