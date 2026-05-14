@@ -25,10 +25,11 @@ class CodisServer(Process):
         config = 'redis-{}.conf'.format(port)
         with open(config, "w+") as f:
             f.write('port {}\n'.format(port))
+            f.write('codis-enabled yes\n')
             f.write('save ""\n')
             f.write('dbfilename "{}.rdb"\n'.format(port))
             if master_port is not None:
-                f.write('slaveof 127.0.0.1 {}\n'.format(master_port))
+                f.write('replicaof 127.0.0.1 {}\n'.format(master_port))
             if requirepass is not None:
                 f.write('masterauth {}\n'.format(requirepass))
                 f.write('requirepass {}\n'.format(requirepass))

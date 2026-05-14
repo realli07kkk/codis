@@ -309,9 +309,9 @@ SLOTSRESTORE-ASYNC-AUTH2 username password  # 如 Redis 8 ACL 需要
 8. **redis8-build-config-packaging** — 完成 Redis 8 Codis Server 的正式构建、配置模板、命令 metadata 和打包切换。
    - 所属模块：validation-cutover
    - 依赖：`redis8-async-migration`、`redis8-go-component-adapters`
-   - 状态：planned
-   - 对应 feature：未启动
-   - 备注：第 1 步已接最小构建；本条负责正式默认构建和发布包装。
+   - 状态：done
+   - 对应 feature：2026-05-14-redis8-build-config-packaging
+   - 备注：默认 `codis-server`、tracked Redis 配置模板和 Docker / example 包装入口已切到 Redis 8 Codis Server；Redis 3 通过显式 fallback 目标保留，灰度 cutover、性能基线和回滚策略仍由下一条承接。
 
 9. **redis8-validation-cutover** — 完成端到端迁移演练、性能基线、灰度切换和回滚策略。
    - 所属模块：validation-cutover

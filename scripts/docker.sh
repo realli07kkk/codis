@@ -46,7 +46,8 @@ server)
             -v `realpath log`:/codis/log \
             -p $port:6379 \
             codis-image \
-            codis-server --logfile log/${port}.log
+            codis-server /gopath/src/github.com/CodisLabs/codis/config/redis.conf \
+                --logfile log/${port}.log --protected-mode no --bind 0.0.0.0
     done
     ;;
 

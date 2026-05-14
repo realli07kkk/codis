@@ -1,0 +1,132 @@
+feature: 2026-05-14-redis8-build-config-packaging
+created: 2026-05-14
+
+steps:
+  - action: "metadata 审计骨架：列出全部 Codis command JSON 和对应 COMMAND INFO 验证点"
+    exit_signal: "每个 Codis 命令都有 JSON 源，commands.def 可由生成器同步，审计能指出是否需要 metadata 修正"
+    status: done
+  - action: "默认构建切换：把 make codis-server / make build-all 的默认 server 产物切到 Redis 8，并保留 Redis 3 fallback"
+    exit_signal: "bin/codis-server --version 是 Redis 8.6.3，fallback 目标仍能构建 Redis 3.2.11"
+    status: done
+  - action: "配置模板提升：将 tracked 默认 Redis 配置提升为 Redis 8 Codis Server 模板"
+    exit_signal: "用 config/redis.conf 启动后 codis-enabled=yes、cluster-enabled=no，CONFIG REWRITE 不丢 Codis 自定义配置"
+    status: done
+  - action: "包装入口适配：更新 Dockerfile、docker server 脚本、example server 临时配置和 Kubernetes server manifest 的必要启动参数"
+    exit_signal: "所有入口都使用默认 codis-server，且不会以 codis-enabled no 启动 Redis 8"
+    status: done
+  - action: "构建与 smoke 验证：跑默认构建、Redis 8 Tcl smoke、Go 组件兼容测试或目标包回归"
+    exit_signal: "make build-all / make codis-server / Redis 8 Codis smoke 通过；Go 侧未出现生产 adapter 回归"
+    status: done
+  - action: "范围回归与交接：核对未混入 cutover、迁移协议、Go 依赖升级和 proxy 命令面变更"
+    exit_signal: "diff 只包含 packaging / config / metadata 必要范围，validation-cutover 能接收正式发布物继续端到端验证"
+    status: done
+
+checks:
+  - item: "make codis-server 产出的 bin/codis-server 来自 Redis 8.6.3"
+    source: 名词契约
+    status: passed
+  - item: "Redis 3 fallback 构建目标存在，且不会覆盖默认 bin/codis-server"
+    source: 名词契约
+    status: passed
+  - item: "config/redis.conf 是 Redis 8 Codis Server 默认配置，并显式包含 codis-enabled yes"
+    source: 名词契约
+    status: passed
+  - item: "config/redis.conf 不启用 cluster-enabled yes，保留 Codis standalone 多 DB 语义"
+    source: 名词契约
+    status: passed
+  - item: "全部 Codis 命令 metadata 以 extern/redis-8.6.3/src/commands/*.json 为源，commands.def 是生成同步结果"
+    source: 名词契约
+    status: passed
+  - item: "Dockerfile 的构建环境支持当前 Go modules 构建，不再使用 Go 1.8 作为默认构建镜像"
+    source: 名词契约
+    status: passed
+  - item: "scripts/docker.sh server、example/server.py、kubernetes/codis-server.yaml 启动默认 codis-server 时进入 Codis mode"
+    source: 名词契约
+    status: passed
+  - item: "默认构建切换顺序必须先完成 command metadata 审计，再切 Makefile 默认产物"
+    source: 编排骨架
+    status: passed
+  - item: "构建编排从默认 Redis 3 + suffixed Redis 8 改为默认 Redis 8 + 显式 Redis 3 fallback"
+    source: 编排骨架
+    status: passed
+  - item: "配置模板从 Redis 3 默认模板改为 Redis 8 Codis mode 默认模板"
+    source: 编排骨架
+    status: passed
+  - item: "包装入口统一围绕默认 bin/codis-server，不要求用户知道 codis-server-redis8 开发期后缀"
+    source: 编排骨架
+    status: passed
+  - item: "默认 make codis-server 不能在 Redis 8 构建失败时静默回落 Redis 3"
+    source: 流程级约束
+    status: passed
+  - item: "metadata 生成失败不能通过手写 commands.def 掩盖"
+    source: 流程级约束
+    status: passed
+  - item: "重复执行 make codis-server / make build-all 后 tracked 配置和 generated metadata 输出稳定"
+    source: 流程级约束
+    status: passed
+  - item: "通用 config/redis.conf 不写真实密码，不默认扩大监听面"
+    source: 流程级约束
+    status: passed
+  - item: "Makefile 默认 codis-server / build-all 入口切到 Redis 8，并保留 Redis 3 fallback target"
+    source: 挂载点
+    status: passed
+  - item: "config/redis.conf / config/sentinel.conf 成为 Redis 8 正式默认配置模板"
+    source: 挂载点
+    status: passed
+  - item: "Redis command registry 的 JSON 和 generated commands.def 已完成最终 metadata 审计"
+    source: 挂载点
+    status: passed
+  - item: "Dockerfile + scripts/docker.sh 已适配 Redis 8 Codis Server 默认发布物"
+    source: 挂载点
+    status: passed
+  - item: "example/server.py + kubernetes/codis-server.yaml 已确认或适配 Codis mode 启动"
+    source: 挂载点
+    status: passed
+  - item: "Diff 不修改 Redis Cluster MOVED / ASK / cluster bus 语义"
+    source: 范围守护
+    status: passed
+  - item: "Diff 不新增 Redis 命令实现或改变 SLOTSMGRT* / SLOTSRESTORE* 返回协议"
+    source: 范围守护
+    status: passed
+  - item: "Diff 不修改 Go proxy/topom/admin 生产协议适配或 proxy mapper.go allow-list"
+    source: 范围守护
+    status: passed
+  - item: "Diff 不修改 go.mod / go.sum，不新增 vendor、Godeps 或 vendor/modules.txt"
+    source: 范围守护
+    status: passed
+  - item: "Diff 不删除 extern/redis-3.2.11 或移除 Redis 3 fallback 构建能力"
+    source: 范围守护
+    status: passed
+  - item: "验收报告不把端到端灰度、性能基线、Redis 3 ↔ Redis 8 数据迁移兼容写成本 feature 已完成"
+    source: 范围守护
+    status: passed
+  - item: "make codis-server 通过，./bin/codis-server --version 显示 Redis server v=8.6.3"
+    source: 验收场景
+    status: passed
+  - item: "Redis 3 fallback 构建目标通过，产物不覆盖 bin/codis-server"
+    source: 验收场景
+    status: passed
+  - item: "make build-all 通过，默认完整构建包含 Redis 8 bin/codis-server、Go 二进制和默认配置刷新"
+    source: 验收场景
+    status: passed
+  - item: "用 config/redis.conf 启动 bin/codis-server 后 CONFIG GET codis-enabled 返回 yes，cluster-enabled 返回 no"
+    source: 验收场景
+    status: passed
+  - item: "CONFIG REWRITE 后配置仍保留 codis-enabled yes"
+    source: 验收场景
+    status: passed
+  - item: "COMMAND INFO 查询全部 Codis slot / migration / restore / async 命令均可发现，metadata 与命令用途匹配"
+    source: 验收场景
+    status: passed
+  - item: "重新生成 commands.def 后与 JSON 源一致，不能出现只手写 generated file 的 diff"
+    source: 验收场景
+    status: passed
+  - item: "Dockerfile 静态检查或 docker build 证明构建环境不再卡在 Go 1.8"
+    source: 验收场景
+    status: passed
+  - item: "scripts/docker.sh server、example/server.py、kubernetes/codis-server.yaml 静态检查证明不会以 codis-enabled no 启动 Redis 8"
+    source: 验收场景
+    status: passed
+  - item: "Redis 8 Codis smoke 写入 key 后 SLOTSHASHKEY / SLOTSINFO 返回 0..1023 slot 语义"
+    source: 验收场景
+    status: passed

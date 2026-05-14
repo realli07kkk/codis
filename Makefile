@@ -28,26 +28,37 @@ codis-fe: codis-deps
 	@rm -rf bin/assets; cp -rf cmd/fe/assets bin/
 
 codis-server:
-	@mkdir -p bin
+	@mkdir -p bin config
 	@rm -f bin/codis-server
-	make -j4 -C $(REDIS3_DIR)/
-	@cp -f $(REDIS3_DIR)/src/redis-server  bin/codis-server
-	@cp -f $(REDIS3_DIR)/src/redis-benchmark bin/
-	@cp -f $(REDIS3_DIR)/src/redis-cli bin/
-	@cp -f $(REDIS3_DIR)/src/redis-sentinel bin/
-	@cp -f $(REDIS3_DIR)/redis.conf config/
-	@sed -e "s/^sentinel/# sentinel/g" $(REDIS3_DIR)/sentinel.conf > config/sentinel.conf
+	make -j4 -C $(REDIS8_DIR)/
+	@cp -f $(REDIS8_DIR)/src/redis-server  bin/codis-server
+	@cp -f $(REDIS8_DIR)/src/redis-benchmark bin/
+	@cp -f $(REDIS8_DIR)/src/redis-cli bin/
+	@cp -f $(REDIS8_DIR)/src/redis-sentinel bin/
+	@awk '1; /^[[:space:]]*databases[[:space:]]+[0-9]+([[:space:]]*#.*)?$$/ && !injected { print ""; print "# Enable Codis 1024-slot mode for the packaged Codis Server."; print "codis-enabled yes"; injected=1 }' $(REDIS8_DIR)/redis.conf | sed -e 's/[[:blank:]]*$$//' > config/redis.conf
+	@grep -q '^codis-enabled yes$$' config/redis.conf
+	@sed -e "s/^sentinel/# sentinel/g" -e 's/[[:blank:]]*$$//' $(REDIS8_DIR)/sentinel.conf > config/sentinel.conf
+	@awk '1; /^protected-mode no$$/ { print ""; print "# Codis packaging note: Docker and Kubernetes examples rely on network-layer"; print "# isolation when Sentinel protected mode is disabled. Bare-metal deployments"; print "# should restrict exposure with firewall rules or override this setting." }' config/sentinel.conf > config/sentinel.conf.tmp
+	@mv config/sentinel.conf.tmp config/sentinel.conf
 
-codis-server-redis8:
+codis-server-redis3:
+	@mkdir -p bin
+	@rm -f bin/codis-server-redis3
+	make -j4 -C $(REDIS3_DIR)/
+	@cp -f $(REDIS3_DIR)/src/redis-server  bin/codis-server-redis3
+	@cp -f $(REDIS3_DIR)/src/redis-benchmark bin/redis-benchmark-redis3
+	@cp -f $(REDIS3_DIR)/src/redis-cli bin/redis-cli-redis3
+	@cp -f $(REDIS3_DIR)/src/redis-sentinel bin/redis-sentinel-redis3
+
+codis-server-redis8: codis-server
 	@mkdir -p bin config
 	@rm -f bin/codis-server-redis8
-	make -j4 -C $(REDIS8_DIR)/
-	@cp -f $(REDIS8_DIR)/src/redis-server bin/codis-server-redis8
-	@cp -f $(REDIS8_DIR)/src/redis-benchmark bin/redis-benchmark-redis8
-	@cp -f $(REDIS8_DIR)/src/redis-cli bin/redis-cli-redis8
-	@cp -f $(REDIS8_DIR)/src/redis-sentinel bin/redis-sentinel-redis8
-	@cp -f $(REDIS8_DIR)/redis.conf config/redis8.conf
-	@sed -e "s/^sentinel/# sentinel/g" $(REDIS8_DIR)/sentinel.conf > config/sentinel8.conf
+	@cp -f bin/codis-server bin/codis-server-redis8
+	@cp -f bin/redis-benchmark bin/redis-benchmark-redis8
+	@cp -f bin/redis-cli bin/redis-cli-redis8
+	@cp -f bin/redis-sentinel bin/redis-sentinel-redis8
+	@cp -f config/redis.conf config/redis8.conf
+	@cp -f config/sentinel.conf config/sentinel8.conf
 
 clean-gotest:
 	@rm -rf ./pkg/topom/gotest.tmp

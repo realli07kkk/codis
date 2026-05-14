@@ -54,8 +54,8 @@ items:
   - slug: redis8-build-config-packaging
     description: 完成 Redis 8 Codis Server 的正式构建、配置模板、命令 metadata 和打包切换
     depends_on: [redis8-async-migration, redis8-go-component-adapters]
-    status: planned
-    feature: null
+    status: done
+    feature: 2026-05-14-redis8-build-config-packaging
     minimal_loop: false
     notes: "第 1 步已接最小构建；本阶段负责正式默认构建和发布包装。"
   - slug: redis8-validation-cutover
