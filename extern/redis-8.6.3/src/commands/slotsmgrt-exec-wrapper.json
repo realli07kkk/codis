@@ -1,0 +1,61 @@
+{
+    "SLOTSMGRT-EXEC-WRAPPER": {
+        "summary": "Execute a command while preserving Codis asynchronous migration fencing semantics.",
+        "complexity": "Depends on the wrapped command.",
+        "group": "server",
+        "since": "3.2.0",
+        "arity": -3,
+        "function": "slotsmgrtExecWrapperCommand",
+        "command_flags": [
+            "WRITE",
+            "DENYOOM"
+        ],
+        "acl_categories": [
+            "KEYSPACE",
+            "DANGEROUS"
+        ],
+        "key_specs": [
+            {
+                "flags": [
+                    "RW",
+                    "ACCESS",
+                    "UPDATE",
+                    "VARIABLE_FLAGS"
+                ],
+                "begin_search": {
+                    "index": {
+                        "pos": 1
+                    }
+                },
+                "find_keys": {
+                    "range": {
+                        "lastkey": 0,
+                        "step": 1,
+                        "limit": 0
+                    }
+                }
+            }
+        ],
+        "reply_schema": {
+            "type": "string",
+            "description": "Reply from the wrapped command."
+        },
+        "arguments": [
+            {
+                "name": "hash-key",
+                "type": "key",
+                "key_spec_index": 0
+            },
+            {
+                "name": "command",
+                "type": "string"
+            },
+            {
+                "name": "argument",
+                "type": "string",
+                "optional": true,
+                "multiple": true
+            }
+        ]
+    }
+}

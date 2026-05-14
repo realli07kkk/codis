@@ -1,0 +1,58 @@
+{
+    "SLOTSMGRTTAGSLOT-ASYNC": {
+        "summary": "Asynchronously migrate hash-tag grouped keys from a Codis slot to the target node.",
+        "complexity": "O(N) where N is the number of keys selected for migration.",
+        "group": "server",
+        "since": "3.2.0",
+        "arity": 8,
+        "function": "slotsmgrtTagSlotAsyncCommand",
+        "command_flags": [
+            "WRITE",
+            "NOSCRIPT",
+            "BLOCKING"
+        ],
+        "acl_categories": [
+            "KEYSPACE",
+            "DANGEROUS"
+        ],
+        "command_tips": [
+            "NONDETERMINISTIC_OUTPUT"
+        ],
+        "reply_schema": {
+            "type": "integer",
+            "description": "Number of keys queued for asynchronous migration."
+        },
+        "arguments": [
+            {
+                "name": "host",
+                "type": "string"
+            },
+            {
+                "name": "port",
+                "type": "integer"
+            },
+            {
+                "name": "timeout",
+                "type": "integer"
+            },
+            {
+                "name": "maxbulks",
+                "type": "integer"
+            },
+            {
+                "name": "maxbytes",
+                "type": "integer"
+            },
+            {
+                "name": "slot",
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 1023
+            },
+            {
+                "name": "numkeys",
+                "type": "integer"
+            }
+        ]
+    }
+}

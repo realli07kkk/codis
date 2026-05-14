@@ -40,10 +40,10 @@ items:
   - slug: redis8-async-migration
     description: 移植异步迁移、restore async、fence/cancel/status/auth，并评估 pthread lazy release 是否改接 Redis 8 bio/lazyfree
     depends_on: [redis8-sync-migration-and-rdb-fragments]
-    status: planned
-    feature: null
+    status: done
+    feature: 2026-05-14-redis8-async-migration
     minimal_loop: false
-    notes: "需评估自建 pthread 与 Redis 8 bio、jemalloc thread cache、lazyfree 的资源竞争。"
+    notes: "已完成 Redis 8 ↔ Redis 8 异步迁移、restore async ACK、AUTH/AUTH2/SELECT、fence/cancel/status、exec wrapper 写保护和 Tcl 回归；未新增 Codis 私有 pthread lazy release worker。"
   - slug: redis8-go-component-adapters
     description: 验证并适配 Go proxy/topom/admin 对 Redis 8 Codis Server 的命令、INFO、CONFIG、AUTH、SELECT 和返回格式兼容性
     depends_on: [redis8-slot-basic-commands, redis8-sync-migration-and-rdb-fragments]

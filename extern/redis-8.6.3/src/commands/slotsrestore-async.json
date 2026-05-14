@@ -1,0 +1,58 @@
+{
+    "SLOTSRESTORE-ASYNC": {
+        "summary": "Apply a Codis asynchronous migration restore operation.",
+        "complexity": "O(N) where N depends on the restored value payload.",
+        "group": "server",
+        "since": "3.2.0",
+        "arity": -2,
+        "function": "slotsrestoreAsyncCommand",
+        "command_flags": [
+            "WRITE",
+            "DENYOOM"
+        ],
+        "acl_categories": [
+            "KEYSPACE",
+            "DANGEROUS"
+        ],
+        "key_specs": [
+            {
+                "flags": [
+                    "OW",
+                    "UPDATE"
+                ],
+                "begin_search": {
+                    "index": {
+                        "pos": 2
+                    }
+                },
+                "find_keys": {
+                    "range": {
+                        "lastkey": 0,
+                        "step": 1,
+                        "limit": 0
+                    }
+                }
+            }
+        ],
+        "reply_schema": {
+            "const": "OK"
+        },
+        "arguments": [
+            {
+                "name": "operation",
+                "type": "string"
+            },
+            {
+                "name": "key",
+                "type": "key",
+                "key_spec_index": 0
+            },
+            {
+                "name": "argument",
+                "type": "string",
+                "optional": true,
+                "multiple": true
+            }
+        ]
+    }
+}

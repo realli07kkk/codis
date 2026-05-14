@@ -1708,6 +1708,7 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
     run_with_period(1000) {
         migrateCloseTimedoutSockets();
         slotsmgrt_cleanup();
+        slotsmgrtAsyncCleanup();
     }
 
     /* Cleanup expired IDMP entries from tracked streams */
@@ -2348,6 +2349,7 @@ void initServerConfig(void) {
     server.cluster_module_trim_disablers = 0;
     server.migrate_cached_sockets = dictCreate(&migrateCacheDictType);
     server.slotsmgrt_cached_sockets = dictCreate(&migrateCacheDictType);
+    server.slotsmgrt_cached_clients = NULL;
     server.next_client_id = 1; /* Client IDs, start from 1 .*/
     server.page_size = sysconf(_SC_PAGESIZE);
     server.pause_cron = 0;
@@ -2944,6 +2946,7 @@ void initServer(void) {
         exit(1);
     }
     server.db = zmalloc(sizeof(redisDb)*server.dbnum);
+    server.slotsmgrt_cached_clients = zcalloc(sizeof(slotsmgrtAsyncClient) * server.dbnum);
 
     /* Create the Redis databases, and initialize other internal state. */
     int db_slot_count_bits = 0;

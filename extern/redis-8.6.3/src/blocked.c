@@ -198,6 +198,9 @@ void unblockClient(client *c, int queue_for_reprocessing) {
         /* No special cleanup. */
     } else if (c->bstate.btype == BLOCKED_LAZYFREE) {
         /* No special cleanup. */
+    } else if (c->bstate.btype == BLOCKED_SLOTSMGRT) {
+        /* No special cleanup. The Codis async migration owner already removed
+         * the client from its fence list before unblocking it. */
     } else {
         serverPanic("Unknown btype in unblockClient().");
     }

@@ -489,6 +489,7 @@ typedef enum blocking_type {
     BLOCKED_POSTPONE_TRIM, /* Master client is blocked due to an active trim job. */
     BLOCKED_SHUTDOWN, /* SHUTDOWN. */
     BLOCKED_LAZYFREE, /* LAZYFREE */
+    BLOCKED_SLOTSMGRT, /* Codis async migration fence. */
     BLOCKED_NUM,      /* Number of blocked states. */
     BLOCKED_END       /* End of enumeration */
 } blocking_type;
@@ -727,6 +728,23 @@ typedef struct {
     int authorized;
     time_t lasttime;
 } slotsmgrt_sockfd;
+
+#define CLIENT_SLOTSMGRT_ASYNC_CACHED_CLIENT (1 << 0)
+#define CLIENT_SLOTSMGRT_ASYNC_NORMAL_CLIENT (1 << 1)
+
+typedef struct batchedObjectIterator batchedObjectIterator;
+
+typedef struct {
+    struct client *c;
+    int used; /* 0 = prelude not sent, 1 = prelude sent. */
+    sds host;
+    int port;
+    long long timeout;
+    long long lastuse;
+    long sending_msgs;
+    batchedObjectIterator *batched_iter;
+    list *blocked_list;
+} slotsmgrtAsyncClient;
 
 /* IO thread pause status */
 #define IO_THREAD_UNPAUSED      0
@@ -1544,6 +1562,8 @@ typedef struct client {
     dict *pubsub_patterns;  /* patterns a client is interested in (PSUBSCRIBE) */
     dict *pubsubshard_channels;  /* shard level channels a client is interested in (SSUBSCRIBE) */
     sds peerid;             /* Cached peer ID. */
+    long slotsmgrt_flags;   /* Codis async migration client state flags. */
+    list *slotsmgrt_fenceq; /* Commands fenced while async migration is active. */
     sds sockname;           /* Cached connection target address. */
     listNode *client_list_node; /* list node in client list */
     listNode *io_thread_client_list_node; /* list node in io thread client list */
@@ -2028,6 +2048,7 @@ struct redisServer {
     char neterr[ANET_ERR_LEN];   /* Error buffer for anet.c */
     dict *migrate_cached_sockets;/* MIGRATE cached sockets */
     dict *slotsmgrt_cached_sockets;/* Codis sync migration cached sockets */
+    slotsmgrtAsyncClient *slotsmgrt_cached_clients;/* Codis async migration state per DB */
     redisAtomic uint64_t next_client_id; /* Next client unique ID. Incremental. */
     int protected_mode;         /* Don't accept external connections. */
     int io_threads_num;         /* Number of IO threads to use. */
@@ -3727,6 +3748,23 @@ void slotsmgrttagslotCommand(client *c);
 void slotsmgrttagoneCommand(client *c);
 void slotsrestoreCommand(client *c);
 void slotsmgrt_cleanup(void);
+void slotsmgrtSlotAsyncCommand(client *c);
+void slotsmgrtTagSlotAsyncCommand(client *c);
+void slotsmgrtOneAsyncCommand(client *c);
+void slotsmgrtOneAsyncDumpCommand(client *c);
+void slotsmgrtTagOneAsyncCommand(client *c);
+void slotsmgrtTagOneAsyncDumpCommand(client *c);
+void slotsmgrtAsyncFenceCommand(client *c);
+void slotsmgrtAsyncCancelCommand(client *c);
+void slotsmgrtAsyncStatusCommand(client *c);
+void slotsmgrtExecWrapperCommand(client *c);
+void slotsrestoreAsyncCommand(client *c);
+void slotsrestoreAsyncAuthCommand(client *c);
+void slotsrestoreAsyncAuth2Command(client *c);
+void slotsrestoreAsyncSelectCommand(client *c);
+void slotsrestoreAsyncAckCommand(client *c);
+void slotsmgrtAsyncCleanup(void);
+void slotsmgrtAsyncUnlinkClient(client *c);
 void createDumpPayload(rio *payload, robj *o, robj *key, int dbid, int skip_checksum);
 zskiplist *codisTagIndexCreate(void);
 void codisTagIndexFree(zskiplist *index);

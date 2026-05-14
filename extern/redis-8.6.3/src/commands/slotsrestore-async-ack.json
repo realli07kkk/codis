@@ -1,0 +1,30 @@
+{
+    "SLOTSRESTORE-ASYNC-ACK": {
+        "summary": "Acknowledge a Codis asynchronous migration restore batch.",
+        "complexity": "O(1)",
+        "group": "server",
+        "since": "3.2.0",
+        "arity": 3,
+        "function": "slotsrestoreAsyncAckCommand",
+        "command_flags": [
+            "WRITE"
+        ],
+        "acl_categories": [
+            "KEYSPACE",
+            "DANGEROUS"
+        ],
+        "reply_schema": {
+            "const": "OK"
+        },
+        "arguments": [
+            {
+                "name": "errno",
+                "type": "integer"
+            },
+            {
+                "name": "message",
+                "type": "string"
+            }
+        ]
+    }
+}

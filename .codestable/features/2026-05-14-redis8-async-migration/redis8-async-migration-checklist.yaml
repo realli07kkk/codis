@@ -1,0 +1,196 @@
+feature: 2026-05-14-redis8-async-migration
+created: 2026-05-14
+
+steps:
+  - action: "命令与状态骨架：注册全部 async command JSON、生成 commands.def，补 server.h async client typedef/client flags/命令声明和 per-DB async client 状态，命令体先返回明确占位错误"
+    exit_signal: "make codis-server-redis8 编译通过，COMMAND INFO 可发现 SLOTSMGRT*-ASYNC、SLOTSRESTORE-ASYNC*、SLOTSMGRT-ASYNC-* 和 SLOTSMGRT-EXEC-WRAPPER"
+    status: done
+
+  - action: "cached client 生命周期：实现 create/reuse/release、client unlink、serverCron timeout、fence/cancel/status 基础状态机"
+    exit_signal: "手动创建目标连接后 STATUS 能看到 host/port/lastuse，CANCEL 能释放状态，client close 不留下悬空 blocked client"
+    status: done
+
+  - action: "源端 iterator 与命令流生成：实现 explicit key、slot scan、tag-aware 扩展、dump-only 命令、maxbulks/maxbytes 限流和 Redis 8 kvobj 引用安全"
+    exit_signal: "SLOTSMGRTONE-ASYNC-DUMP 和 SLOTSMGRTTAGONE-ASYNC-DUMP 生成可被目标端执行的 restore async 命令流，slot/tag 收集不出现 hash_slots"
+    status: done
+
+  - action: "目标端 restore async 与 AUTH/SELECT/ACK：实现 SLOTSRESTORE-ASYNC 子命令、AUTH、AUTH2、SELECT 和 ACK 错误语义，写入路径保持 Redis 8 metadata-safe"
+    exit_signal: "目标端执行 string/object/list/hash/dict/zset restore async 后返回 ACK 0，TTL 和类型正确；错误 payload 返回 ACK 非 0 并关闭连接"
+    status: done
+
+  - action: "完成收口：所有 ACK 成功后删除源端 key 并传播 DEL，chunked old values 交给 Redis 8 lazyfree，SLOTSMGRT-EXEC-WRAPPER 按 key migration 状态阻断写命令"
+    exit_signal: "异步迁移完整往返成功，replication stream 只看到 DEL，写 wrapper 在迁移中返回 being migrated，读命令可执行"
+    status: done
+
+  - action: "Tcl 覆盖与范围回归：新增 codis_async_migration.tcl，覆盖正常、边界、错误、取消、timeout、auth、SELECT、large object chunk 和反向 grep"
+    exit_signal: "make codis-server-redis8、./runtest --single unit/codis_async_migration、unit/codis_migration、unit/codis_slotsrestore、unit/codis 均通过"
+    status: done
+
+checks:
+  - item: "SLOTSMGRTSLOT-ASYNC/SLOTSMGRTTAGSLOT-ASYNC 返回 [migrated_count, remaining_count]"
+    source: 名词契约
+    status: passed
+
+  - item: "SLOTSMGRTONE-ASYNC/SLOTSMGRTTAGONE-ASYNC 返回 migrated_count"
+    source: 名词契约
+    status: passed
+
+  - item: "SLOTSMGRTONE-ASYNC-DUMP/SLOTSMGRTTAGONE-ASYNC-DUMP 只输出 restore async 命令流，不修改源端 keyspace"
+    source: 名词契约
+    status: passed
+
+  - item: "SLOTSMGRT-ASYNC-FENCE/CANCEL/STATUS 按当前 DB 的 async migration 状态工作"
+    source: 名词契约
+    status: passed
+
+  - item: "SLOTSMGRT-EXEC-WRAPPER 在 key 正被迁移且包装命令为写时阻断，在无关 key 或读命令上不误挡"
+    source: 名词契约
+    status: passed
+
+  - item: "SLOTSRESTORE-ASYNC 子协议返回 SLOTSRESTORE-ASYNC-ACK errno message"
+    source: 名词契约
+    status: passed
+
+  - item: "SLOTSRESTORE-ASYNC-AUTH 保持 AUTH password 兼容，SLOTSRESTORE-ASYNC-AUTH2 支持 Redis 8 ACL 用户密码入口"
+    source: 名词契约
+    status: passed
+
+  - item: "源端 async 主流程：校验参数 -> 检查 DB 无迁移 -> create/reuse cached client -> iterator 生成命令流 -> ACK 推进 -> 完成后删除源端 key"
+    source: 编排骨架
+    status: passed
+
+  - item: "slot key 收集使用 Redis 8 kvstore per-slot dict/scan，不恢复 hash_slots 平行索引"
+    source: 编排骨架
+    status: passed
+
+  - item: "tag-aware 扩展使用 codisHashInfoForKey 和 redisDb.codis_tagged_keys 的完整 CRC32 分组"
+    source: 编排骨架
+    status: passed
+
+  - item: "任一 connect/write/read/AUTH/SELECT/restore/ACK/timeout/cancel 失败都不删除源端 key"
+    source: 流程级约束
+    status: passed
+
+  - item: "成功完成后源端删除传播为确定性的 DEL，阻止原始 SLOTSMGRT*-ASYNC 传播"
+    source: 流程级约束
+    status: passed
+
+  - item: "同一 DB 同时最多一个 async migration，不同 DB 状态隔离"
+    source: 流程级约束
+    status: passed
+
+  - item: "cached migration client 不被普通 output buffer limit 误杀，但发送节奏受 maxbytes 和 normal client limit 上限约束"
+    source: 流程级约束
+    status: passed
+
+  - item: "Redis 8 stream/module/HFE 等无法安全 chunk 的对象走 object payload 或失败保源，不用旧 chunked 子协议丢 metadata"
+    source: 流程级约束
+    status: passed
+
+  - item: "chunked old values 的延迟释放复用 Redis 8 BIO/lazyfree，不新增 Codis 私有 pthread worker"
+    source: 流程级约束
+    status: passed
+
+  - item: "extern/redis-8.6.3/src/slots_async.c 承载真实 async migration 逻辑"
+    source: 挂载点
+    status: passed
+
+  - item: "server.h 新增 async client typedef、client flags/fence 字段、redisServer.slotsmgrt_cached_clients 字段和 async 命令声明"
+    source: 挂载点
+    status: passed
+
+  - item: "server.c 初始化 per-DB async client 状态，serverCron 清理 timeout async client，shutdown 路径释放 async client"
+    source: 挂载点
+    status: passed
+
+  - item: "networking.c 初始化 client async 字段，freeClient unlink async 状态，output buffer limit 跳过 cached migration client"
+    source: 挂载点
+    status: passed
+
+  - item: "每个 async 命令都有对应 command JSON，commands.def 由生成器同步"
+    source: 挂载点
+    status: passed
+
+  - item: "新增 tests/unit/codis_async_migration.tcl 作为 async migration 专用回归入口"
+    source: 挂载点
+    status: passed
+
+  - item: "Diff 不新增 hash_slots、HASH_SLOTS_SIZE、hashSlotType 或 dictCreate(&hashSlotType...)"
+    source: 范围守护
+    status: passed
+
+  - item: "Diff 不新增 redisServer.slotsmgrt_lazy_release 或自建 pthread_create lazy release worker"
+    source: 范围守护
+    status: passed
+
+  - item: "Diff 不修改 Go pkg/ 或 cmd/ 代码"
+    source: 范围守护
+    status: passed
+
+  - item: "Diff 不切换默认 make/codis-server 到 Redis 8"
+    source: 范围守护
+    status: passed
+
+  - item: "Diff 不修改 Redis Cluster keyHashSlot() 的 CRC16/16384 语义"
+    source: 范围守护
+    status: passed
+
+  - item: "COMMAND INFO 可发现全部 async 命令，metadata 与 arity/key spec/ACL 分类匹配"
+    source: 验收场景
+    status: passed
+
+  - item: "SLOTSMGRTONE-ASYNC 单 key 迁移后源端 key 删除，目标端 key 值和 TTL 正确"
+    source: 验收场景
+    status: passed
+
+  - item: "SLOTSMGRTSLOT-ASYNC 只迁移当前 DB 的目标 slot key"
+    source: 验收场景
+    status: passed
+
+  - item: "SLOTSMGRTTAGONE-ASYNC/SLOTSMGRTTAGSLOT-ASYNC 会迁移同 {tag} key，非 tag key 只迁移自身"
+    source: 验收场景
+    status: passed
+
+  - item: "restore async string/object/list/hash/dict/zset 返回 ACK 0，类型和值可读，TTL 正确"
+    source: 验收场景
+    status: passed
+
+  - item: "SLOTSMGRT-ASYNC-FENCE 等待迁移完成后返回 OK"
+    source: 验收场景
+    status: passed
+
+  - item: "SLOTSMGRT-ASYNC-STATUS 返回 host、port、timeout、sending_msgs、blocked_clients、batched_iterator 等字段"
+    source: 验收场景
+    status: passed
+
+  - item: "空 slot 返回 [0, 0]，不存在 key 返回 0，不创建目标 key"
+    source: 验收场景
+    status: passed
+
+  - item: "SELECT 后迁移只影响当前 DB，DB0/DB1 同名 key 不串扰"
+    source: 验收场景
+    status: passed
+
+  - item: "目标不可达、AUTH/SELECT 失败、坏 payload、ACK 丢失或连接关闭时源端 key 保留"
+    source: 验收场景
+    status: passed
+
+  - item: "SLOTSMGRT-ASYNC-CANCEL 中断迁移并唤醒 blocked client，源端 key 保留"
+    source: 验收场景
+    status: passed
+
+  - item: "同一 DB 重复发起 async migration 返回 the specified DB is being migrated"
+    source: 验收场景
+    status: passed
+
+  - item: "make codis-server-redis8 通过"
+    source: 验收场景
+    status: passed
+
+  - item: "./runtest --single unit/codis_async_migration 通过"
+    source: 验收场景
+    status: passed
+
+  - item: "既有 unit/codis_migration、unit/codis_slotsrestore、unit/codis 无回归"
+    source: 验收场景
+    status: passed

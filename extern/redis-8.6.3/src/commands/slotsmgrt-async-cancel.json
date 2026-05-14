@@ -1,0 +1,21 @@
+{
+    "SLOTSMGRT-ASYNC-CANCEL": {
+        "summary": "Cancel the active Codis asynchronous migration on the selected database.",
+        "complexity": "O(1)",
+        "group": "server",
+        "since": "3.2.0",
+        "arity": 1,
+        "function": "slotsmgrtAsyncCancelCommand",
+        "command_flags": [
+            "FAST"
+        ],
+        "acl_categories": [
+            "KEYSPACE",
+            "DANGEROUS"
+        ],
+        "reply_schema": {
+            "type": "integer",
+            "description": "1 if an asynchronous migration was cancelled, 0 otherwise."
+        }
+    }
+}

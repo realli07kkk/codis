@@ -1,0 +1,58 @@
+{
+    "SLOTSMGRTTAGONE-ASYNC-DUMP": {
+        "summary": "Dump one or more hash-tag grouped keys for Codis asynchronous migration.",
+        "complexity": "O(N) where N is the number of keys dumped.",
+        "group": "server",
+        "since": "3.2.0",
+        "arity": -4,
+        "function": "slotsmgrtTagOneAsyncDumpCommand",
+        "command_flags": [
+            "READONLY",
+            "DENYOOM"
+        ],
+        "acl_categories": [
+            "KEYSPACE",
+            "DANGEROUS"
+        ],
+        "key_specs": [
+            {
+                "flags": [
+                    "RO",
+                    "ACCESS"
+                ],
+                "begin_search": {
+                    "index": {
+                        "pos": 3
+                    }
+                },
+                "find_keys": {
+                    "range": {
+                        "lastkey": -1,
+                        "step": 1,
+                        "limit": 0
+                    }
+                }
+            }
+        ],
+        "reply_schema": {
+            "type": "array",
+            "description": "Serialized key payloads for asynchronous migration."
+        },
+        "arguments": [
+            {
+                "name": "timeout",
+                "type": "integer"
+            },
+            {
+                "name": "maxbulks",
+                "type": "integer"
+            },
+            {
+                "name": "key",
+                "type": "key",
+                "key_spec_index": 0,
+                "multiple": true
+            }
+        ]
+    }
+}

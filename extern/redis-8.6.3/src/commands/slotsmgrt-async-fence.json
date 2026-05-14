@@ -1,0 +1,22 @@
+{
+    "SLOTSMGRT-ASYNC-FENCE": {
+        "summary": "Fence commands that target keys currently under Codis asynchronous migration.",
+        "complexity": "O(1)",
+        "group": "server",
+        "since": "3.2.0",
+        "arity": 1,
+        "function": "slotsmgrtAsyncFenceCommand",
+        "command_flags": [
+            "READONLY",
+            "NOSCRIPT",
+            "BLOCKING"
+        ],
+        "acl_categories": [
+            "KEYSPACE",
+            "DANGEROUS"
+        ],
+        "reply_schema": {
+            "const": "OK"
+        }
+    }
+}

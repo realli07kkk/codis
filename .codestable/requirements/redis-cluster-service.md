@@ -3,7 +3,7 @@ doc_type: requirement
 slug: redis-cluster-service
 pitch: 让业务像使用单机 Redis 一样使用可扩缩容的 Redis 集群
 status: current
-last_reviewed: 2026-05-13
+last_reviewed: 2026-05-14
 implemented_by: [system-overview]
 tags: [redis, cluster, operations]
 ---
@@ -24,11 +24,12 @@ tags: [redis, cluster, operations]
 
 ## 怎么解决
 
-业务流量先进 proxy，proxy 根据 key 所在 slot 转发到后端 Redis；dashboard 维护集群拓扑、slot 归属和迁移动作，并把状态同步给各个 proxy；FE、admin 和 HA 工具围绕 dashboard 提供可视化、命令行和巡检维护入口。proxy 还在 Redis 协议面提供有限的本地观测命令，例如 `CLIENT LIST` 返回当前 proxy 实例的活动客户端连接快照。后端 Codis Server 承载 slot keyspace、slot 查询/删除和迁移命令；Redis 8 Codis Server 支线已具备 Redis 8 ↔ Redis 8 同步迁移与 `SLOTSRESTORE` RDB fragment restore 能力。底层元数据放在 filesystem、Zookeeper 或 Etcd 这类 coordinator 中。
+业务流量先进 proxy，proxy 根据 key 所在 slot 转发到后端 Redis；dashboard 维护集群拓扑、slot 归属和迁移动作，并把状态同步给各个 proxy；FE、admin 和 HA 工具围绕 dashboard 提供可视化、命令行和巡检维护入口。proxy 还在 Redis 协议面提供有限的本地观测命令，例如 `CLIENT LIST` 返回当前 proxy 实例的活动客户端连接快照。后端 Codis Server 承载 slot keyspace、slot 查询/删除和迁移命令；Redis 8 Codis Server 支线已具备 Redis 8 ↔ Redis 8 同步迁移、异步迁移与 `SLOTSRESTORE` / `SLOTSRESTORE-ASYNC` RDB fragment restore 能力。底层元数据放在 filesystem、Zookeeper 或 Etcd 这类 coordinator 中。
 
 ## 实现进展
 
 - 2026-05-13：Redis 8 Codis Server 支线完成同步迁移命令和 `SLOTSRESTORE` 移植，覆盖 `SLOTSMGRTSLOT`、`SLOTSMGRTONE`、`SLOTSMGRTTAGSLOT`、`SLOTSMGRTTAGONE` 与 Redis 8 RDB fragment restore。该进展不改变业务客户端协议，不切换默认 Redis 3 Codis Server 构建，也不承诺 Redis 3 ↔ Redis 8 RDB fragment 双向兼容。
+- 2026-05-14：Redis 8 Codis Server 支线完成异步迁移移植，覆盖 `SLOTSMGRT*-ASYNC`、`SLOTSRESTORE-ASYNC*`、`SLOTSMGRT-ASYNC-FENCE/CANCEL/STATUS` 与 `SLOTSMGRT-EXEC-WRAPPER`。该进展提供 Redis 8 ↔ Redis 8 半异步迁移能力，不改变业务客户端协议，不切换默认 Redis 3 Codis Server 构建，也不承诺 Redis 3 ↔ Redis 8 异步迁移协议跨版本互通。
 
 ## 边界
 
@@ -37,4 +38,5 @@ tags: [redis, cluster, operations]
 - `CLIENT` 命令族只支持 `CLIENT LIST`；该命令只返回当前 proxy 实例接入的客户端连接，不聚合多个 proxy，不下探后端 Redis，也不承诺 Redis 8.x 的所有字段。
 - 集群拓扑变更必须经由 dashboard/topom 管理，不应绕过它直接改 coordinator 中的状态。
 - 后端数据最终仍存放在 Codis Server/Redis Server；Redis 本身的容量、持久化和资源隔离仍需要单独规划。
+- Redis 8 支线仍是独立升级路径；当前完成的是 Redis 8 ↔ Redis 8 的同步/异步迁移能力，Go proxy/topom/admin 适配、正式打包切换和灰度 cutover 仍按 roadmap 后续条目推进。
 - HA 能降低 proxy 和 Redis Server 故障影响，但不能替代监控、备份和故障演练。

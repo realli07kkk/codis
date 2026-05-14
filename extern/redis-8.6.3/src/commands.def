@@ -1883,6 +1883,73 @@ struct COMMAND_ARG SELECT_Args[] = {
 {MAKE_ARG("index",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 };
 
+/********** SLOTSRESTORE_ASYNC_AUTH ********************/
+
+#ifndef SKIP_CMD_HISTORY_TABLE
+/* SLOTSRESTORE_ASYNC_AUTH history */
+#define SLOTSRESTORE_ASYNC_AUTH_History NULL
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+/* SLOTSRESTORE_ASYNC_AUTH tips */
+#define SLOTSRESTORE_ASYNC_AUTH_Tips NULL
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+/* SLOTSRESTORE_ASYNC_AUTH key specs */
+#define SLOTSRESTORE_ASYNC_AUTH_Keyspecs NULL
+#endif
+
+/* SLOTSRESTORE_ASYNC_AUTH argument table */
+struct COMMAND_ARG SLOTSRESTORE_ASYNC_AUTH_Args[] = {
+{MAKE_ARG("password",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+};
+
+/********** SLOTSRESTORE_ASYNC_AUTH2 ********************/
+
+#ifndef SKIP_CMD_HISTORY_TABLE
+/* SLOTSRESTORE_ASYNC_AUTH2 history */
+#define SLOTSRESTORE_ASYNC_AUTH2_History NULL
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+/* SLOTSRESTORE_ASYNC_AUTH2 tips */
+#define SLOTSRESTORE_ASYNC_AUTH2_Tips NULL
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+/* SLOTSRESTORE_ASYNC_AUTH2 key specs */
+#define SLOTSRESTORE_ASYNC_AUTH2_Keyspecs NULL
+#endif
+
+/* SLOTSRESTORE_ASYNC_AUTH2 argument table */
+struct COMMAND_ARG SLOTSRESTORE_ASYNC_AUTH2_Args[] = {
+{MAKE_ARG("username",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("password",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+};
+
+/********** SLOTSRESTORE_ASYNC_SELECT ********************/
+
+#ifndef SKIP_CMD_HISTORY_TABLE
+/* SLOTSRESTORE_ASYNC_SELECT history */
+#define SLOTSRESTORE_ASYNC_SELECT_History NULL
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+/* SLOTSRESTORE_ASYNC_SELECT tips */
+#define SLOTSRESTORE_ASYNC_SELECT_Tips NULL
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+/* SLOTSRESTORE_ASYNC_SELECT key specs */
+#define SLOTSRESTORE_ASYNC_SELECT_Keyspecs NULL
+#endif
+
+/* SLOTSRESTORE_ASYNC_SELECT argument table */
+struct COMMAND_ARG SLOTSRESTORE_ASYNC_SELECT_Args[] = {
+{MAKE_ARG("index",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+};
+
 /********** COPY ********************/
 
 #ifndef SKIP_CMD_HISTORY_TABLE
@@ -8328,6 +8395,83 @@ struct COMMAND_ARG SLOTSINFO_Args[] = {
 {MAKE_ARG("count",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
 };
 
+/********** SLOTSMGRT_ASYNC_CANCEL ********************/
+
+#ifndef SKIP_CMD_HISTORY_TABLE
+/* SLOTSMGRT_ASYNC_CANCEL history */
+#define SLOTSMGRT_ASYNC_CANCEL_History NULL
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+/* SLOTSMGRT_ASYNC_CANCEL tips */
+#define SLOTSMGRT_ASYNC_CANCEL_Tips NULL
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+/* SLOTSMGRT_ASYNC_CANCEL key specs */
+#define SLOTSMGRT_ASYNC_CANCEL_Keyspecs NULL
+#endif
+
+/********** SLOTSMGRT_ASYNC_FENCE ********************/
+
+#ifndef SKIP_CMD_HISTORY_TABLE
+/* SLOTSMGRT_ASYNC_FENCE history */
+#define SLOTSMGRT_ASYNC_FENCE_History NULL
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+/* SLOTSMGRT_ASYNC_FENCE tips */
+#define SLOTSMGRT_ASYNC_FENCE_Tips NULL
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+/* SLOTSMGRT_ASYNC_FENCE key specs */
+#define SLOTSMGRT_ASYNC_FENCE_Keyspecs NULL
+#endif
+
+/********** SLOTSMGRT_ASYNC_STATUS ********************/
+
+#ifndef SKIP_CMD_HISTORY_TABLE
+/* SLOTSMGRT_ASYNC_STATUS history */
+#define SLOTSMGRT_ASYNC_STATUS_History NULL
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+/* SLOTSMGRT_ASYNC_STATUS tips */
+#define SLOTSMGRT_ASYNC_STATUS_Tips NULL
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+/* SLOTSMGRT_ASYNC_STATUS key specs */
+#define SLOTSMGRT_ASYNC_STATUS_Keyspecs NULL
+#endif
+
+/********** SLOTSMGRT_EXEC_WRAPPER ********************/
+
+#ifndef SKIP_CMD_HISTORY_TABLE
+/* SLOTSMGRT_EXEC_WRAPPER history */
+#define SLOTSMGRT_EXEC_WRAPPER_History NULL
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+/* SLOTSMGRT_EXEC_WRAPPER tips */
+#define SLOTSMGRT_EXEC_WRAPPER_Tips NULL
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+/* SLOTSMGRT_EXEC_WRAPPER key specs */
+keySpec SLOTSMGRT_EXEC_WRAPPER_Keyspecs[1] = {
+{NULL,CMD_KEY_RW|CMD_KEY_ACCESS|CMD_KEY_UPDATE|CMD_KEY_VARIABLE_FLAGS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
+};
+#endif
+
+/* SLOTSMGRT_EXEC_WRAPPER argument table */
+struct COMMAND_ARG SLOTSMGRT_EXEC_WRAPPER_Args[] = {
+{MAKE_ARG("hash-key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("command",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("argument",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE,0,NULL)},
+};
+
 /********** SLOTSMGRTONE ********************/
 
 #ifndef SKIP_CMD_HISTORY_TABLE
@@ -8357,6 +8501,63 @@ struct COMMAND_ARG SLOTSMGRTONE_Args[] = {
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 };
 
+/********** SLOTSMGRTONE_ASYNC ********************/
+
+#ifndef SKIP_CMD_HISTORY_TABLE
+/* SLOTSMGRTONE_ASYNC history */
+#define SLOTSMGRTONE_ASYNC_History NULL
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+/* SLOTSMGRTONE_ASYNC tips */
+const char *SLOTSMGRTONE_ASYNC_Tips[] = {
+"nondeterministic_output",
+};
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+/* SLOTSMGRTONE_ASYNC key specs */
+keySpec SLOTSMGRTONE_ASYNC_Keyspecs[1] = {
+{NULL,CMD_KEY_RW|CMD_KEY_ACCESS|CMD_KEY_DELETE,KSPEC_BS_INDEX,.bs.index={6},KSPEC_FK_RANGE,.fk.range={-1,1,0}}
+};
+#endif
+
+/* SLOTSMGRTONE_ASYNC argument table */
+struct COMMAND_ARG SLOTSMGRTONE_ASYNC_Args[] = {
+{MAKE_ARG("host",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("port",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("timeout",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("maxbulks",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("maxbytes",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
+};
+
+/********** SLOTSMGRTONE_ASYNC_DUMP ********************/
+
+#ifndef SKIP_CMD_HISTORY_TABLE
+/* SLOTSMGRTONE_ASYNC_DUMP history */
+#define SLOTSMGRTONE_ASYNC_DUMP_History NULL
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+/* SLOTSMGRTONE_ASYNC_DUMP tips */
+#define SLOTSMGRTONE_ASYNC_DUMP_Tips NULL
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+/* SLOTSMGRTONE_ASYNC_DUMP key specs */
+keySpec SLOTSMGRTONE_ASYNC_DUMP_Keyspecs[1] = {
+{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={3},KSPEC_FK_RANGE,.fk.range={-1,1,0}}
+};
+#endif
+
+/* SLOTSMGRTONE_ASYNC_DUMP argument table */
+struct COMMAND_ARG SLOTSMGRTONE_ASYNC_DUMP_Args[] = {
+{MAKE_ARG("timeout",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("maxbulks",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
+};
+
 /********** SLOTSMGRTSLOT ********************/
 
 #ifndef SKIP_CMD_HISTORY_TABLE
@@ -8382,6 +8583,36 @@ struct COMMAND_ARG SLOTSMGRTSLOT_Args[] = {
 {MAKE_ARG("port",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("timeout",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("slot",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+};
+
+/********** SLOTSMGRTSLOT_ASYNC ********************/
+
+#ifndef SKIP_CMD_HISTORY_TABLE
+/* SLOTSMGRTSLOT_ASYNC history */
+#define SLOTSMGRTSLOT_ASYNC_History NULL
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+/* SLOTSMGRTSLOT_ASYNC tips */
+const char *SLOTSMGRTSLOT_ASYNC_Tips[] = {
+"nondeterministic_output",
+};
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+/* SLOTSMGRTSLOT_ASYNC key specs */
+#define SLOTSMGRTSLOT_ASYNC_Keyspecs NULL
+#endif
+
+/* SLOTSMGRTSLOT_ASYNC argument table */
+struct COMMAND_ARG SLOTSMGRTSLOT_ASYNC_Args[] = {
+{MAKE_ARG("host",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("port",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("timeout",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("maxbulks",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("maxbytes",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("slot",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("numkeys",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 };
 
 /********** SLOTSMGRTTAGONE ********************/
@@ -8413,6 +8644,63 @@ struct COMMAND_ARG SLOTSMGRTTAGONE_Args[] = {
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 };
 
+/********** SLOTSMGRTTAGONE_ASYNC ********************/
+
+#ifndef SKIP_CMD_HISTORY_TABLE
+/* SLOTSMGRTTAGONE_ASYNC history */
+#define SLOTSMGRTTAGONE_ASYNC_History NULL
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+/* SLOTSMGRTTAGONE_ASYNC tips */
+const char *SLOTSMGRTTAGONE_ASYNC_Tips[] = {
+"nondeterministic_output",
+};
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+/* SLOTSMGRTTAGONE_ASYNC key specs */
+keySpec SLOTSMGRTTAGONE_ASYNC_Keyspecs[1] = {
+{NULL,CMD_KEY_RW|CMD_KEY_ACCESS|CMD_KEY_DELETE,KSPEC_BS_INDEX,.bs.index={6},KSPEC_FK_RANGE,.fk.range={-1,1,0}}
+};
+#endif
+
+/* SLOTSMGRTTAGONE_ASYNC argument table */
+struct COMMAND_ARG SLOTSMGRTTAGONE_ASYNC_Args[] = {
+{MAKE_ARG("host",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("port",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("timeout",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("maxbulks",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("maxbytes",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
+};
+
+/********** SLOTSMGRTTAGONE_ASYNC_DUMP ********************/
+
+#ifndef SKIP_CMD_HISTORY_TABLE
+/* SLOTSMGRTTAGONE_ASYNC_DUMP history */
+#define SLOTSMGRTTAGONE_ASYNC_DUMP_History NULL
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+/* SLOTSMGRTTAGONE_ASYNC_DUMP tips */
+#define SLOTSMGRTTAGONE_ASYNC_DUMP_Tips NULL
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+/* SLOTSMGRTTAGONE_ASYNC_DUMP key specs */
+keySpec SLOTSMGRTTAGONE_ASYNC_DUMP_Keyspecs[1] = {
+{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={3},KSPEC_FK_RANGE,.fk.range={-1,1,0}}
+};
+#endif
+
+/* SLOTSMGRTTAGONE_ASYNC_DUMP argument table */
+struct COMMAND_ARG SLOTSMGRTTAGONE_ASYNC_DUMP_Args[] = {
+{MAKE_ARG("timeout",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("maxbulks",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
+};
+
 /********** SLOTSMGRTTAGSLOT ********************/
 
 #ifndef SKIP_CMD_HISTORY_TABLE
@@ -8438,6 +8726,36 @@ struct COMMAND_ARG SLOTSMGRTTAGSLOT_Args[] = {
 {MAKE_ARG("port",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("timeout",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("slot",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+};
+
+/********** SLOTSMGRTTAGSLOT_ASYNC ********************/
+
+#ifndef SKIP_CMD_HISTORY_TABLE
+/* SLOTSMGRTTAGSLOT_ASYNC history */
+#define SLOTSMGRTTAGSLOT_ASYNC_History NULL
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+/* SLOTSMGRTTAGSLOT_ASYNC tips */
+const char *SLOTSMGRTTAGSLOT_ASYNC_Tips[] = {
+"nondeterministic_output",
+};
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+/* SLOTSMGRTTAGSLOT_ASYNC key specs */
+#define SLOTSMGRTTAGSLOT_ASYNC_Keyspecs NULL
+#endif
+
+/* SLOTSMGRTTAGSLOT_ASYNC argument table */
+struct COMMAND_ARG SLOTSMGRTTAGSLOT_ASYNC_Args[] = {
+{MAKE_ARG("host",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("port",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("timeout",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("maxbulks",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("maxbytes",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("slot",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("numkeys",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 };
 
 /********** SLOTSRESTORE ********************/
@@ -8469,6 +8787,55 @@ struct COMMAND_ARG SLOTSRESTORE_key_ttl_payload_Subargs[] = {
 /* SLOTSRESTORE argument table */
 struct COMMAND_ARG SLOTSRESTORE_Args[] = {
 {MAKE_ARG("key-ttl-payload",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,3,NULL),.subargs=SLOTSRESTORE_key_ttl_payload_Subargs},
+};
+
+/********** SLOTSRESTORE_ASYNC ********************/
+
+#ifndef SKIP_CMD_HISTORY_TABLE
+/* SLOTSRESTORE_ASYNC history */
+#define SLOTSRESTORE_ASYNC_History NULL
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+/* SLOTSRESTORE_ASYNC tips */
+#define SLOTSRESTORE_ASYNC_Tips NULL
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+/* SLOTSRESTORE_ASYNC key specs */
+keySpec SLOTSRESTORE_ASYNC_Keyspecs[1] = {
+{NULL,CMD_KEY_OW|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}
+};
+#endif
+
+/* SLOTSRESTORE_ASYNC argument table */
+struct COMMAND_ARG SLOTSRESTORE_ASYNC_Args[] = {
+{MAKE_ARG("operation",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("argument",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE,0,NULL)},
+};
+
+/********** SLOTSRESTORE_ASYNC_ACK ********************/
+
+#ifndef SKIP_CMD_HISTORY_TABLE
+/* SLOTSRESTORE_ASYNC_ACK history */
+#define SLOTSRESTORE_ASYNC_ACK_History NULL
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+/* SLOTSRESTORE_ASYNC_ACK tips */
+#define SLOTSRESTORE_ASYNC_ACK_Tips NULL
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+/* SLOTSRESTORE_ASYNC_ACK key specs */
+#define SLOTSRESTORE_ASYNC_ACK_Keyspecs NULL
+#endif
+
+/* SLOTSRESTORE_ASYNC_ACK argument table */
+struct COMMAND_ARG SLOTSRESTORE_ASYNC_ACK_Args[] = {
+{MAKE_ARG("errno",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("message",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 };
 
 /********** SLOTSSCAN ********************/
@@ -12009,6 +12376,9 @@ struct COMMAND_STRUCT redisCommandTable[] = {
 {MAKE_CMD("quit","Closes the connection.","O(1)","1.0.0",CMD_DOC_DEPRECATED,"just closing the connection","7.2.0","connection",COMMAND_GROUP_CONNECTION,QUIT_History,0,QUIT_Tips,0,quitCommand,-1,CMD_ALLOW_BUSY|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_FAST|CMD_NO_AUTH,ACL_CATEGORY_CONNECTION,QUIT_Keyspecs,0,NULL,0)},
 {MAKE_CMD("reset","Resets the connection.","O(1)","6.2.0",CMD_DOC_NONE,NULL,NULL,"connection",COMMAND_GROUP_CONNECTION,RESET_History,0,RESET_Tips,0,resetCommand,1,CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_FAST|CMD_NO_AUTH|CMD_ALLOW_BUSY,ACL_CATEGORY_CONNECTION,RESET_Keyspecs,0,NULL,0)},
 {MAKE_CMD("select","Changes the selected database.","O(1)","1.0.0",CMD_DOC_NONE,NULL,NULL,"connection",COMMAND_GROUP_CONNECTION,SELECT_History,0,SELECT_Tips,0,selectCommand,2,CMD_LOADING|CMD_STALE|CMD_FAST,ACL_CATEGORY_CONNECTION,SELECT_Keyspecs,0,NULL,1),.args=SELECT_Args},
+{MAKE_CMD("slotsrestore-async-auth","Authenticate a Codis asynchronous migration restore connection with a password.","O(N) where N is the number of configured passwords.","3.2.0",CMD_DOC_NONE,NULL,NULL,"connection",COMMAND_GROUP_CONNECTION,SLOTSRESTORE_ASYNC_AUTH_History,0,SLOTSRESTORE_ASYNC_AUTH_Tips,0,slotsrestoreAsyncAuthCommand,2,CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_FAST|CMD_NO_AUTH,ACL_CATEGORY_CONNECTION,SLOTSRESTORE_ASYNC_AUTH_Keyspecs,0,NULL,1),.args=SLOTSRESTORE_ASYNC_AUTH_Args},
+{MAKE_CMD("slotsrestore-async-auth2","Authenticate a Codis asynchronous migration restore connection with ACL username and password.","O(N) where N is the number of configured passwords for the user.","8.6.3",CMD_DOC_NONE,NULL,NULL,"connection",COMMAND_GROUP_CONNECTION,SLOTSRESTORE_ASYNC_AUTH2_History,0,SLOTSRESTORE_ASYNC_AUTH2_Tips,0,slotsrestoreAsyncAuth2Command,3,CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_FAST|CMD_NO_AUTH,ACL_CATEGORY_CONNECTION,SLOTSRESTORE_ASYNC_AUTH2_Keyspecs,0,NULL,2),.args=SLOTSRESTORE_ASYNC_AUTH2_Args},
+{MAKE_CMD("slotsrestore-async-select","Select the database for a Codis asynchronous migration restore connection.","O(1)","3.2.0",CMD_DOC_NONE,NULL,NULL,"connection",COMMAND_GROUP_CONNECTION,SLOTSRESTORE_ASYNC_SELECT_History,0,SLOTSRESTORE_ASYNC_SELECT_Tips,0,slotsrestoreAsyncSelectCommand,2,CMD_LOADING|CMD_STALE|CMD_FAST,ACL_CATEGORY_CONNECTION,SLOTSRESTORE_ASYNC_SELECT_Keyspecs,0,NULL,1),.args=SLOTSRESTORE_ASYNC_SELECT_Args},
 /* generic */
 {MAKE_CMD("copy","Copies the value of a key to a new key.","O(N) worst case for collections, where N is the number of nested items. O(1) for string values.","6.2.0",CMD_DOC_NONE,NULL,NULL,"generic",COMMAND_GROUP_GENERIC,COPY_History,0,COPY_Tips,0,copyCommand,-3,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_KEYSPACE,COPY_Keyspecs,2,NULL,4),.args=COPY_Args},
 {MAKE_CMD("del","Deletes one or more keys.","O(N) where N is the number of keys that will be removed. When a key to remove holds a value other than a string, the individual complexity for this key is O(M) where M is the number of elements in the list, set, sorted set or hash. Removing a single key that holds a string value is O(1).","1.0.0",CMD_DOC_NONE,NULL,NULL,"generic",COMMAND_GROUP_GENERIC,DEL_History,0,DEL_Tips,2,delCommand,-2,CMD_WRITE,ACL_CATEGORY_KEYSPACE,DEL_Keyspecs,1,NULL,1),.args=DEL_Args},
@@ -12160,11 +12530,23 @@ struct COMMAND_STRUCT redisCommandTable[] = {
 {MAKE_CMD("slotsdel","Deletes all keys in one or more Codis slots in the current database.","O(N) where N is the number of keys in the requested slots.","3.2.0",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,SLOTSDEL_History,0,SLOTSDEL_Tips,0,slotsdelCommand,-2,CMD_WRITE,ACL_CATEGORY_KEYSPACE,SLOTSDEL_Keyspecs,0,NULL,1),.args=SLOTSDEL_Args},
 {MAKE_CMD("slotshashkey","Returns the Codis slot id for one or more keys.","O(N) where N is the number of keys.","3.2.0",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,SLOTSHASHKEY_History,0,SLOTSHASHKEY_Tips,0,slotshashkeyCommand,-1,CMD_READONLY|CMD_FAST,ACL_CATEGORY_KEYSPACE,SLOTSHASHKEY_Keyspecs,0,NULL,1),.args=SLOTSHASHKEY_Args},
 {MAKE_CMD("slotsinfo","Returns non-empty Codis slots and key counts in the current database.","O(1024)","3.2.0",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,SLOTSINFO_History,0,SLOTSINFO_Tips,0,slotsinfoCommand,-1,CMD_READONLY|CMD_FAST,ACL_CATEGORY_KEYSPACE,SLOTSINFO_Keyspecs,0,NULL,2),.args=SLOTSINFO_Args},
+{MAKE_CMD("slotsmgrt-async-cancel","Cancel the active Codis asynchronous migration on the selected database.","O(1)","3.2.0",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,SLOTSMGRT_ASYNC_CANCEL_History,0,SLOTSMGRT_ASYNC_CANCEL_Tips,0,slotsmgrtAsyncCancelCommand,1,CMD_FAST,ACL_CATEGORY_KEYSPACE|ACL_CATEGORY_DANGEROUS,SLOTSMGRT_ASYNC_CANCEL_Keyspecs,0,NULL,0)},
+{MAKE_CMD("slotsmgrt-async-fence","Fence commands that target keys currently under Codis asynchronous migration.","O(1)","3.2.0",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,SLOTSMGRT_ASYNC_FENCE_History,0,SLOTSMGRT_ASYNC_FENCE_Tips,0,slotsmgrtAsyncFenceCommand,1,CMD_READONLY|CMD_NOSCRIPT|CMD_BLOCKING,ACL_CATEGORY_KEYSPACE|ACL_CATEGORY_DANGEROUS,SLOTSMGRT_ASYNC_FENCE_Keyspecs,0,NULL,0)},
+{MAKE_CMD("slotsmgrt-async-status","Return the active Codis asynchronous migration status on the selected database.","O(1)","3.2.0",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,SLOTSMGRT_ASYNC_STATUS_History,0,SLOTSMGRT_ASYNC_STATUS_Tips,0,slotsmgrtAsyncStatusCommand,1,CMD_FAST,ACL_CATEGORY_KEYSPACE|ACL_CATEGORY_DANGEROUS,SLOTSMGRT_ASYNC_STATUS_Keyspecs,0,NULL,0)},
+{MAKE_CMD("slotsmgrt-exec-wrapper","Execute a command while preserving Codis asynchronous migration fencing semantics.","Depends on the wrapped command.","3.2.0",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,SLOTSMGRT_EXEC_WRAPPER_History,0,SLOTSMGRT_EXEC_WRAPPER_Tips,0,slotsmgrtExecWrapperCommand,-3,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_KEYSPACE|ACL_CATEGORY_DANGEROUS,SLOTSMGRT_EXEC_WRAPPER_Keyspecs,1,NULL,3),.args=SLOTSMGRT_EXEC_WRAPPER_Args},
 {MAKE_CMD("slotsmgrtone","Synchronously migrate a single key to the target node.","O(1)","3.2.0",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,SLOTSMGRTONE_History,0,SLOTSMGRTONE_Tips,1,slotsmgrtoneCommand,5,CMD_WRITE,ACL_CATEGORY_KEYSPACE|ACL_CATEGORY_DANGEROUS,SLOTSMGRTONE_Keyspecs,1,NULL,4),.args=SLOTSMGRTONE_Args},
+{MAKE_CMD("slotsmgrtone-async","Asynchronously migrate one or more keys to the target node.","O(N) where N is the number of keys selected for migration.","3.2.0",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,SLOTSMGRTONE_ASYNC_History,0,SLOTSMGRTONE_ASYNC_Tips,1,slotsmgrtOneAsyncCommand,-7,CMD_WRITE|CMD_NOSCRIPT|CMD_BLOCKING,ACL_CATEGORY_KEYSPACE|ACL_CATEGORY_DANGEROUS,SLOTSMGRTONE_ASYNC_Keyspecs,1,NULL,6),.args=SLOTSMGRTONE_ASYNC_Args},
+{MAKE_CMD("slotsmgrtone-async-dump","Dump one or more keys for Codis asynchronous migration.","O(N) where N is the number of keys dumped.","3.2.0",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,SLOTSMGRTONE_ASYNC_DUMP_History,0,SLOTSMGRTONE_ASYNC_DUMP_Tips,0,slotsmgrtOneAsyncDumpCommand,-4,CMD_READONLY|CMD_DENYOOM,ACL_CATEGORY_KEYSPACE|ACL_CATEGORY_DANGEROUS,SLOTSMGRTONE_ASYNC_DUMP_Keyspecs,1,NULL,3),.args=SLOTSMGRTONE_ASYNC_DUMP_Args},
 {MAKE_CMD("slotsmgrtslot","Synchronously migrate a random key from a Codis slot to the target node.","O(1)","3.2.0",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,SLOTSMGRTSLOT_History,0,SLOTSMGRTSLOT_Tips,1,slotsmgrtslotCommand,5,CMD_WRITE,ACL_CATEGORY_KEYSPACE|ACL_CATEGORY_DANGEROUS,SLOTSMGRTSLOT_Keyspecs,0,NULL,4),.args=SLOTSMGRTSLOT_Args},
+{MAKE_CMD("slotsmgrtslot-async","Asynchronously migrate keys from a Codis slot to the target node.","O(N) where N is the number of keys selected for migration.","3.2.0",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,SLOTSMGRTSLOT_ASYNC_History,0,SLOTSMGRTSLOT_ASYNC_Tips,1,slotsmgrtSlotAsyncCommand,8,CMD_WRITE|CMD_NOSCRIPT|CMD_BLOCKING,ACL_CATEGORY_KEYSPACE|ACL_CATEGORY_DANGEROUS,SLOTSMGRTSLOT_ASYNC_Keyspecs,0,NULL,7),.args=SLOTSMGRTSLOT_ASYNC_Args},
 {MAKE_CMD("slotsmgrttagone","Synchronously migrate a single key with hash-tag awareness to the target node.","O(N) where N is the number of keys sharing the same hash tag.","3.2.0",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,SLOTSMGRTTAGONE_History,0,SLOTSMGRTTAGONE_Tips,1,slotsmgrttagoneCommand,5,CMD_WRITE,ACL_CATEGORY_KEYSPACE|ACL_CATEGORY_DANGEROUS,SLOTSMGRTTAGONE_Keyspecs,1,NULL,4),.args=SLOTSMGRTTAGONE_Args},
+{MAKE_CMD("slotsmgrttagone-async","Asynchronously migrate one or more hash-tag grouped keys to the target node.","O(N) where N is the number of keys selected for migration.","3.2.0",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,SLOTSMGRTTAGONE_ASYNC_History,0,SLOTSMGRTTAGONE_ASYNC_Tips,1,slotsmgrtTagOneAsyncCommand,-7,CMD_WRITE|CMD_NOSCRIPT|CMD_BLOCKING,ACL_CATEGORY_KEYSPACE|ACL_CATEGORY_DANGEROUS,SLOTSMGRTTAGONE_ASYNC_Keyspecs,1,NULL,6),.args=SLOTSMGRTTAGONE_ASYNC_Args},
+{MAKE_CMD("slotsmgrttagone-async-dump","Dump one or more hash-tag grouped keys for Codis asynchronous migration.","O(N) where N is the number of keys dumped.","3.2.0",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,SLOTSMGRTTAGONE_ASYNC_DUMP_History,0,SLOTSMGRTTAGONE_ASYNC_DUMP_Tips,0,slotsmgrtTagOneAsyncDumpCommand,-4,CMD_READONLY|CMD_DENYOOM,ACL_CATEGORY_KEYSPACE|ACL_CATEGORY_DANGEROUS,SLOTSMGRTTAGONE_ASYNC_DUMP_Keyspecs,1,NULL,3),.args=SLOTSMGRTTAGONE_ASYNC_DUMP_Args},
 {MAKE_CMD("slotsmgrttagslot","Synchronously migrate a random key from a Codis slot with hash-tag awareness.","O(N) where N is the number of keys sharing the same hash tag.","3.2.0",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,SLOTSMGRTTAGSLOT_History,0,SLOTSMGRTTAGSLOT_Tips,1,slotsmgrttagslotCommand,5,CMD_WRITE,ACL_CATEGORY_KEYSPACE|ACL_CATEGORY_DANGEROUS,SLOTSMGRTTAGSLOT_Keyspecs,0,NULL,4),.args=SLOTSMGRTTAGSLOT_Args},
+{MAKE_CMD("slotsmgrttagslot-async","Asynchronously migrate hash-tag grouped keys from a Codis slot to the target node.","O(N) where N is the number of keys selected for migration.","3.2.0",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,SLOTSMGRTTAGSLOT_ASYNC_History,0,SLOTSMGRTTAGSLOT_ASYNC_Tips,1,slotsmgrtTagSlotAsyncCommand,8,CMD_WRITE|CMD_NOSCRIPT|CMD_BLOCKING,ACL_CATEGORY_KEYSPACE|ACL_CATEGORY_DANGEROUS,SLOTSMGRTTAGSLOT_ASYNC_Keyspecs,0,NULL,7),.args=SLOTSMGRTTAGSLOT_ASYNC_Args},
 {MAKE_CMD("slotsrestore","Restore keys from RDB dump payloads in a Codis migration context.","O(1) for each key-value pair. O(N) for N total pairs.","3.2.0",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,SLOTSRESTORE_History,0,SLOTSRESTORE_Tips,0,slotsrestoreCommand,-4,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_KEYSPACE|ACL_CATEGORY_DANGEROUS,SLOTSRESTORE_Keyspecs,1,NULL,1),.args=SLOTSRESTORE_Args},
+{MAKE_CMD("slotsrestore-async","Apply a Codis asynchronous migration restore operation.","O(N) where N depends on the restored value payload.","3.2.0",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,SLOTSRESTORE_ASYNC_History,0,SLOTSRESTORE_ASYNC_Tips,0,slotsrestoreAsyncCommand,-2,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_KEYSPACE|ACL_CATEGORY_DANGEROUS,SLOTSRESTORE_ASYNC_Keyspecs,1,NULL,3),.args=SLOTSRESTORE_ASYNC_Args},
+{MAKE_CMD("slotsrestore-async-ack","Acknowledge a Codis asynchronous migration restore batch.","O(1)","3.2.0",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,SLOTSRESTORE_ASYNC_ACK_History,0,SLOTSRESTORE_ASYNC_ACK_Tips,0,slotsrestoreAsyncAckCommand,3,CMD_WRITE,ACL_CATEGORY_KEYSPACE|ACL_CATEGORY_DANGEROUS,SLOTSRESTORE_ASYNC_ACK_Keyspecs,0,NULL,2),.args=SLOTSRESTORE_ASYNC_ACK_Args},
 {MAKE_CMD("slotsscan","Iterates over key names in a Codis slot in the current database.","O(1) for every call. O(N) for a complete iteration of the slot.","3.2.0",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,SLOTSSCAN_History,0,SLOTSSCAN_Tips,1,slotsscanCommand,-3,CMD_READONLY,ACL_CATEGORY_KEYSPACE,SLOTSSCAN_Keyspecs,0,NULL,3),.args=SLOTSSCAN_Args},
 {MAKE_CMD("slowlog","A container for slow log commands.","Depends on subcommand.","2.2.12",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,SLOWLOG_History,0,SLOWLOG_Tips,0,NULL,-2,0,0,SLOWLOG_Keyspecs,0,NULL,0),.subcommands=SLOWLOG_Subcommands},
 {MAKE_CMD("swapdb","Swaps two Redis databases.","O(N) where N is the count of clients watching or blocking on keys from both databases.","4.0.0",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,SWAPDB_History,0,SWAPDB_Tips,0,swapdbCommand,3,CMD_WRITE|CMD_FAST,ACL_CATEGORY_KEYSPACE|ACL_CATEGORY_DANGEROUS,SWAPDB_Keyspecs,0,NULL,2),.args=SWAPDB_Args},

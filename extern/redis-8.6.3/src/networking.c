@@ -223,6 +223,8 @@ client *createClient(connection *conn) {
     c->pubsub_patterns = dictCreate(&objectKeyPointerValueDictType);
     c->pubsubshard_channels = dictCreate(&objectKeyPointerValueDictType);
     c->peerid = NULL;
+    c->slotsmgrt_flags = 0;
+    c->slotsmgrt_fenceq = NULL;
     c->sockname = NULL;
     c->client_list_node = NULL;
     c->io_thread_client_list_node = NULL;
@@ -2097,6 +2099,7 @@ void freeClient(client *c) {
     }
 
     asmCallbackOnFreeClient(c);
+    slotsmgrtAsyncUnlinkClient(c);
 
     /* Notify module system that this client auth status changed. */
     moduleNotifyUserChanged(c);
@@ -5214,6 +5217,7 @@ int checkClientOutputBufferLimits(client *c) {
  * Returns 1 if client was (flagged) closed. */
 int closeClientOnOutputBufferLimitReached(client *c, int async) {
     if (!c->conn) return 0; /* It is unsafe to free fake clients. */
+    if (c->slotsmgrt_flags & CLIENT_SLOTSMGRT_ASYNC_CACHED_CLIENT) return 0;
     serverAssert(c->reply_bytes < SIZE_MAX-(1024*64));
     /* Note that c->reply_bytes is irrelevant for replica clients
      * (they use the global repl buffers). */

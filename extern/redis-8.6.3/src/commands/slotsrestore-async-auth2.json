@@ -1,0 +1,33 @@
+{
+    "SLOTSRESTORE-ASYNC-AUTH2": {
+        "summary": "Authenticate a Codis asynchronous migration restore connection with ACL username and password.",
+        "complexity": "O(N) where N is the number of configured passwords for the user.",
+        "group": "connection",
+        "since": "8.6.3",
+        "arity": 3,
+        "function": "slotsrestoreAsyncAuth2Command",
+        "command_flags": [
+            "NOSCRIPT",
+            "LOADING",
+            "STALE",
+            "FAST",
+            "NO_AUTH"
+        ],
+        "acl_categories": [
+            "CONNECTION"
+        ],
+        "reply_schema": {
+            "const": "OK"
+        },
+        "arguments": [
+            {
+                "name": "username",
+                "type": "string"
+            },
+            {
+                "name": "password",
+                "type": "string"
+            }
+        ]
+    }
+}

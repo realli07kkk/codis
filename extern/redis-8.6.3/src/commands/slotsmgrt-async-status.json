@@ -1,0 +1,21 @@
+{
+    "SLOTSMGRT-ASYNC-STATUS": {
+        "summary": "Return the active Codis asynchronous migration status on the selected database.",
+        "complexity": "O(1)",
+        "group": "server",
+        "since": "3.2.0",
+        "arity": 1,
+        "function": "slotsmgrtAsyncStatusCommand",
+        "command_flags": [
+            "FAST"
+        ],
+        "acl_categories": [
+            "KEYSPACE",
+            "DANGEROUS"
+        ],
+        "reply_schema": {
+            "type": "array",
+            "description": "Asynchronous migration status fields."
+        }
+    }
+}

@@ -1,0 +1,27 @@
+{
+    "SLOTSRESTORE-ASYNC-SELECT": {
+        "summary": "Select the database for a Codis asynchronous migration restore connection.",
+        "complexity": "O(1)",
+        "group": "connection",
+        "since": "3.2.0",
+        "arity": 2,
+        "function": "slotsrestoreAsyncSelectCommand",
+        "command_flags": [
+            "LOADING",
+            "STALE",
+            "FAST"
+        ],
+        "acl_categories": [
+            "CONNECTION"
+        ],
+        "reply_schema": {
+            "const": "OK"
+        },
+        "arguments": [
+            {
+                "name": "index",
+                "type": "integer"
+            }
+        ]
+    }
+}

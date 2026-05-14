@@ -3,7 +3,7 @@ doc_type: roadmap
 slug: redis8-upgrade
 status: active
 created: 2026-05-13
-last_reviewed: 2026-05-13
+last_reviewed: 2026-05-14
 tags: [redis, codis-server, migration, redis8]
 related_requirements: [redis-cluster-service]
 related_architecture: [system-overview]
@@ -295,9 +295,9 @@ SLOTSRESTORE-ASYNC-AUTH2 username password  # 如 Redis 8 ACL 需要
 6. **redis8-async-migration** — 移植异步迁移、restore async、fence/cancel/status/auth，并评估 pthread lazy release 是否改接 Redis 8 `bio` / lazyfree。
    - 所属模块：migration-protocol
    - 依赖：`redis8-sync-migration-and-rdb-fragments`
-   - 状态：planned
-   - 对应 feature：未启动
-   - 备注：需评估自建 pthread 与 Redis 8 `bio`、jemalloc thread cache、lazyfree 的资源竞争。
+   - 状态：done
+   - 对应 feature：2026-05-14-redis8-async-migration
+   - 备注：已完成 Redis 8 ↔ Redis 8 异步迁移、restore async ACK、AUTH/AUTH2/SELECT、fence/cancel/status、exec wrapper 写保护和 Tcl 回归；未新增 Codis 私有 pthread lazy release worker，无法安全拆分的新对象统一走 `object` payload 或失败保源。
 
 7. **redis8-go-component-adapters** — 验证并适配 Go proxy/topom/admin 对 Redis 8 Codis Server 的命令、INFO、CONFIG、AUTH、SELECT 和返回格式兼容性。
    - 所属模块：go-component-adapters

@@ -1,0 +1,29 @@
+{
+    "SLOTSRESTORE-ASYNC-AUTH": {
+        "summary": "Authenticate a Codis asynchronous migration restore connection with a password.",
+        "complexity": "O(N) where N is the number of configured passwords.",
+        "group": "connection",
+        "since": "3.2.0",
+        "arity": 2,
+        "function": "slotsrestoreAsyncAuthCommand",
+        "command_flags": [
+            "NOSCRIPT",
+            "LOADING",
+            "STALE",
+            "FAST",
+            "NO_AUTH"
+        ],
+        "acl_categories": [
+            "CONNECTION"
+        ],
+        "reply_schema": {
+            "const": "OK"
+        },
+        "arguments": [
+            {
+                "name": "password",
+                "type": "string"
+            }
+        ]
+    }
+}
