@@ -124,13 +124,18 @@ func TestRedisStats(x *testing.T) {
 type fakeServer struct {
 	net.Listener
 	list.List
-	Addr string
+	Addr    string
+	handler func([]string) *redis.Resp
 }
 
 func newFakeServer() *fakeServer {
+	return newFakeServerWithHandler(nil)
+}
+
+func newFakeServerWithHandler(handler func([]string) *redis.Resp) *fakeServer {
 	l, err := net.Listen("tcp", "127.0.0.1:0")
 	assert.MustNoError(err)
-	f := &fakeServer{Listener: l, Addr: l.Addr().String()}
+	f := &fakeServer{Listener: l, Addr: l.Addr().String(), handler: handler}
 	go func() {
 		for {
 			c, err := l.Accept()
@@ -162,58 +167,82 @@ func (s *fakeServer) Serve(c net.Conn) {
 			return
 		}
 		assert.Must(r.Type == redis.TypeArray && len(r.Array) != 0)
+		args := make([]string, len(r.Array))
+		for i, a := range r.Array {
+			args[i] = string(a.Value)
+		}
 		var resp *redis.Resp
-		switch cmd := string(r.Array[0].Value); cmd {
-		case "SLOTSINFO":
-			resp = redis.NewArray([]*redis.Resp{})
-		case "AUTH":
-			resp = redis.NewBulkBytes([]byte("OK"))
-		case "INFO":
-			resp = redis.NewBulkBytes([]byte("#Fake Codis Server"))
-		case "MULTI":
-			assert.Must(multi == 0)
-			multi++
-			continue
-		case "SLAVEOF", "CLIENT":
-			assert.Must(multi != 0)
-			multi++
-			continue
-		case "EXEC":
-			assert.Must(multi != 0)
-			resp = redis.NewArray([]*redis.Resp{})
-			for i := 1; i < multi; i++ {
-				resp.Array = append(resp.Array, redis.NewBulkBytes([]byte("OK")))
-			}
-			multi = 0
-		case "CONFIG":
-			if multi != 0 {
-				multi++
+		if s.handler != nil {
+			resp = s.handler(args)
+		}
+		if resp == nil {
+			var ok bool
+			resp, ok = s.defaultResponse(r, &multi)
+			if !ok {
 				continue
 			}
-			assert.Must(len(r.Array) >= 2)
-			var sub = strings.ToUpper(string(r.Array[1].Value))
-			var key string
-			if len(r.Array) >= 3 {
-				key = string(r.Array[2].Value)
-			}
-			switch {
-			case sub == "GET" && key == "maxmemory":
-				assert.Must(len(r.Array) == 3)
-				resp = redis.NewArray([]*redis.Resp{
-					redis.NewBulkBytes([]byte("maxmemory")),
-					redis.NewInt([]byte("0")),
-				})
-			default:
-				log.Panicf("unknown subcommand of <%s>", cmd)
-			}
-		case "SLOTSMGRTTAGSLOT":
-			resp = redis.NewArray([]*redis.Resp{
-				redis.NewInt([]byte("0")),
-				redis.NewInt([]byte("0")),
-			})
-		default:
-			log.Panicf("unknown command <%s>", cmd)
 		}
 		assert.MustNoError(enc.Encode(resp, true))
 	}
+}
+
+func (s *fakeServer) defaultResponse(r *redis.Resp, multi *int) (*redis.Resp, bool) {
+	switch cmd := string(r.Array[0].Value); cmd {
+	case "SLOTSINFO":
+		return redis.NewArray([]*redis.Resp{}), true
+	case "AUTH":
+		return redis.NewBulkBytes([]byte("OK")), true
+	case "SELECT":
+		return redis.NewBulkBytes([]byte("OK")), true
+	case "INFO":
+		if len(r.Array) == 2 && strings.ToUpper(string(r.Array[1].Value)) == "KEYSPACE" {
+			return redis.NewBulkBytes([]byte("# Keyspace\r\n")), true
+		}
+		return redis.NewBulkBytes([]byte("#Fake Codis Server\r\nloading:0\r\nmaster_link_status:up\r\n")), true
+	case "MULTI":
+		assert.Must(*multi == 0)
+		(*multi)++
+		return nil, false
+	case "SLAVEOF", "CLIENT":
+		assert.Must(*multi != 0)
+		(*multi)++
+		return nil, false
+	case "EXEC":
+		assert.Must(*multi != 0)
+		resp := redis.NewArray([]*redis.Resp{})
+		for i := 1; i < *multi; i++ {
+			resp.Array = append(resp.Array, redis.NewBulkBytes([]byte("OK")))
+		}
+		*multi = 0
+		return resp, true
+	case "CONFIG":
+		if *multi != 0 {
+			(*multi)++
+			return nil, false
+		}
+		assert.Must(len(r.Array) >= 2)
+		var sub = strings.ToUpper(string(r.Array[1].Value))
+		var key string
+		if len(r.Array) >= 3 {
+			key = string(r.Array[2].Value)
+		}
+		switch {
+		case sub == "GET" && key == "maxmemory":
+			assert.Must(len(r.Array) == 3)
+			return redis.NewArray([]*redis.Resp{
+				redis.NewBulkBytes([]byte("maxmemory")),
+				redis.NewInt([]byte("0")),
+			}), true
+		default:
+			log.Panicf("unknown subcommand of <%s>", cmd)
+		}
+	case "SLOTSMGRTTAGSLOT":
+		return redis.NewArray([]*redis.Resp{
+			redis.NewInt([]byte("0")),
+			redis.NewInt([]byte("0")),
+		}), true
+	default:
+		log.Panicf("unknown command <%s>", cmd)
+	}
+	return nil, false
 }

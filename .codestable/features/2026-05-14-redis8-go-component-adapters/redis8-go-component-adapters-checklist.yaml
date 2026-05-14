@@ -1,0 +1,78 @@
+feature: 2026-05-14-redis8-go-component-adapters
+created: 2026-05-14
+
+steps:
+  - action: "兼容矩阵：把 roadmap 4.7 的命令和字段清单转成 Go 侧场景表"
+    exit_signal: "每个场景标明 fake test、Redis 8 smoke 或 packaging handoff 的验证方式"
+    status: done
+  - action: "Redis client parser 骨架：覆盖 INFO、CONFIG、SetMaster、SlotsInfo、sync/async migration 返回"
+    exit_signal: "不启动真实 Redis 时，相关 Go parser/编排测试能证明协议形状"
+    status: done
+  - action: "Proxy 后端与半异步转发：覆盖 AUTH/SELECT/INFO keepalive、SLOTSINFO/SLOTSSCAN dispatch、SLOTSMGRT-EXEC-WRAPPER 返回码"
+    exit_signal: "pkg/proxy 测试验证 Redis 8 目标 RESP 不破坏 proxy 请求编排"
+    status: done
+  - action: "必要小适配：只处理测试暴露出的 Go 侧不兼容"
+    exit_signal: "Redis 3 fake server 回归和新增 Redis 8 fake cases 同时通过"
+    status: done
+  - action: "Redis 8 真实 smoke：启动 codis-enabled 实例验证 AUTH、SELECT、INFO、SLOTSINFO、sync/async migration、replication control"
+    exit_signal: "smoke 能证明 Go 组件实际驱动 Redis 8 Codis Server，失败时能归类到 Go、Redis server 或环境"
+    status: done
+  - action: "范围回归与交接：核对未切换默认构建、未升级依赖、未扩大 proxy 命令面，并记录后续 packaging/cutover 输入"
+    exit_signal: "验收清单全部有证据，roadmap 后续条目能接收剩余风险"
+    status: done
+
+checks:
+  - item: "Robustness=L3：RESP 类型不匹配、INFO 字段缺失、AUTH/SELECT/CONFIG 错误都必须返回错误"
+    source: 流程级约束
+    status: passed
+  - item: "同一套 Go 代码必须继续兼容 Redis 3 Codis Server 和 Redis 8 Codis Server"
+    source: 流程级约束
+    status: passed
+  - item: "不切换默认 make/make codis-server 到 Redis 8"
+    source: 范围守护
+    status: passed
+  - item: "不升级 Go 依赖，不做 go mod tidy 扫全仓"
+    source: 范围守护
+    status: passed
+  - item: "不扩大 proxy 对 CONFIG、SLAVEOF、SLOTSMGRT*、SLOTSRESTORE*、CLIENT KILL 等危险命令的开放面"
+    source: 范围守护
+    status: passed
+  - item: "不新增 Redis Cluster MOVED/ASK/CLUSTER 协议分支"
+    source: 范围守护
+    status: passed
+  - item: "不新增 ACL username 配置项，仍只验证现有 default-user AUTH <password> 路径"
+    source: 范围守护
+    status: passed
+  - item: "InfoFull 能解析 Redis 8 INFO/CONFIG GET maxmemory，并正确生成或省略 master_addr"
+    source: 名词契约
+    status: passed
+  - item: "SetMaster 在 Redis 8 上保留 SLAVEOF alias 优先，只有真实不兼容时才加 Redis 3-safe fallback"
+    source: 名词契约
+    status: passed
+  - item: "SlotsInfo 严格解析 [[slot_id,key_count], ...]，畸形返回必须报错"
+    source: 名词契约
+    status: passed
+  - item: "MigrateSlot 和 MigrateSlotAsync 严格解析 [migrated_count, remaining_count] 并返回 remaining_count"
+    source: 名词契约
+    status: passed
+  - item: "proxy backend AUTH、SELECT、INFO keepalive 在 Redis 8 返回 loading/master_link_status 时保持现有状态语义"
+    source: 编排骨架
+    status: passed
+  - item: "proxy SLOTSINFO <addr> 和 SLOTSSCAN slot cursor [COUNT n] 的转发语义保持兼容"
+    source: 编排骨架
+    status: passed
+  - item: "SLOTSMGRT-EXEC-WRAPPER 的 [0,err]、[1,err]、[2,reply] 三种返回码都按现有 proxy 语义处理"
+    source: 编排骨架
+    status: passed
+  - item: "本 feature 不引入新配置 key、HTTP endpoint、Redis 命令、定时任务、coordinator schema 或 proxy allow-list 条目"
+    source: 挂载点
+    status: passed
+  - item: "Redis 8 default-user requirepass 下 NewClient/proxy backend AUTH 成功，错误密码返回错误且不泄露密码"
+    source: 验收场景
+    status: passed
+  - item: "SELECT 后 SLOTSINFO、sync migration、async migration 只作用于当前 DB"
+    source: 验收场景
+    status: passed
+  - item: "Redis 8 CONFIG REWRITE 不丢 codis-enabled 等 Codis 自定义配置；若失败则交接 Redis 8 config/packaging 问题"
+    source: 验收场景
+    status: passed

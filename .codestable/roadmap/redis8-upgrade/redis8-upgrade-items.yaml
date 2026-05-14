@@ -47,8 +47,8 @@ items:
   - slug: redis8-go-component-adapters
     description: 验证并适配 Go proxy/topom/admin 对 Redis 8 Codis Server 的命令、INFO、CONFIG、AUTH、SELECT 和返回格式兼容性
     depends_on: [redis8-slot-basic-commands, redis8-sync-migration-and-rdb-fragments]
-    status: planned
-    feature: null
+    status: done
+    feature: 2026-05-14-redis8-go-component-adapters
     minimal_loop: false
     notes: "覆盖 SLAVEOF/REPLICAOF、INFO 字段、CONFIG REWRITE、CLIENT KILL TYPE normal、ACL/AUTH、SELECT、SLOTSINFO 返回格式。"
   - slug: redis8-build-config-packaging

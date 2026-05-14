@@ -1,0 +1,252 @@
+// Copyright 2016 CodisLabs. All Rights Reserved.
+// Licensed under the MIT (MIT-LICENSE.txt) license.
+
+package redis
+
+import (
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/CodisLabs/codis/pkg/proxy/redis/redistest"
+)
+
+const redis8ClientTestSlotID = 42
+
+func TestClientRedis8InfoFullFields(t *testing.T) {
+	const info = "# Replication\r\n" +
+		"role:slave\r\n" +
+		"master_host:127.0.0.1\r\n" +
+		"master_port:6380\r\n" +
+		"master_link_status:up\r\n" +
+		"loading:0\r\n"
+	s := redistest.NewServer(t, func(args []string) *redistest.Resp {
+		switch strings.ToUpper(args[0]) {
+		case "INFO":
+			return redistest.Bulk(info)
+		case "CONFIG":
+			if len(args) == 3 && strings.ToUpper(args[1]) == "GET" && args[2] == "maxmemory" {
+				return redistest.Array(redistest.Bulk("maxmemory"), redistest.Int("1048576"))
+			}
+		}
+		t.Fatalf("unexpected command: %v", args)
+		return nil
+	})
+
+	c, err := NewClientNoAuth(s.Addr(), time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+
+	got, err := c.InfoFull()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got["master_addr"] != "127.0.0.1:6380" {
+		t.Fatalf("master_addr = %q", got["master_addr"])
+	}
+	if got["master_link_status"] != "up" {
+		t.Fatalf("master_link_status = %q", got["master_link_status"])
+	}
+	if got["maxmemory"] != "1048576" {
+		t.Fatalf("maxmemory = %q", got["maxmemory"])
+	}
+}
+
+func TestClientRedis8InfoFullStandaloneDoesNotInventMasterAddr(t *testing.T) {
+	s := redistest.NewServer(t, func(args []string) *redistest.Resp {
+		switch strings.ToUpper(args[0]) {
+		case "INFO":
+			return redistest.Bulk("# Replication\r\nrole:master\r\nloading:0\r\n")
+		case "CONFIG":
+			return redistest.Array(redistest.Bulk("maxmemory"), redistest.Int("0"))
+		}
+		t.Fatalf("unexpected command: %v", args)
+		return nil
+	})
+
+	c, err := NewClientNoAuth(s.Addr(), time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+
+	got, err := c.InfoFull()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := got["master_addr"]; ok {
+		t.Fatalf("master_addr should be absent for standalone info: %v", got)
+	}
+}
+
+func TestClientRedis8SetMasterKeepsSlaveofAlias(t *testing.T) {
+	s := redistest.NewServer(t, func(args []string) *redistest.Resp {
+		switch strings.ToUpper(args[0]) {
+		case "MULTI":
+			return redistest.OK()
+		case "CONFIG", "SLAVEOF", "CLIENT":
+			return redistest.String("QUEUED")
+		case "EXEC":
+			return redistest.Array(redistest.OK(), redistest.OK(), redistest.OK(), redistest.OK())
+		}
+		t.Fatalf("unexpected command: %v", args)
+		return nil
+	})
+
+	c, err := NewClientNoAuth(s.Addr(), time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+
+	if err := c.SetMaster("127.0.0.1:6380"); err != nil {
+		t.Fatal(err)
+	}
+	var sawSlaveof, sawReplicaof, sawKillNormal bool
+	for _, cmd := range s.Commands() {
+		switch strings.ToUpper(cmd[0]) {
+		case "SLAVEOF":
+			sawSlaveof = len(cmd) == 3 && cmd[1] == "127.0.0.1" && cmd[2] == "6380"
+		case "REPLICAOF":
+			sawReplicaof = true
+		case "CLIENT":
+			sawKillNormal = len(cmd) == 4 && strings.ToUpper(cmd[1]) == "KILL" &&
+				strings.ToUpper(cmd[2]) == "TYPE" && cmd[3] == "normal"
+		}
+	}
+	if !sawSlaveof {
+		t.Fatalf("SLAVEOF command not observed: %v", s.Commands())
+	}
+	if sawReplicaof {
+		t.Fatalf("REPLICAOF should not replace SLAVEOF in Redis 3 compatible path: %v", s.Commands())
+	}
+	if !sawKillNormal {
+		t.Fatalf("CLIENT KILL TYPE normal not observed: %v", s.Commands())
+	}
+}
+
+func TestClientRedis8SelectTracksDatabase(t *testing.T) {
+	s := redistest.NewServer(t, func(args []string) *redistest.Resp {
+		if strings.ToUpper(args[0]) != "SELECT" {
+			t.Fatalf("unexpected command: %v", args)
+		}
+		return redistest.OK()
+	})
+
+	c, err := NewClientNoAuth(s.Addr(), time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+
+	if err := c.Select(2); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.Select(2); err != nil {
+		t.Fatal(err)
+	}
+	if c.Database != 2 {
+		t.Fatalf("database = %d", c.Database)
+	}
+	if n := len(s.Commands()); n != 1 {
+		t.Fatalf("SELECT should be sent once, got %d commands: %v", n, s.Commands())
+	}
+}
+
+func TestClientRedis8SlotsInfoStrictShape(t *testing.T) {
+	s := redistest.NewServer(t, func(args []string) *redistest.Resp {
+		if strings.ToUpper(args[0]) != "SLOTSINFO" {
+			t.Fatalf("unexpected command: %v", args)
+		}
+		return redistest.Array(
+			redistest.Array(redistest.Int("3"), redistest.Int("11")),
+			redistest.Array(redistest.Int("899"), redistest.Int("1")),
+		)
+	})
+
+	c, err := NewClientNoAuth(s.Addr(), time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+
+	got, err := c.SlotsInfo()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got[3] != 11 || got[899] != 1 || len(got) != 2 {
+		t.Fatalf("slots info = %v", got)
+	}
+}
+
+func TestClientRedis8SlotsInfoRejectsMalformedShape(t *testing.T) {
+	s := redistest.NewServer(t, func(args []string) *redistest.Resp {
+		return redistest.Array(redistest.Array(redistest.Int("3")))
+	})
+
+	c, err := NewClientNoAuth(s.Addr(), time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+
+	if _, err := c.SlotsInfo(); err == nil {
+		t.Fatal("expected malformed SLOTSINFO response to fail")
+	}
+}
+
+func TestClientRedis8MigrationResponsesReturnRemainingCount(t *testing.T) {
+	s := redistest.NewServer(t, func(args []string) *redistest.Resp {
+		switch strings.ToUpper(args[0]) {
+		case "SLOTSMGRTTAGSLOT":
+			return redistest.Array(redistest.Int("4"), redistest.Int("7"))
+		case "SLOTSMGRTTAGSLOT-ASYNC":
+			return redistest.Array(redistest.Int("9"), redistest.Int("0"))
+		}
+		t.Fatalf("unexpected command: %v", args)
+		return nil
+	})
+
+	c, err := NewClientNoAuth(s.Addr(), time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+
+	remaining, err := c.MigrateSlot(redis8ClientTestSlotID, "127.0.0.1:6380")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if remaining != 7 {
+		t.Fatalf("sync remaining = %d", remaining)
+	}
+	remaining, err = c.MigrateSlotAsync(redis8ClientTestSlotID, "127.0.0.1:6380", &MigrateSlotAsyncOption{
+		MaxBulks: 200,
+		MaxBytes: 1024,
+		NumKeys:  100,
+		Timeout:  time.Second,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if remaining != 0 {
+		t.Fatalf("async remaining = %d", remaining)
+	}
+}
+
+func TestClientRedis8AuthDefaultUserPath(t *testing.T) {
+	s := redistest.NewServer(t, func(args []string) *redistest.Resp {
+		if strings.ToUpper(args[0]) != "AUTH" || len(args) != 2 || args[1] != "secret" {
+			t.Fatalf("unexpected command: %v", args)
+		}
+		return redistest.OK()
+	})
+
+	c, err := NewClient(s.Addr(), "secret", time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+}

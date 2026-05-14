@@ -4,9 +4,11 @@
 package topom
 
 import (
+	"strconv"
 	"testing"
 
 	"github.com/CodisLabs/codis/pkg/models"
+	"github.com/CodisLabs/codis/pkg/proxy/redis"
 	"github.com/CodisLabs/codis/pkg/utils/assert"
 )
 
@@ -59,6 +61,49 @@ func TestSlotAction(x *testing.T) {
 	m := getSlotMapping(t, sid)
 	assert.Must(m.Action.State == models.ActionNothing)
 	assert.Must(m.GroupId == gid)
+}
+
+func TestSlotActionExecutorSemiAsyncRedis8Response(x *testing.T) {
+	t := openTopom()
+	defer t.Close()
+
+	const migrationRemaining = 5
+	source := newFakeServerWithHandler(func(args []string) *redis.Resp {
+		if args[0] != "SLOTSMGRTTAGSLOT-ASYNC" {
+			return nil
+		}
+		return redis.NewArray([]*redis.Resp{
+			redis.NewInt([]byte("1")),
+			redis.NewInt([]byte(strconv.Itoa(migrationRemaining))),
+		})
+	})
+	defer source.Close()
+
+	target := newFakeServer()
+	defer target.Close()
+
+	const sid = 100
+	const gid1 = 200
+	const gid2 = 300
+
+	contextUpdateGroup(t, &models.Group{Id: gid1, Servers: []*models.GroupServer{
+		&models.GroupServer{Addr: source.Addr},
+	}})
+	contextUpdateGroup(t, &models.Group{Id: gid2, Servers: []*models.GroupServer{
+		&models.GroupServer{Addr: target.Addr},
+	}})
+	m := &models.SlotMapping{Id: sid, GroupId: gid1}
+	m.Action.State = models.ActionMigrating
+	m.Action.TargetId = gid2
+	contextUpdateSlotMapping(t, m)
+
+	exec, err := t.newSlotActionExecutor(sid)
+	assert.MustNoError(err)
+	assert.Must(exec != nil)
+	remains, nextdb, err := exec(0)
+	assert.MustNoError(err)
+	assert.Must(remains == migrationRemaining)
+	assert.Must(nextdb == 0)
 }
 
 func TestSyncAction(x *testing.T) {

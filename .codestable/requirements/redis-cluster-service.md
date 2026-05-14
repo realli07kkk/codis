@@ -30,6 +30,7 @@ tags: [redis, cluster, operations]
 
 - 2026-05-13：Redis 8 Codis Server 支线完成同步迁移命令和 `SLOTSRESTORE` 移植，覆盖 `SLOTSMGRTSLOT`、`SLOTSMGRTONE`、`SLOTSMGRTTAGSLOT`、`SLOTSMGRTTAGONE` 与 Redis 8 RDB fragment restore。该进展不改变业务客户端协议，不切换默认 Redis 3 Codis Server 构建，也不承诺 Redis 3 ↔ Redis 8 RDB fragment 双向兼容。
 - 2026-05-14：Redis 8 Codis Server 支线完成异步迁移移植，覆盖 `SLOTSMGRT*-ASYNC`、`SLOTSRESTORE-ASYNC*`、`SLOTSMGRT-ASYNC-FENCE/CANCEL/STATUS` 与 `SLOTSMGRT-EXEC-WRAPPER`。该进展提供 Redis 8 ↔ Redis 8 半异步迁移能力，不改变业务客户端协议，不切换默认 Redis 3 Codis Server 构建，也不承诺 Redis 3 ↔ Redis 8 异步迁移协议跨版本互通。
+- 2026-05-14：Redis 8 支线完成 Go proxy/topom/admin 兼容验证，覆盖 `INFO` / `CONFIG`、default-user `AUTH <password>`、`SELECT` 当前 DB、`SLAVEOF` alias、`CLIENT KILL TYPE normal`、`SLOTSINFO`、同步/异步迁移返回格式和 `SLOTSMGRT-EXEC-WRAPPER`。真实 Redis 8 Codis Server smoke 未发现必须新增生产 adapter 的不兼容点；默认构建、配置模板、打包切换和灰度 cutover 仍按 roadmap 后续条目推进。
 
 ## 边界
 
@@ -38,5 +39,5 @@ tags: [redis, cluster, operations]
 - `CLIENT` 命令族只支持 `CLIENT LIST`；该命令只返回当前 proxy 实例接入的客户端连接，不聚合多个 proxy，不下探后端 Redis，也不承诺 Redis 8.x 的所有字段。
 - 集群拓扑变更必须经由 dashboard/topom 管理，不应绕过它直接改 coordinator 中的状态。
 - 后端数据最终仍存放在 Codis Server/Redis Server；Redis 本身的容量、持久化和资源隔离仍需要单独规划。
-- Redis 8 支线仍是独立升级路径；当前完成的是 Redis 8 ↔ Redis 8 的同步/异步迁移能力，Go proxy/topom/admin 适配、正式打包切换和灰度 cutover 仍按 roadmap 后续条目推进。
+- Redis 8 支线仍是独立升级路径；当前完成的是 Redis 8 ↔ Redis 8 的同步/异步迁移能力和 Go proxy/topom/admin 兼容验证，正式打包切换和灰度 cutover 仍按 roadmap 后续条目推进。
 - HA 能降低 proxy 和 Redis Server 故障影响，但不能替代监控、备份和故障演练。

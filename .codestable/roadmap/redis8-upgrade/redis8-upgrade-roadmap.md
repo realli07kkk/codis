@@ -302,9 +302,9 @@ SLOTSRESTORE-ASYNC-AUTH2 username password  # 如 Redis 8 ACL 需要
 7. **redis8-go-component-adapters** — 验证并适配 Go proxy/topom/admin 对 Redis 8 Codis Server 的命令、INFO、CONFIG、AUTH、SELECT 和返回格式兼容性。
    - 所属模块：go-component-adapters
    - 依赖：`redis8-slot-basic-commands`、`redis8-sync-migration-and-rdb-fragments`
-   - 状态：planned
-   - 对应 feature：未启动
-   - 备注：覆盖 4.7 中 7 项兼容清单。
+   - 状态：done
+   - 对应 feature：2026-05-14-redis8-go-component-adapters
+   - 备注：已完成 Go fake Redis 单元测试矩阵与真实 Redis 8 Codis Server smoke，覆盖 4.7 中 7 项兼容清单；未发现必须新增生产 adapter 的不兼容点，默认构建切换仍留给 packaging。
 
 8. **redis8-build-config-packaging** — 完成 Redis 8 Codis Server 的正式构建、配置模板、命令 metadata 和打包切换。
    - 所属模块：validation-cutover
