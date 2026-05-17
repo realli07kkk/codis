@@ -29,6 +29,7 @@
 - 当前环境没有 `python` 命令；运行 `.codestable/tools/*.py` 时使用 `python3`。
 - 不要用全量 `go mod tidy` 收口本仓库；它会扫描 etcd 依赖测试链路，更新 `go.mod` 时优先用验收命令驱动最小机械变化。
 - 除非任务明确要求 Docker / 容器相关内容，默认不要修改 Dockerfile、Docker 脚本或把 docker build / Docker daemon 检查作为必跑验收。
+- `codis-server-redis3` 不接受 Redis 8 的 `codis-enabled yes` 配置；跨版本直连验证时不要把 Redis 8 配置原样用于 Redis 3 fallback。
 
 ### 路径与目录约定
 

@@ -3,7 +3,7 @@ doc_type: requirement
 slug: redis-cluster-service
 pitch: 让业务像使用单机 Redis 一样使用可扩缩容的 Redis 集群
 status: current
-last_reviewed: 2026-05-14
+last_reviewed: 2026-05-17
 implemented_by: [system-overview]
 tags: [redis, cluster, operations]
 ---
@@ -32,6 +32,7 @@ tags: [redis, cluster, operations]
 - 2026-05-14：Redis 8 Codis Server 支线完成异步迁移移植，覆盖 `SLOTSMGRT*-ASYNC`、`SLOTSRESTORE-ASYNC*`、`SLOTSMGRT-ASYNC-FENCE/CANCEL/STATUS` 与 `SLOTSMGRT-EXEC-WRAPPER`。该进展提供 Redis 8 ↔ Redis 8 半异步迁移能力，不改变业务客户端协议，不切换默认 Redis 3 Codis Server 构建，也不承诺 Redis 3 ↔ Redis 8 异步迁移协议跨版本互通。
 - 2026-05-14：Redis 8 支线完成 Go proxy/topom/admin 兼容验证，覆盖 `INFO` / `CONFIG`、default-user `AUTH <password>`、`SELECT` 当前 DB、`SLAVEOF` alias、`CLIENT KILL TYPE normal`、`SLOTSINFO`、同步/异步迁移返回格式和 `SLOTSMGRT-EXEC-WRAPPER`。真实 Redis 8 Codis Server smoke 未发现必须新增生产 adapter 的不兼容点；默认构建、配置模板、打包切换和灰度 cutover 仍按 roadmap 后续条目推进。
 - 2026-05-14：默认 `codis-server` 构建、tracked Redis 配置模板和 Docker / example 包装入口已切到 Redis 8 Codis Server；`config/redis.conf` 显式启用 `codis-enabled yes` 且不启用 Redis Cluster，Redis 3 通过 `codis-server-redis3` fallback 目标保留。该进展让后续 cutover 验证覆盖真实发布物，但不等同于已完成端到端灰度、性能基线、跨版本迁移兼容或回滚策略。
+- 2026-05-17：Redis 8 默认发布物完成本地 Mac 非性能 validation-cutover。证据覆盖 `make gotest`、Redis 8 Codis Tcl suite、短生命周期 dashboard/proxy/admin/Redis 8 e2e、`semi-async` 与 `sync` slot migration、普通 key / hash tag key / 非 0 DB key 迁移后读回，以及 Redis 3 ↔ Redis 8 fragment 方向性观察。当前矩阵中 Redis 3 → Redis 8 成功，Redis 8 → Redis 3 可观测失败且源端 key 保留；Linux 正式性能基线、fork/RDB、复制、Docker/部署包装和最终 cutover gate 仍待后续 `redis8-linux-validation-cutover`。
 
 ## 边界
 
@@ -40,5 +41,5 @@ tags: [redis, cluster, operations]
 - `CLIENT` 命令族只支持 `CLIENT LIST`；该命令只返回当前 proxy 实例接入的客户端连接，不聚合多个 proxy，不下探后端 Redis，也不承诺 Redis 8.x 的所有字段。
 - 集群拓扑变更必须经由 dashboard/topom 管理，不应绕过它直接改 coordinator 中的状态。
 - 后端数据最终仍存放在 Codis Server/Redis Server；Redis 本身的容量、持久化和资源隔离仍需要单独规划。
-- Redis 8 已成为默认 Codis Server 构建和包装入口，但 Redis 8 灰度 cutover 仍是独立后续工作；当前不承诺性能基线、跨版本迁移兼容、Redis 8 持久化文件降级回 Redis 3 或完整回滚操作手册。
+- Redis 8 已成为默认 Codis Server 构建和包装入口，并已完成本地 Mac 非性能 validation-cutover；当前不承诺 Linux 性能基线、fork/RDB、复制、Docker/部署包装、最终生产 cutover gate 或 Redis 8 持久化文件降级回 Redis 3。跨版本 fragment 仅以本地矩阵记录的方向性结论为准，不能外推为持久化 RDB/AOF 降级能力。
 - HA 能降低 proxy 和 Redis Server 故障影响，但不能替代监控、备份和故障演练。

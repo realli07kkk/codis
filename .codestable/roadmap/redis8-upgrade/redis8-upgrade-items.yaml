@@ -59,9 +59,16 @@ items:
     minimal_loop: false
     notes: "第 1 步已接最小构建；本阶段负责正式默认构建和发布包装。"
   - slug: redis8-validation-cutover
-    description: 完成端到端迁移演练、性能基线、灰度切换和回滚策略
+    description: 在本地 Mac 环境完成 Redis 8 非性能端到端验证、跨版本迁移观察和 Linux 正式验证交接清单
     depends_on: [redis8-build-config-packaging]
+    status: done
+    feature: 2026-05-17-redis8-validation-cutover
+    minimal_loop: false
+    notes: "本阶段只做本地 Mac 非性能验证；覆盖 proxy/topom/dashboard/admin 联调、Redis Tcl + Go 测试组合和跨版本迁移观察，不产出性能基线或正式 Linux cutover 结论。"
+  - slug: redis8-linux-validation-cutover
+    description: 在远程 Linux 环境完成正式端到端验证、性能基线、Docker/部署包装检查和最终灰度回滚证据
+    depends_on: [redis8-validation-cutover]
     status: planned
     feature: null
     minimal_loop: false
-    notes: "必须覆盖 proxy/topom/dashboard/admin 联调和 Redis Tcl + Go 测试组合。"
+    notes: "Linux 结果作为正式 cutover gate；性能基线、fork/RDB/复制、网络栈、Docker 或部署包装验证都归本阶段。"

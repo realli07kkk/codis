@@ -3,7 +3,7 @@ doc_type: roadmap
 slug: redis8-upgrade
 status: active
 created: 2026-05-13
-last_reviewed: 2026-05-14
+last_reviewed: 2026-05-17
 tags: [redis, codis-server, migration, redis8]
 related_requirements: [redis-cluster-service]
 related_architecture: [system-overview]
@@ -44,7 +44,7 @@ redis8-upgrade
 ├── slot-keyspace-core：slot 维度 key 生命周期、tag index 和基础 slot 命令
 ├── migration-protocol：同步/异步迁移、RDB fragment、restore auth 和 lazy release
 ├── go-component-adapters：proxy/topom/admin 与 Redis 8 Codis Server 的兼容验证
-└── validation-cutover：系统级验证、性能基线、灰度和回滚策略
+└── validation-cutover：本地/远程分层验证、Linux 性能基线、灰度和回滚策略
 ```
 
 ### patch-inventory-build · 补丁清单与构建接入
@@ -79,9 +79,9 @@ redis8-upgrade
 
 ### validation-cutover · 验证与切换
 
-- **职责**：把前面各模块的测试串成端到端升级验收，明确性能基线、灰度路径和回滚边界。
-- **承载的子 feature**：`redis8-build-config-packaging`、`redis8-validation-cutover`
-- **触碰的现有代码 / 模块**：构建脚本、配置模板、部署文档、测试脚本、Codis 集群演练环境。
+- **职责**：先在本地 Mac 上把非性能验证 runner、端到端 smoke、跨版本迁移观察和 cutover 文档骨架跑通，再在远程 Linux 上完成正式系统级验证、性能基线和最终灰度/回滚证据。
+- **承载的子 feature**：`redis8-build-config-packaging`、`redis8-validation-cutover`、`redis8-linux-validation-cutover`
+- **触碰的现有代码 / 模块**：构建脚本、配置模板、部署文档、测试脚本、Codis 集群演练环境、Linux 验证证据。
 
 ## 4. 模块间接口契约 / 共享协议（架构层详设）
 
@@ -311,14 +311,21 @@ SLOTSRESTORE-ASYNC-AUTH2 username password  # 如 Redis 8 ACL 需要
    - 依赖：`redis8-async-migration`、`redis8-go-component-adapters`
    - 状态：done
    - 对应 feature：2026-05-14-redis8-build-config-packaging
-   - 备注：默认 `codis-server`、tracked Redis 配置模板和 Docker / example 包装入口已切到 Redis 8 Codis Server；Redis 3 通过显式 fallback 目标保留，灰度 cutover、性能基线和回滚策略仍由下一条承接。
+   - 备注：默认 `codis-server`、tracked Redis 配置模板和 Docker / example 包装入口已切到 Redis 8 Codis Server；Redis 3 通过显式 fallback 目标保留，本地非性能验证和 Linux 正式验证由后续两条承接。
 
-9. **redis8-validation-cutover** — 完成端到端迁移演练、性能基线、灰度切换和回滚策略。
+9. **redis8-validation-cutover** — 在本地 Mac 环境完成 Redis 8 非性能端到端验证、跨版本迁移观察和 Linux 正式验证交接清单。
    - 所属模块：validation-cutover
    - 依赖：`redis8-build-config-packaging`
+   - 状态：done
+   - 对应 feature：2026-05-17-redis8-validation-cutover
+   - 备注：已完成本地 Mac 非性能验证；覆盖 `make gotest`、Redis 8 Codis Tcl suite、proxy/topom/dashboard/admin 联调、`semi-async` 与 `sync` slot migration、跨版本 fragment 观察和 Linux 正式验证交接清单；不产出性能基线或正式 Linux cutover 结论。
+
+10. **redis8-linux-validation-cutover** — 在远程 Linux 环境完成正式端到端验证、性能基线、Docker/部署包装检查和最终灰度回滚证据。
+   - 所属模块：validation-cutover
+   - 依赖：`redis8-validation-cutover`
    - 状态：planned
    - 对应 feature：未启动
-   - 备注：必须覆盖 proxy/topom/dashboard/admin 联调和 Redis Tcl + Go 测试组合。
+   - 备注：Linux 结果才作为正式 cutover gate；性能基线、fork/RDB/复制、网络栈、Docker 或部署包装验证都归本阶段。
 
 **最小闭环**：第 2 条 `redis8-codis-mode-foundation` 完成后，可以启动 Redis 8 Codis Server，开启 `codis-enabled`，写入多个 key，观察 key 按 Codis CRC32 1024 slot 进入 `kvstore`，并通过 `SLOTSHASHKEY` / 基础 `SLOTSINFO` 验证 slot 语义。
 
@@ -328,11 +335,17 @@ SLOTSRESTORE-ASYNC-AUTH2 username password  # 如 Redis 8 ACL 需要
 
 中段先完成 slot keyspace 和基础命令，再做同步迁移和异步迁移。原因是迁移命令依赖 slot 统计、slot 扫描、tag index 和 RDB fragment restore；异步迁移又依赖同步迁移的协议和 object 序列化能力。Go 组件适配放在基础命令和同步迁移之后启动，因为 topom/proxy 的关键交互需要这些 Redis 命令先有稳定返回格式。
 
-最后再做正式 packaging 和 cutover。第 1 步只负责最小编译入口，避免构建后置；第 8 步负责把 Redis 8 Codis Server 切成正式默认产物、配置模板和发布包装。
+最后再做正式 packaging 和分层 cutover 验证。第 1 步只负责最小编译入口，避免构建后置；第 8 步负责把 Redis 8 Codis Server 切成正式默认产物、配置模板和发布包装；第 9 步先在本地 Mac 收口非性能验证与 runner；第 10 步再到远程 Linux 产出正式性能基线和 cutover 证据。
 
 ## 7. 观察项
 
 - Redis 8 的 command metadata 由 JSON 生成 `commands.def`，移植 Codis 命令时应优先补 command JSON 和生成流程，不应长期手改生成物。
 - Redis 8 `keyHashSlot()` 是 static inline 热路径，具体实现时可能需要新增 Codis 专用 hash helper，避免污染 Redis Cluster 的 16384 slot 语义。
 - Redis 8 `kvstore` 的 fenwick tree 随 `slot_count_bits` 改变，需要在 `slot_count_bits=10` 下专门测随机 key、过期扫描和淘汰行为。
+- 本地 Mac 验证只能作为 runner 和非性能 smoke 证据；性能基线、fork/RDB/复制和网络栈相关结论必须以后续 Linux 验证为准。
 - Redis 8 license / 上游版本策略如果影响发布，需要另起决策文档记录；本 roadmap 只处理工程移植路径。
+
+## 8. 变更日志
+
+- 2026-05-17：将原 `redis8-validation-cutover` 拆为本地 Mac 非性能验证和远程 Linux 正式验证两个步骤；新增 `redis8-linux-validation-cutover` 承接性能基线、Linux 正式 cutover gate、Docker/部署包装检查和最终灰度回滚证据。
+- 2026-05-17：完成 `redis8-validation-cutover` 本地 Mac 非性能验收；`redis8-linux-validation-cutover` 继续保持 planned，承接远程 Linux 正式 gate。

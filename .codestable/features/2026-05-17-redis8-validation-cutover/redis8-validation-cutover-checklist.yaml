@@ -1,0 +1,84 @@
+feature: 2026-05-17-redis8-validation-cutover
+created: 2026-05-17
+
+steps:
+  - action: "验证矩阵骨架：把 build、Tcl、Go、e2e、cross-version、Linux handoff、runbook 草案分成明确 gate 项"
+    exit_signal: "每个 gate 项都有触发命令、预期结果、失败归属和证据位置"
+    status: done
+  - action: "端到端集群 runner：搭建短生命周期 Redis 8 Codis 集群，完成 group/proxy/slot 初始化和 proxy 写读校验"
+    exit_signal: "临时集群可启动、可经 admin/dashboard 建模，proxy 可读写通过默认 Redis 8 server"
+    status: done
+  - action: "slot migration 演练：在 e2e runner 中覆盖 semi-async 和 sync slot migration"
+    exit_signal: "迁移后 proxy 读回数据一致，slot action 归零，源/目标 slot 统计符合预期"
+    status: done
+  - action: "跨版本迁移矩阵：用 Redis 3 fallback 与 Redis 8 执行方向性 fragment 迁移验证"
+    exit_signal: "每个方向记录 success / observable failure / unsupported；失败方向证明源端 key 未静默删除"
+    status: done
+  - action: "Linux 正式验证交接清单：整理远程 Linux 必跑的正式 e2e、性能基线、Docker/部署包装和 fork/RDB/复制检查"
+    exit_signal: "报告包含 Linux 待执行命令、环境字段、证据字段和本地 Mac 不产出性能结论的说明"
+    status: done
+  - action: "cutover runbook 草案与证据收口：把灰度、回滚和本地 gate 结果整理成当前交付"
+    exit_signal: "runbook 草案覆盖 preflight/canary/ramp/full/rollback，证据报告能支撑 acceptance 回写并交接 Linux 阶段"
+    status: done
+
+checks:
+  - item: "Redis 8 local validation gate 包含默认构建、make gotest、Redis Tcl Codis suite、e2e、cross-version、Linux handoff 和 runbook 草案"
+    source: "名词契约"
+    status: passed
+  - item: "e2e 演练使用默认 bin/codis-server，证明 Redis 8.6.3 Codis mode 是真实发布物路径"
+    source: "名词契约"
+    status: passed
+  - item: "dashboard/topom、codis-admin、codis-proxy、Redis 8 server 在同一临时集群中联调通过"
+    source: "名词契约"
+    status: passed
+  - item: "proxy 写入普通 key、hash tag key 和非 0 DB key 后，迁移前后读回一致"
+    source: "名词契约"
+    status: passed
+  - item: "semi-async slot migration 通过 dashboard/admin 触发，完成后 slot action 归零且 slot 统计一致"
+    source: "编排骨架"
+    status: passed
+  - item: "sync slot migration 通过 dashboard/admin 触发，完成后结果与 semi-async 同样可观测"
+    source: "编排骨架"
+    status: passed
+  - item: "Redis 3 -> Redis 8 fragment 迁移方向有 success / observable failure / unsupported 结论和证据"
+    source: "验收场景"
+    status: passed
+  - item: "Redis 8 -> Redis 3 fragment 迁移方向有 success / observable failure / unsupported 结论和证据"
+    source: "验收场景"
+    status: passed
+  - item: "跨版本迁移失败时必须证明源端 key 未静默删除"
+    source: "流程级约束"
+    status: passed
+  - item: "Linux handoff 清单包含远程 Linux 必跑的 direct Redis 8、proxy + Redis 8、Redis 3 fallback 性能基线项目"
+    source: "验收场景"
+    status: passed
+  - item: "本地 Mac 阶段不执行性能相关验证，不产出 throughput/latency 基线或正式上线 SLA"
+    source: "范围守护"
+    status: passed
+  - item: "cutover runbook 草案覆盖 preflight、canary、ramp-up、full cutover 和 rollback"
+    source: "验收场景"
+    status: passed
+  - item: "runbook 草案明确 Redis 8 RDB/AOF 不保证降级到 Redis 3，回滚不能只写换回 Redis 3 二进制"
+    source: "流程级约束"
+    status: passed
+  - item: "runbook 草案要求所有拓扑变更经 dashboard/topom，不直接修改 coordinator 元数据"
+    source: "流程级约束"
+    status: passed
+  - item: "runner 失败或退出后清理临时进程、端口、rootfs、配置和数据目录；清理失败要记录"
+    source: "流程级约束"
+    status: passed
+  - item: "Diff 不新增 Redis 命令、不修改 Redis Cluster MOVED/ASK/cluster bus 语义"
+    source: "范围守护"
+    status: passed
+  - item: "Diff 不修改 Go proxy/topom/admin 生产协议适配或 proxy mapper.go allow-list"
+    source: "范围守护"
+    status: passed
+  - item: "Diff 不修改 go.mod / go.sum，不新增 vendor、Godeps 或 vendor/modules.txt"
+    source: "范围守护"
+    status: passed
+  - item: "Diff 不删除 Redis 3 fallback 构建目标或 extern/redis-3.2.11"
+    source: "范围守护"
+    status: passed
+  - item: "Docker daemon 不可用时只能记录静态检查或 blocked，不能声称已运行 docker build"
+    source: "范围守护"
+    status: passed

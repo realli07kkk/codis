@@ -1,0 +1,614 @@
+{
+  "cross_version": [
+    {
+      "classifications": [
+        "success"
+      ],
+      "cleanup": [
+        {
+          "log": "/var/folders/6k/n5sjk_cs07s2b1zxwbkctdm40000gn/T/codis-redis8-validation-grygn_5_/cross-redis3-to-redis8/redis8-65502.log",
+          "name": "target",
+          "status": "stopped"
+        },
+        {
+          "log": "/var/folders/6k/n5sjk_cs07s2b1zxwbkctdm40000gn/T/codis-redis8-validation-grygn_5_/cross-redis3-to-redis8/redis3-65501.log",
+          "name": "source",
+          "status": "stopped"
+        }
+      ],
+      "direction_result": "success",
+      "name": "redis3-to-redis8",
+      "samples": [
+        {
+          "after_source_exists": "0",
+          "after_target_exists": "1",
+          "before_source_exists": "1",
+          "classification": "success",
+          "key": "{cross-redis3-to-redis8}:string",
+          "kind": "string",
+          "migrate": {
+            "command": [
+              "/Users/liyiming/gitcode-private/codis/bin/redis-cli-redis3",
+              "-h",
+              "127.0.0.1",
+              "-p",
+              "65501",
+              "--raw",
+              "SLOTSMGRTTAGONE",
+              "127.0.0.1",
+              "65502",
+              "3000",
+              "{cross-redis3-to-redis8}:string"
+            ],
+            "cwd": "/Users/liyiming/gitcode-private/codis",
+            "returncode": 0,
+            "stderr": "",
+            "stdout": "1\n"
+          }
+        },
+        {
+          "after_source_exists": "0",
+          "after_target_exists": "1",
+          "before_source_exists": "1",
+          "classification": "success",
+          "key": "{cross-redis3-to-redis8}:hash",
+          "kind": "hash",
+          "migrate": {
+            "command": [
+              "/Users/liyiming/gitcode-private/codis/bin/redis-cli-redis3",
+              "-h",
+              "127.0.0.1",
+              "-p",
+              "65501",
+              "--raw",
+              "SLOTSMGRTTAGONE",
+              "127.0.0.1",
+              "65502",
+              "3000",
+              "{cross-redis3-to-redis8}:hash"
+            ],
+            "cwd": "/Users/liyiming/gitcode-private/codis",
+            "returncode": 0,
+            "stderr": "",
+            "stdout": "1\n"
+          }
+        },
+        {
+          "after_source_exists": "0",
+          "after_target_exists": "1",
+          "before_source_exists": "1",
+          "classification": "success",
+          "key": "{cross-redis3-to-redis8}:list",
+          "kind": "list",
+          "migrate": {
+            "command": [
+              "/Users/liyiming/gitcode-private/codis/bin/redis-cli-redis3",
+              "-h",
+              "127.0.0.1",
+              "-p",
+              "65501",
+              "--raw",
+              "SLOTSMGRTTAGONE",
+              "127.0.0.1",
+              "65502",
+              "3000",
+              "{cross-redis3-to-redis8}:list"
+            ],
+            "cwd": "/Users/liyiming/gitcode-private/codis",
+            "returncode": 0,
+            "stderr": "",
+            "stdout": "1\n"
+          }
+        },
+        {
+          "after_source_exists": "0",
+          "after_target_exists": "1",
+          "before_source_exists": "1",
+          "classification": "success",
+          "key": "{cross-redis3-to-redis8}:zset",
+          "kind": "zset",
+          "migrate": {
+            "command": [
+              "/Users/liyiming/gitcode-private/codis/bin/redis-cli-redis3",
+              "-h",
+              "127.0.0.1",
+              "-p",
+              "65501",
+              "--raw",
+              "SLOTSMGRTTAGONE",
+              "127.0.0.1",
+              "65502",
+              "3000",
+              "{cross-redis3-to-redis8}:zset"
+            ],
+            "cwd": "/Users/liyiming/gitcode-private/codis",
+            "returncode": 0,
+            "stderr": "",
+            "stdout": "1\n"
+          }
+        }
+      ],
+      "source_port": 65501,
+      "source_version": "redis3",
+      "status": "passed",
+      "target_port": 65502,
+      "target_version": "redis8",
+      "workdir": "/var/folders/6k/n5sjk_cs07s2b1zxwbkctdm40000gn/T/codis-redis8-validation-grygn_5_/cross-redis3-to-redis8",
+      "workdir_removed": true
+    },
+    {
+      "classifications": [
+        "observable_failure"
+      ],
+      "cleanup": [
+        {
+          "log": "/var/folders/6k/n5sjk_cs07s2b1zxwbkctdm40000gn/T/codis-redis8-validation-grygn_5_/cross-redis8-to-redis3/redis3-49157.log",
+          "name": "target",
+          "status": "stopped"
+        },
+        {
+          "log": "/var/folders/6k/n5sjk_cs07s2b1zxwbkctdm40000gn/T/codis-redis8-validation-grygn_5_/cross-redis8-to-redis3/redis8-49156.log",
+          "name": "source",
+          "status": "stopped"
+        }
+      ],
+      "direction_result": "observable_failure",
+      "name": "redis8-to-redis3",
+      "samples": [
+        {
+          "after_source_exists": "1",
+          "after_target_exists": "0",
+          "before_source_exists": "1",
+          "classification": "observable_failure",
+          "key": "{cross-redis8-to-redis3}:string",
+          "kind": "string",
+          "migrate": {
+            "command": [
+              "/Users/liyiming/gitcode-private/codis/bin/redis-cli",
+              "-h",
+              "127.0.0.1",
+              "-p",
+              "49156",
+              "--raw",
+              "SLOTSMGRTTAGONE",
+              "127.0.0.1",
+              "49157",
+              "3000",
+              "{cross-redis8-to-redis3}:string"
+            ],
+            "cwd": "/Users/liyiming/gitcode-private/codis",
+            "returncode": 0,
+            "stderr": "",
+            "stdout": "ERR error on slotsrestore, migration failed\n\n"
+          }
+        },
+        {
+          "after_source_exists": "1",
+          "after_target_exists": "0",
+          "before_source_exists": "1",
+          "classification": "observable_failure",
+          "key": "{cross-redis8-to-redis3}:hash",
+          "kind": "hash",
+          "migrate": {
+            "command": [
+              "/Users/liyiming/gitcode-private/codis/bin/redis-cli",
+              "-h",
+              "127.0.0.1",
+              "-p",
+              "49156",
+              "--raw",
+              "SLOTSMGRTTAGONE",
+              "127.0.0.1",
+              "49157",
+              "3000",
+              "{cross-redis8-to-redis3}:hash"
+            ],
+            "cwd": "/Users/liyiming/gitcode-private/codis",
+            "returncode": 0,
+            "stderr": "",
+            "stdout": "ERR error on slotsrestore, migration failed\n\n"
+          }
+        },
+        {
+          "after_source_exists": "1",
+          "after_target_exists": "0",
+          "before_source_exists": "1",
+          "classification": "observable_failure",
+          "key": "{cross-redis8-to-redis3}:list",
+          "kind": "list",
+          "migrate": {
+            "command": [
+              "/Users/liyiming/gitcode-private/codis/bin/redis-cli",
+              "-h",
+              "127.0.0.1",
+              "-p",
+              "49156",
+              "--raw",
+              "SLOTSMGRTTAGONE",
+              "127.0.0.1",
+              "49157",
+              "3000",
+              "{cross-redis8-to-redis3}:list"
+            ],
+            "cwd": "/Users/liyiming/gitcode-private/codis",
+            "returncode": 0,
+            "stderr": "",
+            "stdout": "ERR error on slotsrestore, migration failed\n\n"
+          }
+        },
+        {
+          "after_source_exists": "1",
+          "after_target_exists": "0",
+          "before_source_exists": "1",
+          "classification": "observable_failure",
+          "key": "{cross-redis8-to-redis3}:zset",
+          "kind": "zset",
+          "migrate": {
+            "command": [
+              "/Users/liyiming/gitcode-private/codis/bin/redis-cli",
+              "-h",
+              "127.0.0.1",
+              "-p",
+              "49156",
+              "--raw",
+              "SLOTSMGRTTAGONE",
+              "127.0.0.1",
+              "49157",
+              "3000",
+              "{cross-redis8-to-redis3}:zset"
+            ],
+            "cwd": "/Users/liyiming/gitcode-private/codis",
+            "returncode": 0,
+            "stderr": "",
+            "stdout": "ERR error on slotsrestore, migration failed\n\n"
+          }
+        }
+      ],
+      "source_port": 49156,
+      "source_version": "redis8",
+      "status": "passed",
+      "target_port": 49157,
+      "target_version": "redis3",
+      "workdir": "/var/folders/6k/n5sjk_cs07s2b1zxwbkctdm40000gn/T/codis-redis8-validation-grygn_5_/cross-redis8-to-redis3",
+      "workdir_removed": true
+    }
+  ],
+  "e2e": [
+    {
+      "cleanup": [
+        {
+          "log": "/var/folders/6k/n5sjk_cs07s2b1zxwbkctdm40000gn/T/codis-redis8-validation-grygn_5_/e2e-semi-async/logs/proxy.log",
+          "name": "codis-proxy",
+          "status": "stopped"
+        },
+        {
+          "log": "/var/folders/6k/n5sjk_cs07s2b1zxwbkctdm40000gn/T/codis-redis8-validation-grygn_5_/e2e-semi-async/logs/dashboard.log",
+          "name": "codis-dashboard",
+          "status": "stopped"
+        },
+        {
+          "log": "/var/folders/6k/n5sjk_cs07s2b1zxwbkctdm40000gn/T/codis-redis8-validation-grygn_5_/e2e-semi-async/logs/redis-group-2.log",
+          "name": "redis8-group-2",
+          "status": "stopped"
+        },
+        {
+          "log": "/var/folders/6k/n5sjk_cs07s2b1zxwbkctdm40000gn/T/codis-redis8-validation-grygn_5_/e2e-semi-async/logs/redis-group-1.log",
+          "name": "redis8-group-1",
+          "status": "stopped"
+        }
+      ],
+      "events": [
+        "redis8 group masters are ready",
+        "dashboard is ready",
+        "groups and initial slot map are configured",
+        "proxy is online",
+        "proxy read/write checks passed before migration",
+        "proxy read/write checks passed after migration",
+        "source/target key placement checks passed"
+      ],
+      "final_slots": [
+        {
+          "backend_addr": "127.0.0.1:65260",
+          "backend_addr_group_id": 2,
+          "forward_method": 1,
+          "id": 186
+        },
+        {
+          "backend_addr": "127.0.0.1:65260",
+          "backend_addr_group_id": 2,
+          "forward_method": 1,
+          "id": 314
+        }
+      ],
+      "keys": [
+        {
+          "db": 0,
+          "key": "plain:semi-async:0",
+          "slot": 186,
+          "value": "value-plain-semi-async"
+        },
+        {
+          "db": 0,
+          "key": "{cutover-semi-async}:tagged",
+          "slot": 314,
+          "value": "value-tagged-semi-async"
+        },
+        {
+          "db": 1,
+          "key": "{cutover-semi-async}:db1",
+          "slot": 314,
+          "value": "value-db1-semi-async"
+        }
+      ],
+      "migration_method": "semi-async",
+      "name": "e2e-semi-async",
+      "ports": {
+        "dashboard_admin": 65261,
+        "proxy": 65263,
+        "proxy_admin": 65262,
+        "redis_group_1": 65259,
+        "redis_group_2": 65260
+      },
+      "slot_ids": [
+        186,
+        314
+      ],
+      "status": "passed",
+      "target_checks": [
+        {
+          "db": 0,
+          "key": "plain:semi-async:0",
+          "slot": 186,
+          "source_exists": "0",
+          "target_exists": "1"
+        },
+        {
+          "db": 0,
+          "key": "{cutover-semi-async}:tagged",
+          "slot": 314,
+          "source_exists": "0",
+          "target_exists": "1"
+        },
+        {
+          "db": 1,
+          "key": "{cutover-semi-async}:db1",
+          "slot": 314,
+          "source_exists": "0",
+          "target_exists": "1"
+        }
+      ],
+      "workdir": "/var/folders/6k/n5sjk_cs07s2b1zxwbkctdm40000gn/T/codis-redis8-validation-grygn_5_/e2e-semi-async",
+      "workdir_removed": true
+    },
+    {
+      "cleanup": [
+        {
+          "log": "/var/folders/6k/n5sjk_cs07s2b1zxwbkctdm40000gn/T/codis-redis8-validation-grygn_5_/e2e-sync/logs/proxy.log",
+          "name": "codis-proxy",
+          "status": "stopped"
+        },
+        {
+          "log": "/var/folders/6k/n5sjk_cs07s2b1zxwbkctdm40000gn/T/codis-redis8-validation-grygn_5_/e2e-sync/logs/dashboard.log",
+          "name": "codis-dashboard",
+          "status": "stopped"
+        },
+        {
+          "log": "/var/folders/6k/n5sjk_cs07s2b1zxwbkctdm40000gn/T/codis-redis8-validation-grygn_5_/e2e-sync/logs/redis-group-2.log",
+          "name": "redis8-group-2",
+          "status": "stopped"
+        },
+        {
+          "log": "/var/folders/6k/n5sjk_cs07s2b1zxwbkctdm40000gn/T/codis-redis8-validation-grygn_5_/e2e-sync/logs/redis-group-1.log",
+          "name": "redis8-group-1",
+          "status": "stopped"
+        }
+      ],
+      "events": [
+        "redis8 group masters are ready",
+        "dashboard is ready",
+        "groups and initial slot map are configured",
+        "proxy is online",
+        "proxy read/write checks passed before migration",
+        "proxy read/write checks passed after migration",
+        "source/target key placement checks passed"
+      ],
+      "final_slots": [
+        {
+          "backend_addr": "127.0.0.1:65382",
+          "backend_addr_group_id": 2,
+          "id": 269
+        },
+        {
+          "backend_addr": "127.0.0.1:65382",
+          "backend_addr_group_id": 2,
+          "id": 1021
+        }
+      ],
+      "keys": [
+        {
+          "db": 0,
+          "key": "plain:sync:0",
+          "slot": 269,
+          "value": "value-plain-sync"
+        },
+        {
+          "db": 0,
+          "key": "{cutover-sync}:tagged",
+          "slot": 1021,
+          "value": "value-tagged-sync"
+        },
+        {
+          "db": 1,
+          "key": "{cutover-sync}:db1",
+          "slot": 1021,
+          "value": "value-db1-sync"
+        }
+      ],
+      "migration_method": "sync",
+      "name": "e2e-sync",
+      "ports": {
+        "dashboard_admin": 65383,
+        "proxy": 65385,
+        "proxy_admin": 65384,
+        "redis_group_1": 65381,
+        "redis_group_2": 65382
+      },
+      "slot_ids": [
+        269,
+        1021
+      ],
+      "status": "passed",
+      "target_checks": [
+        {
+          "db": 0,
+          "key": "plain:sync:0",
+          "slot": 269,
+          "source_exists": "0",
+          "target_exists": "1"
+        },
+        {
+          "db": 0,
+          "key": "{cutover-sync}:tagged",
+          "slot": 1021,
+          "source_exists": "0",
+          "target_exists": "1"
+        },
+        {
+          "db": 1,
+          "key": "{cutover-sync}:db1",
+          "slot": 1021,
+          "source_exists": "0",
+          "target_exists": "1"
+        }
+      ],
+      "workdir": "/var/folders/6k/n5sjk_cs07s2b1zxwbkctdm40000gn/T/codis-redis8-validation-grygn_5_/e2e-sync",
+      "workdir_removed": true
+    }
+  ],
+  "feature": "2026-05-17-redis8-validation-cutover",
+  "gate_definitions": [
+    {
+      "command": "make build-all",
+      "evidence": "runner metadata plus local shell log when executed manually",
+      "expected": "bin/codis-server is Redis 8 and Go binaries are rebuilt",
+      "failure_owner": "packaging/build",
+      "local_execution": "documented_only",
+      "name": "default-build"
+    },
+    {
+      "command": "make gotest",
+      "evidence": "local shell log when executed manually",
+      "expected": "go test ./cmd/... ./pkg/... passes",
+      "failure_owner": "Go component",
+      "local_execution": "documented_only",
+      "name": "go-regression"
+    },
+    {
+      "command": "cd extern/redis-8.6.3 && ./runtest --single unit/codis --single unit/codis_migration --single unit/codis_slotsrestore --single unit/codis_async_migration",
+      "evidence": "Redis runtest log when executed manually",
+      "expected": "Redis 8 Codis Tcl suites pass",
+      "failure_owner": "Redis 8 Codis server",
+      "local_execution": "documented_only",
+      "name": "redis-tcl-codis-suite"
+    },
+    {
+      "command": "python3 scripts/redis8_local_validation.py --only e2e --output <evidence.json>",
+      "evidence": "feature evidence JSON",
+      "expected": "semi-async and sync local clusters pass proxy and migration checks",
+      "failure_owner": "integration/topom/proxy/server",
+      "local_execution": "runner",
+      "name": "e2e-local-codis-cluster"
+    },
+    {
+      "command": "python3 scripts/redis8_local_validation.py --only cross-version --output <evidence.json>",
+      "evidence": "feature evidence JSON",
+      "expected": "Redis 3/Redis 8 directions are success or observable failure with source preserved",
+      "failure_owner": "RDB fragment compatibility",
+      "local_execution": "runner",
+      "name": "cross-version-fragment-matrix"
+    },
+    {
+      "command": "review .codestable/features/2026-05-17-redis8-validation-cutover/redis8-linux-validation-handoff.md",
+      "evidence": "handoff markdown",
+      "expected": "Linux e2e, benchmark, fork/RDB, replication, Docker/deploy checks are enumerated",
+      "failure_owner": "validation planning",
+      "local_execution": "documented_only",
+      "name": "linux-formal-handoff"
+    },
+    {
+      "command": "review .codestable/features/2026-05-17-redis8-validation-cutover/redis8-cutover-runbook-draft.md",
+      "evidence": "runbook markdown",
+      "expected": "preflight/canary/ramp/full/rollback are covered",
+      "failure_owner": "operations planning",
+      "local_execution": "documented_only",
+      "name": "cutover-runbook-draft"
+    }
+  ],
+  "generated_at": "2026-05-17T04:31:25Z",
+  "host": {
+    "machine": "arm64",
+    "platform": "macOS-26.5-arm64-arm-64bit-Mach-O",
+    "python": "3.14.3"
+  },
+  "scope": "local Mac non-performance validation only; benchmark and formal cutover verdict are excluded",
+  "status": "passed",
+  "temporary_root": "/var/folders/6k/n5sjk_cs07s2b1zxwbkctdm40000gn/T/codis-redis8-validation-grygn_5_",
+  "temporary_root_removed": true,
+  "versions": {
+    "codis_admin": {
+      "status": "codis-admin has no --version command in this tree"
+    },
+    "codis_dashboard": {
+      "command": [
+        "/Users/liyiming/gitcode-private/codis/bin/codis-dashboard",
+        "--version"
+      ],
+      "cwd": "/Users/liyiming/gitcode-private/codis",
+      "returncode": 0,
+      "stderr": "",
+      "stdout": "version: 2026-05-14 16:36:34 +0800 @6ea3dfa9443882cfd6804243d0f6ba27cb4c3f80\ncompile: 2026-05-15 08:45:44 +0800 by go version go1.26.1 darwin/arm64\n"
+    },
+    "codis_proxy": {
+      "command": [
+        "/Users/liyiming/gitcode-private/codis/bin/codis-proxy",
+        "--version"
+      ],
+      "cwd": "/Users/liyiming/gitcode-private/codis",
+      "returncode": 0,
+      "stderr": "",
+      "stdout": "version: 2026-05-14 16:36:34 +0800 @6ea3dfa9443882cfd6804243d0f6ba27cb4c3f80\ncompile: 2026-05-15 08:45:44 +0800 by go version go1.26.1 darwin/arm64\n"
+    },
+    "codis_server": {
+      "command": [
+        "/Users/liyiming/gitcode-private/codis/bin/codis-server",
+        "--version"
+      ],
+      "cwd": "/Users/liyiming/gitcode-private/codis",
+      "returncode": 0,
+      "stderr": "",
+      "stdout": "Redis server v=8.6.3 sha=6ea3dfa9:0 malloc=libc bits=64 build=35d7b4b9d4a1336e\n"
+    },
+    "codis_server_redis3": {
+      "command": [
+        "/Users/liyiming/gitcode-private/codis/bin/codis-server-redis3",
+        "--version"
+      ],
+      "cwd": "/Users/liyiming/gitcode-private/codis",
+      "returncode": 0,
+      "stderr": "",
+      "stdout": "Redis server v=3.2.11 sha=ca6f652b:1 malloc=libc bits=64 build=fafc7da7a612fad9\n"
+    },
+    "git_head": {
+      "command": [
+        "git",
+        "rev-parse",
+        "--short=12",
+        "HEAD"
+      ],
+      "cwd": "/Users/liyiming/gitcode-private/codis",
+      "returncode": 0,
+      "stderr": "",
+      "stdout": "6ea3dfa94438\n"
+    }
+  }
+}
