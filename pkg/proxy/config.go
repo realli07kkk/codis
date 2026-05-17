@@ -40,9 +40,9 @@ proto_type = "tcp4"
 proxy_addr = "0.0.0.0:19000"
 
 # Set jodis address & session timeout
-#   1. jodis_name is short for jodis_coordinator_name, only accept "zookeeper" & "etcd".
+#   1. jodis_name is short for jodis_coordinator_name, only accept "zookeeper" & "etcd" & "consul".
 #   2. jodis_addr is short for jodis_coordinator_addr
-#   3. jodis_auth is short for jodis_coordinator_auth, for zookeeper/etcd, "user:password" is accepted.
+#   3. jodis_auth is short for jodis_coordinator_auth, for zookeeper/etcd, "user:password" is accepted; for consul, ACL token is accepted.
 #   4. proxy will be registered as node:
 #        if jodis_compatible = true (not suggested):
 #          /zk/codis/db_{PRODUCT_NAME}/proxy-{HASHID} (compatible with Codis2.0)

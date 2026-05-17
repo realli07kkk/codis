@@ -22,13 +22,15 @@ const DefaultConfig = `
 #                                                #
 ##################################################
 
-# Set Coordinator, only accept "zookeeper" & "etcd" & "filesystem".
-# for zookeeper/etcd, coorinator_auth accept "user:password" 
+# Set Coordinator, only accept "zookeeper" & "etcd" & "filesystem" & "consul".
+# for zookeeper/etcd, coorinator_auth accept "user:password"; for consul, coordinator_auth accepts ACL token.
 # Quick Start
 coordinator_name = "filesystem"
 coordinator_addr = "/tmp/codis"
 #coordinator_name = "zookeeper"
 #coordinator_addr = "127.0.0.1:2181"
+#coordinator_name = "consul"
+#coordinator_addr = "127.0.0.1:8500"
 #coordinator_auth = ""
 
 # Set Codis Product Name/Auth.

@@ -3,7 +3,7 @@ doc_type: requirement
 slug: redis-cluster-service
 pitch: 让业务像使用单机 Redis 一样使用可扩缩容的 Redis 集群
 status: current
-last_reviewed: 2026-05-17
+last_reviewed: 2026-05-18
 implemented_by: [system-overview]
 tags: [redis, cluster, operations]
 ---
@@ -24,7 +24,7 @@ tags: [redis, cluster, operations]
 
 ## 怎么解决
 
-业务流量先进 proxy，proxy 根据 key 所在 slot 转发到后端 Redis；dashboard 维护集群拓扑、slot 归属和迁移动作，并把状态同步给各个 proxy；FE、admin 和 HA 工具围绕 dashboard 提供可视化、命令行和巡检维护入口。proxy 还在 Redis 协议面提供有限的本地观测命令，例如 `CLIENT LIST` 返回当前 proxy 实例的活动客户端连接快照。后端 Codis Server 承载 slot keyspace、slot 查询/删除和迁移命令；默认构建产物已切到 Redis 8 Codis Server，具备 Redis 8 ↔ Redis 8 同步迁移、异步迁移与 `SLOTSRESTORE` / `SLOTSRESTORE-ASYNC` RDB fragment restore 能力，Redis 3 通过显式 fallback 构建目标保留。底层元数据放在 filesystem、Zookeeper 或 Etcd 这类 coordinator 中。
+业务流量先进 proxy，proxy 根据 key 所在 slot 转发到后端 Redis；dashboard 维护集群拓扑、slot 归属和迁移动作，并把状态同步给各个 proxy；FE、admin 和 HA 工具围绕 dashboard 提供可视化、命令行和巡检维护入口。proxy 还在 Redis 协议面提供有限的本地观测命令，例如 `CLIENT LIST` 返回当前 proxy 实例的活动客户端连接快照。后端 Codis Server 承载 slot keyspace、slot 查询/删除和迁移命令；默认构建产物已切到 Redis 8 Codis Server，具备 Redis 8 ↔ Redis 8 同步迁移、异步迁移与 `SLOTSRESTORE` / `SLOTSRESTORE-ASYNC` RDB fragment restore 能力，Redis 3 通过显式 fallback 构建目标保留。底层元数据放在 filesystem、Zookeeper、Etcd 或 Consul 这类 coordinator 中；Consul 后端只使用 KV 和 Session 语义。
 
 ## 实现进展
 
@@ -33,6 +33,7 @@ tags: [redis, cluster, operations]
 - 2026-05-14：Redis 8 支线完成 Go proxy/topom/admin 兼容验证，覆盖 `INFO` / `CONFIG`、default-user `AUTH <password>`、`SELECT` 当前 DB、`SLAVEOF` alias、`CLIENT KILL TYPE normal`、`SLOTSINFO`、同步/异步迁移返回格式和 `SLOTSMGRT-EXEC-WRAPPER`。真实 Redis 8 Codis Server smoke 未发现必须新增生产 adapter 的不兼容点；默认构建、配置模板、打包切换和灰度 cutover 仍按 roadmap 后续条目推进。
 - 2026-05-14：默认 `codis-server` 构建、tracked Redis 配置模板和 Docker / example 包装入口已切到 Redis 8 Codis Server；`config/redis.conf` 显式启用 `codis-enabled yes` 且不启用 Redis Cluster，Redis 3 通过 `codis-server-redis3` fallback 目标保留。该进展让后续 cutover 验证覆盖真实发布物，但不等同于已完成端到端灰度、性能基线、跨版本迁移兼容或回滚策略。
 - 2026-05-17：Redis 8 默认发布物完成本地 Mac 非性能 validation-cutover。证据覆盖 `make gotest`、Redis 8 Codis Tcl suite、短生命周期 dashboard/proxy/admin/Redis 8 e2e、`semi-async` 与 `sync` slot migration、普通 key / hash tag key / 非 0 DB key 迁移后读回，以及 Redis 3 ↔ Redis 8 fragment 方向性观察。当前矩阵中 Redis 3 → Redis 8 成功，Redis 8 → Redis 3 可观测失败且源端 key 保留；Linux 正式性能基线、fork/RDB、复制、Docker/部署包装和最终 cutover gate 仍待后续 `redis8-linux-validation-cutover`。
+- 2026-05-18：Coordinator / Jodis 后端新增 Consul 支持。Codis 现在可通过 `coordinator_name = "consul"` 或 `jodis_name = "consul"` 使用 Consul KV 保存 `/codis3` 元数据、使用 Consul Session 维护 `/jodis` ephemeral 注册；默认 coordinator、既有 Zookeeper/Etcd/filesystem 行为和存量元数据迁移边界不变。
 
 ## 边界
 
@@ -40,6 +41,7 @@ tags: [redis, cluster, operations]
 - 它不保证支持所有 Redis 命令；命令兼容边界以 `doc/unsupported_cmds.md` 和 proxy 命令处理逻辑为准。
 - `CLIENT` 命令族只支持 `CLIENT LIST`；该命令只返回当前 proxy 实例接入的客户端连接，不聚合多个 proxy，不下探后端 Redis，也不承诺 Redis 8.x 的所有字段。
 - 集群拓扑变更必须经由 dashboard/topom 管理，不应绕过它直接改 coordinator 中的状态。
+- Consul 只作为 coordinator/Jodis 的 KV + Session 后端，不提供存量元数据自动迁移，也不代表 Codis 使用 Consul service catalog、health check 或 service mesh。
 - 后端数据最终仍存放在 Codis Server/Redis Server；Redis 本身的容量、持久化和资源隔离仍需要单独规划。
 - Redis 8 已成为默认 Codis Server 构建和包装入口，并已完成本地 Mac 非性能 validation-cutover；当前不承诺 Linux 性能基线、fork/RDB、复制、Docker/部署包装、最终生产 cutover gate 或 Redis 8 持久化文件降级回 Redis 3。跨版本 fragment 仅以本地矩阵记录的方向性结论为准，不能外推为持久化 RDB/AOF 降级能力。
 - HA 能降低 proxy 和 Redis Server 故障影响，但不能替代监控、备份和故障演练。

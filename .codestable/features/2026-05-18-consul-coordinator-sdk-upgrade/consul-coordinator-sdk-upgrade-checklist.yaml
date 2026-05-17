@@ -1,0 +1,72 @@
+feature: 2026-05-18-consul-coordinator-sdk-upgrade
+created: 2026-05-18
+
+steps:
+  - action: "编排骨架：新增 Consul client 包和 models.NewClient(\"consul\") 分支，先用最小 KV 操作接通编译"
+    exit_signal: "go test ./pkg/models/... 可编译，旧 coordinator 分支无行为差异"
+    status: done
+  - action: "KV 计算节点：实现 path normalize、Create、Update、Delete、Read、List"
+    exit_signal: "单元测试覆盖前导 slash、create-if-absent、missing read/list 和排序"
+    status: done
+  - action: "Session/ephemeral 节点：实现 CreateEphemeral、CreateEphemeralInOrder、Close/Delete 清理和续约 signal"
+    exit_signal: "测试覆盖 acquire 失败清理、Close 幂等、signal 关闭"
+    status: done
+  - action: "Watch 节点：实现 WatchInOrder 的初始列表和 blocking query 变化通知"
+    exit_signal: "测试或本地 Consul 集成验证能观察到新增/删除子节点后 signal 关闭"
+    status: done
+  - action: "CLI/config 挂载：dashboard、proxy、admin、fe 增加 Consul 参数，默认配置注释补充 Consul"
+    exit_signal: "--default-config 输出包含 Consul 说明，旧参数解析和编译不受影响"
+    status: done
+  - action: "本地 Consul 验证：按本地源码构建 Consul 或复用本地 Consul binary，启动 dev agent 后跑最小 dashboard/proxy/Jodis KV 验证"
+    exit_signal: "Consul KV 中能看到 codis3 元数据和 jodis proxy 注册，关闭 proxy 后 ephemeral 节点消失或 signal 触发重试"
+    status: done
+  - action: "全量回归：运行项目 Go 测试入口"
+    exit_signal: "make gotest 通过；如 Consul 本地构建产生临时产物，收尾说明清理路径"
+    status: done
+
+checks:
+  - item: "models.NewClient(\"consul\", \"127.0.0.1:8500\", \"\", timeout) 返回可用 client，旧 coordinator 名称仍可用"
+    source: 验收场景
+    status: passed
+  - item: "Consul client Create 同一 key 两次时第一次成功、第二次返回已存在错误且不覆盖已有值"
+    source: 名词契约
+    status: passed
+  - item: "Consul client Update 后 Read 可读回相同 bytes；Read(missing, false) 返回 nil；Read(missing, true) 返回错误"
+    source: 名词契约
+    status: passed
+  - item: "Consul client List(prefix, false) 返回直接子节点 slash path，排序稳定，不把孙节点当普通文件返回"
+    source: 名词契约
+    status: passed
+  - item: "CreateEphemeral 创建 Session + KV ownership，Close/Delete 后 session 清理、KV 节点删除、signal 关闭"
+    source: 流程级约束
+    status: passed
+  - item: "WatchInOrder 返回正确初始列表，并在 prefix 子节点新增或删除后关闭 watch channel"
+    source: 编排骨架
+    status: passed
+  - item: "dashboard 配置 coordinator_name = \"consul\" 时可把 topom 元数据写入 Consul KV 的 codis3/{product} 前缀"
+    source: 验收场景
+    status: passed
+  - item: "proxy 配置 jodis_name = \"consul\" 时可把注册信息写入 Consul KV 的 jodis/{product} 前缀，关闭 proxy 后注册节点消失或被 session 清理"
+    source: 验收场景
+    status: passed
+  - item: "models.NewClient 注册 consul，pkg/models/consul 作为核心可卸载点存在"
+    source: 挂载点
+    status: passed
+  - item: "dashboard/proxy/admin/fe 的 Consul coordinator 入口已挂载，旧 zookeeper/etcd/filesystem 入口不变"
+    source: 挂载点
+    status: passed
+  - item: "go.mod 不引入 github.com/hashicorp/consul 主模块作为 Codis 依赖"
+    source: 范围守护
+    status: passed
+  - item: "默认 config/dashboard.toml 仍使用 coordinator_name = \"filesystem\""
+    source: 范围守护
+    status: passed
+  - item: "不修改 pkg/proxy/mapper.go、Redis slot 迁移逻辑或 Redis 8 extern/redis-8.6.3 源码"
+    source: 范围守护
+    status: passed
+  - item: "代码中不出现 Consul catalog、health check、service mesh API 调用"
+    source: 范围守护
+    status: passed
+  - item: "make gotest 通过，且不要求 Docker daemon 作为本 feature 必跑验收"
+    source: 验收场景
+    status: passed

@@ -4,8 +4,8 @@ slug: system-overview
 scope: Codis 仓库当前整体架构
 summary: Codis 通过 proxy 层隐藏 Redis 分片细节，由 dashboard/topom 维护拓扑、迁移和高可用状态，并用 models 抽象的 coordinator 存储集群元数据。
 status: current
-last_reviewed: 2026-05-17
-tags: [redis, proxy, topology]
+last_reviewed: 2026-05-18
+tags: [redis, proxy, topology, consul]
 depends_on: []
 implements: [redis-cluster-service]
 ---
@@ -16,7 +16,7 @@ implements: [redis-cluster-service]
 
 - **Codis Proxy**：客户端连接的 Redis 协议代理，负责认证、命令解析、slot 路由、pipeline 响应写回和运行时指标；入口在 `cmd/proxy/main.go:31`，核心类型是 `pkg/proxy/proxy.go:29`。
 - **Topom / Codis Dashboard**：集群拓扑管理进程。`cmd/dashboard` 创建 `topom.Topom` 并启动管理 HTTP API；`Topom` 内部持有 store、cache、slot action、stats 和 HA 状态，见 `pkg/topom/topom.go:28`。
-- **Coordinator / Store**：保存集群元数据的外部存储抽象。`models.Client` 定义读写、列表、watch、临时节点接口，支持 zookeeper、etcd、filesystem 三类实现，见 `pkg/models/client.go:15` 和 `pkg/models/client.go:31`。
+- **Coordinator / Store**：保存集群元数据的外部存储抽象。`models.Client` 定义读写、列表、watch、临时节点接口，支持 zookeeper、etcd、filesystem 和 consul 实现；Consul 后端用 KV 保存 `/codis3` / `/jodis` 数据，用 Session 表达 ephemeral ownership，见 `pkg/models/client.go:15`、`pkg/models/client.go:31` 和 `pkg/models/consul/consulclient.go:27`。
 - **Slot**：Codis 的路由分片单位，固定为 1024 个；模型常量在 `pkg/models/slots.go:13`，proxy 内部 slot 状态在 `pkg/proxy/slots.go:12`。
 - **Group**：一组后端 Redis Server，第一台按现有代码语义承担 master 位置，类型定义在 `pkg/models/group.go:8`。
 - **Go module manifest**：仓库根目录的 `go.mod` / `go.sum`，用于现代 Go module mode 下解析 cmd/pkg 默认构建标签依赖；当前使用 `go 1.26.1`，默认 cmd/pkg、`cgo_jemalloc` proxy 构建和 Makefile 测试入口都已接通。
@@ -39,6 +39,8 @@ flowchart LR
   HA[Codis HA] --> Dashboard
   Proxy --> Jodis[Jodis Registry]
 ```
+
+Coordinator 后端通过 `pkg/models/client.go` 的工厂集中挂入，调用方仍只依赖 `models.Client` / `models.Store`。Consul 后端位于 `pkg/models/consul`，只接入 HashiCorp Go API 模块 `github.com/hashicorp/consul/api`，把 Codis slash path 转成无前导 `/` 的 Consul KV key；`Create` 使用 `KV.CAS(ModifyIndex=0)`，`List` 使用 `KV.Keys(prefix, "/", ...)`，`WatchInOrder` 使用 blocking query 的 `WaitIndex`，Jodis ephemeral 节点使用 `Session.CreateNoChecks` + `KV.Acquire` + `Session.RenewPeriodic`。dashboard、proxy、admin 和 fe 仍通过原有配置/CLI 参数选择 coordinator，新增 `consul` 分支不改变默认 coordinator。
 
 构建层面，仓库已有 `go.mod` / `go.sum`，`go.mod` 使用 `go 1.26.1`，旧 `vendor/` / `Godeps/` 依赖目录已经退休。常规 Go 依赖由 `go.mod/go.sum` 解析，`GO111MODULE=on go test ./cmd/... ./pkg/...`、`GO111MODULE=on go build ./cmd/... ./pkg/...` 和 `GO111MODULE=on go build -tags cgo_jemalloc ./cmd/proxy` 都可在 module mode 下通过。`cgo_jemalloc` 路径通过 `go.mod` 的 `replace github.com/spinlock/jemalloc-go => ./third_party/jemalloc-go` 指向仓库内受控的本地模块，不再依赖旧 `vendor/github.com/spinlock/jemalloc-go` 的预处理状态。`Makefile` 已切换到 module mode（移除了 `GO15VENDOREXPERIMENT` 和旧 `vendor/github.com/spinlock/jemalloc-go` 预处理调用），产出 `codis-dashboard`、`codis-proxy`、`codis-admin`、`codis-ha`、`codis-fe` 和嵌入式 `codis-server`；Go 二进制构建规则在 `Makefile:12` 到 `Makefile:28`。默认 `make` / `make build-all` / `make codis-server` 现在从 `extern/redis-8.6.3/` 构建正式 Redis 8 Codis Server，复制为默认 `bin/codis-server`、`bin/redis-cli`、`bin/redis-benchmark` 和 `bin/redis-sentinel`，并刷新 tracked 的 `config/redis.conf` / `config/sentinel.conf`；`config/redis.conf` 来自 Redis 8 模板并显式写入 `codis-enabled yes`，仍不启用 Redis Cluster。Redis 3 通过显式 `make codis-server-redis3` fallback 目标保留，产物使用 `*-redis3` 后缀，不覆盖默认 Redis 8 发布物；`make codis-server-redis8` 只作为兼容 alias，从默认 Redis 8 产物复制 suffixed 调试二进制和 `config/redis8.conf` / `config/sentinel8.conf`。当前 Redis 8 Codis Server 已具备 `codis-enabled yes` 运行模式：Redis 8 server 可在不启用 Redis Cluster 协议的前提下按 Codis 1024 slot 组织 keyspace，通过 `SLOTSHASHKEY`、`SLOTSINFO`、`SLOTSSCAN`、`SLOTSDEL`、`SLOTSCHECK` 暴露当前 DB 的 slot 查询、统计、扫描、删除和一致性检查能力，通过 `SLOTSMGRTSLOT`、`SLOTSMGRTONE`、`SLOTSMGRTTAGSLOT`、`SLOTSMGRTTAGONE` 与 `SLOTSRESTORE` 支撑 Redis 8 ↔ Redis 8 同步迁移，通过 `SLOTSMGRT*-ASYNC`、`SLOTSRESTORE-ASYNC*`、`SLOTSMGRT-ASYNC-FENCE/CANCEL/STATUS` 和 `SLOTSMGRT-EXEC-WRAPPER` 支撑 Redis 8 ↔ Redis 8 异步迁移、ACK 推进、迁移屏障和迁移中写保护，并维护 `redisDb.codis_tagged_keys` 作为 tag-aware migration 的辅助索引。Go proxy/topom/admin 对 Redis 8 Codis Server 的兼容面已通过测试矩阵和真实 Redis 8 smoke 验证：Go 侧继续使用 `AUTH <password>` default-user 模型、`SELECT` 当前 DB、`SLAVEOF` alias、`CONFIG GET/REWRITE`、`CLIENT KILL TYPE normal`、`SLOTSINFO`、同步/异步迁移返回 `[migrated_count, remaining_count]` 和 `SLOTSMGRT-EXEC-WRAPPER [code, reply]`；未新增生产 adapter、ACL username 配置或 proxy allow-list 条目。发布包装入口围绕默认 `codis-server`：Docker 镜像基础环境使用 module-capable Go 版本，`scripts/docker.sh server` 显式加载 tracked `config/redis.conf` 并在容器场景下传 `--protected-mode no --bind 0.0.0.0`，`example/server.py` 生成临时配置时写入 `codis-enabled yes`，`kubernetes/codis-server.yaml` 继续通过仓库默认配置启动。Redis 8 本地非性能 validation gate 由 `scripts/redis8_local_validation.py` 承载，只作为验证入口，不是生产组件：它使用临时 filesystem coordinator、临时 dashboard/proxy/Redis 进程，覆盖 `semi-async` 与 `sync` slot migration、proxy 写读和 Redis 3/Redis 8 fragment 方向性观察，证据落在 `.codestable/features/2026-05-17-redis8-validation-cutover/redis8-local-validation-evidence.json`。
 
@@ -63,6 +65,8 @@ dashboard 的管理 API 在 `pkg/topom/topom_api.go:31` 注册。它暴露 proxy
 ## 3. 数据与状态
 
 集群元数据统一放在 `/codis3/{product}` 命名空间下：topom 锁、slot、group、proxy、sentinel 路径由 `pkg/models/store.go:27` 到 `pkg/models/store.go:59` 定义。`Store` 封装对这些路径的读写，包含 slot mappings、group、proxy、sentinel 的 load/list/update/delete，见 `pkg/models/store.go:73` 到 `pkg/models/store.go:256`。
+
+当 coordinator 选择 Consul 时，上述 slash path 在 client 内部映射为 Consul KV key，例如 `/codis3/{product}/topom` 对应 `codis3/{product}/topom`。普通元数据使用 KV CAS/Put/Get/Delete 维护；Jodis `/jodis/{product}/proxy-{token}` 使用 Consul Session 持有 KV ownership，`Delete` / `Close` 会销毁 session 并只删除仍归属当前 session 的 key。Consul token 通过 `coordinator_auth` / `jodis_auth` 写入 API client config，不进入结构化日志。
 
 dashboard/topom 的内存状态分为 model、store、cache、action、stats、ha 几块：cache 保存 slots/group/proxy/sentinel 快照，action 保存迁移执行状态，stats 保存 Redis 和 proxy 统计，ha 保存 sentinel 观察到的 masters，见 `pkg/topom/topom.go:28` 到 `pkg/topom/topom.go:78`。
 
@@ -95,6 +99,7 @@ Go 组件访问 Redis Server 的协议边界仍由现有 `pkg/utils/redis.Client
 - `pkg/topom/topom_proxy.go` — proxy 注册、上线、重初始化和 slot 同步。
 - `pkg/topom/topom_sentinel.go` — sentinel 配置同步和 master 切换。
 - `pkg/models.Client` / `pkg/models.Store` — coordinator 存储抽象和 Codis 元数据路径。
+- `pkg/models/consul` — Consul coordinator/Jodis 后端，使用 Consul KV + Session 实现 `models.Client`。
 - `cmd/fe/main.go` — FE 静态资源服务和 dashboard reverse proxy。
 - `cmd/admin/main.go` — admin CLI 参数分发。
 - `cmd/ha/main.go` — HA 巡检和自动维护循环。
@@ -125,10 +130,12 @@ Go 组件访问 Redis Server 的协议边界仍由现有 `pkg/utils/redis.Client
 - slot 数固定为 1024，改变该常量会影响模型、路由、迁移和外部元数据兼容性，见 `pkg/models/slots.go:13`。
 - `product_name` 同时参与元数据命名空间、proxy/dashboard 鉴权和运行期路由隔离，格式校验在 `pkg/models/store.go:258` 到 `pkg/models/store.go:263`。
 - `Makefile` 的组件构建会刷新 `config/dashboard.toml`、`config/proxy.toml`、`config/redis.conf`、`config/sentinel.conf`，见 `Makefile:12` 到 `Makefile:37`。
+- Consul coordinator 后端只覆盖 Codis 需要的 KV、blocking query 和 Session ephemeral 语义，不表示 Codis 使用 Consul service catalog、health check 或 service mesh。默认配置仍不切到 Consul；迁移既有 filesystem/Zookeeper/Etcd 元数据到 Consul 不属于该后端实现本身。
 
 ## 7. 相关文档
 
 - `.codestable/requirements/redis-cluster-service.md` — 当前架构承载的核心能力描述。
+- `.codestable/features/2026-05-18-consul-coordinator-sdk-upgrade/consul-coordinator-sdk-upgrade-design.md` / `.codestable/features/2026-05-18-consul-coordinator-sdk-upgrade/consul-coordinator-sdk-upgrade-acceptance.md` — Consul coordinator/Jodis 后端设计与验收记录。
 - `.codestable/features/2026-05-17-redis8-validation-cutover/redis8-validation-cutover-acceptance.md` — Redis 8 本地 validation-cutover 验收报告。
 - `README.md` — 项目定位、特性对比、用户入口。
 - `doc/tutorial_zh.md` / `doc/tutorial_en.md` — 组件说明、快速启动、HA 和部署说明。

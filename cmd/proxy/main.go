@@ -31,7 +31,7 @@ import (
 func main() {
 	const usage = `
 Usage:
-	codis-proxy [--ncpu=N [--max-ncpu=MAX]] [--config=CONF] [--log=FILE] [--log-level=LEVEL] [--host-admin=ADDR] [--host-proxy=ADDR] [--dashboard=ADDR|--zookeeper=ADDR [--zookeeper-auth=USR:PWD]|--etcd=ADDR [--etcd-auth=USR:PWD]|--filesystem=ROOT|--fillslots=FILE] [--ulimit=NLIMIT] [--pidfile=FILE] [--product_name=NAME] [--product_auth=AUTH] [--session_auth=AUTH]
+	codis-proxy [--ncpu=N [--max-ncpu=MAX]] [--config=CONF] [--log=FILE] [--log-level=LEVEL] [--host-admin=ADDR] [--host-proxy=ADDR] [--dashboard=ADDR|--zookeeper=ADDR [--zookeeper-auth=USR:PWD]|--etcd=ADDR [--etcd-auth=USR:PWD]|--filesystem=ROOT|--consul=ADDR [--consul-auth=TOKEN]|--fillslots=FILE] [--ulimit=NLIMIT] [--pidfile=FILE] [--product_name=NAME] [--product_auth=AUTH] [--session_auth=AUTH]
 	codis-proxy  --default-config
 	codis-proxy  --version
 
@@ -153,6 +153,13 @@ Options:
 	case d["--filesystem"] != nil:
 		coordinator.name = "filesystem"
 		coordinator.addr = utils.ArgumentMust(d, "--filesystem")
+
+	case d["--consul"] != nil:
+		coordinator.name = "consul"
+		coordinator.addr = utils.ArgumentMust(d, "--consul")
+		if d["--consul-auth"] != nil {
+			coordinator.auth = utils.ArgumentMust(d, "--consul-auth")
+		}
 
 	}
 

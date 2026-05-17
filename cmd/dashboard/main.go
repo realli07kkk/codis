@@ -25,7 +25,7 @@ import (
 func main() {
 	const usage = `
 Usage:
-	codis-dashboard [--ncpu=N] [--config=CONF] [--log=FILE] [--log-level=LEVEL] [--host-admin=ADDR] [--pidfile=FILE] [--zookeeper=ADDR|--etcd=ADDR|--filesystem=ROOT] [--product_name=NAME] [--product_auth=AUTH] [--remove-lock]
+	codis-dashboard [--ncpu=N] [--config=CONF] [--log=FILE] [--log-level=LEVEL] [--host-admin=ADDR] [--pidfile=FILE] [--zookeeper=ADDR|--etcd=ADDR|--filesystem=ROOT|--consul=ADDR] [--product_name=NAME] [--product_auth=AUTH] [--remove-lock]
 	codis-dashboard  --default-config
 	codis-dashboard  --version
 
@@ -103,6 +103,11 @@ Options:
 		config.CoordinatorName = "filesystem"
 		config.CoordinatorAddr = utils.ArgumentMust(d, "--filesystem")
 		log.Warnf("option --filesystem = %s", config.CoordinatorAddr)
+
+	case d["--consul"] != nil:
+		config.CoordinatorName = "consul"
+		config.CoordinatorAddr = utils.ArgumentMust(d, "--consul")
+		log.Warnf("option --consul = %s", config.CoordinatorAddr)
 
 	}
 

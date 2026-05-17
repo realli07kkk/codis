@@ -56,7 +56,7 @@ func init() {
 func main() {
 	const usage = `
 Usage:
-	codis-fe [--ncpu=N] [--log=FILE] [--log-level=LEVEL] [--assets-dir=PATH] [--pidfile=FILE] (--dashboard-list=FILE|--zookeeper=ADDR [--zookeeper-auth=USR:PWD]|--etcd=ADDR [--etcd-auth=USR:PWD]|--filesystem=ROOT) --listen=ADDR
+	codis-fe [--ncpu=N] [--log=FILE] [--log-level=LEVEL] [--assets-dir=PATH] [--pidfile=FILE] (--dashboard-list=FILE|--zookeeper=ADDR [--zookeeper-auth=USR:PWD]|--etcd=ADDR [--etcd-auth=USR:PWD]|--filesystem=ROOT|--consul=ADDR [--consul-auth=TOKEN]) --listen=ADDR
 	codis-fe  --version
 
 Options:
@@ -154,6 +154,13 @@ Options:
 		case d["--filesystem"] != nil:
 			coordinator.name = "filesystem"
 			coordinator.addr = utils.ArgumentMust(d, "--filesystem")
+
+		case d["--consul"] != nil:
+			coordinator.name = "consul"
+			coordinator.addr = utils.ArgumentMust(d, "--consul")
+			if d["--consul-auth"] != nil {
+				coordinator.auth = utils.ArgumentMust(d, "--consul-auth")
+			}
 
 		default:
 			log.Panicf("invalid coordinator")

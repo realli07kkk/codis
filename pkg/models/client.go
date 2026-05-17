@@ -6,6 +6,7 @@ package models
 import (
 	"time"
 
+	"github.com/CodisLabs/codis/pkg/models/consul"
 	"github.com/CodisLabs/codis/pkg/models/etcd"
 	"github.com/CodisLabs/codis/pkg/models/fs"
 	"github.com/CodisLabs/codis/pkg/models/zk"
@@ -36,6 +37,8 @@ func NewClient(coordinator string, addrlist string, auth string, timeout time.Du
 		return etcdclient.New(addrlist, auth, timeout)
 	case "fs", "filesystem":
 		return fsclient.New(addrlist)
+	case "consul":
+		return consulclient.New(addrlist, auth, timeout)
 	}
 	return nil, errors.Errorf("invalid coordinator name = %s", coordinator)
 }

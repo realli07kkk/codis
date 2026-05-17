@@ -62,6 +62,13 @@ func (t *cmdAdmin) newTopomClient(d map[string]interface{}) models.Client {
 		coordinator.name = "filesystem"
 		coordinator.addr = utils.ArgumentMust(d, "--filesystem")
 
+	case d["--consul"] != nil:
+		coordinator.name = "consul"
+		coordinator.addr = utils.ArgumentMust(d, "--consul")
+		if d["--consul-auth"] != nil {
+			coordinator.auth = utils.ArgumentMust(d, "--consul-auth")
+		}
+
 	default:
 		log.Panicf("invalid coordinator")
 	}
