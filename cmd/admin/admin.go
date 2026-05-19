@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"time"
 
+	coordarg "github.com/CodisLabs/codis/cmd/internal/coordinator"
 	"github.com/CodisLabs/codis/pkg/models"
 	"github.com/CodisLabs/codis/pkg/utils"
 	"github.com/CodisLabs/codis/pkg/utils/log"
@@ -37,45 +38,10 @@ func (t *cmdAdmin) Main(d map[string]interface{}) {
 }
 
 func (t *cmdAdmin) newTopomClient(d map[string]interface{}) models.Client {
-	var coordinator struct {
-		name string
-		addr string
-		auth string
-	}
-
-	switch {
-	case d["--zookeeper"] != nil:
-		coordinator.name = "zookeeper"
-		coordinator.addr = utils.ArgumentMust(d, "--zookeeper")
-		if d["--zookeeper-auth"] != nil {
-			coordinator.auth = utils.ArgumentMust(d, "--zookeeper-auth")
-		}
-
-	case d["--etcd"] != nil:
-		coordinator.name = "etcd"
-		coordinator.addr = utils.ArgumentMust(d, "--etcd")
-		if d["--etcd-auth"] != nil {
-			coordinator.auth = utils.ArgumentMust(d, "--etcd-auth")
-		}
-
-	case d["--filesystem"] != nil:
-		coordinator.name = "filesystem"
-		coordinator.addr = utils.ArgumentMust(d, "--filesystem")
-
-	case d["--consul"] != nil:
-		coordinator.name = "consul"
-		coordinator.addr = utils.ArgumentMust(d, "--consul")
-		if d["--consul-auth"] != nil {
-			coordinator.auth = utils.ArgumentMust(d, "--consul-auth")
-		}
-
-	default:
-		log.Panicf("invalid coordinator")
-	}
-
-	c, err := models.NewClient(coordinator.name, coordinator.addr, coordinator.auth, time.Minute)
+	coordinator := coordarg.MustParse(d)
+	c, err := models.NewClient(coordinator.Name, coordinator.Addr, coordinator.Auth, time.Minute)
 	if err != nil {
-		log.PanicErrorf(err, "create '%s' client to '%s' failed", coordinator.name, coordinator.addr)
+		log.PanicErrorf(err, "create '%s' client to '%s' failed", coordinator.Name, coordinator.Addr)
 	}
 	return c
 }

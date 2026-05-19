@@ -16,6 +16,7 @@ import (
 
 	"github.com/docopt/docopt-go"
 
+	coordarg "github.com/CodisLabs/codis/cmd/internal/coordinator"
 	"github.com/CodisLabs/codis/pkg/models"
 	"github.com/CodisLabs/codis/pkg/topom"
 	"github.com/CodisLabs/codis/pkg/utils"
@@ -88,27 +89,13 @@ Options:
 		log.Warnf("option --host-admin = %s", s)
 	}
 
-	switch {
-	case d["--zookeeper"] != nil:
-		config.CoordinatorName = "zookeeper"
-		config.CoordinatorAddr = utils.ArgumentMust(d, "--zookeeper")
-		log.Warnf("option --zookeeper = %s", config.CoordinatorAddr)
-
-	case d["--etcd"] != nil:
-		config.CoordinatorName = "etcd"
-		config.CoordinatorAddr = utils.ArgumentMust(d, "--etcd")
-		log.Warnf("option --etcd = %s", config.CoordinatorAddr)
-
-	case d["--filesystem"] != nil:
-		config.CoordinatorName = "filesystem"
-		config.CoordinatorAddr = utils.ArgumentMust(d, "--filesystem")
-		log.Warnf("option --filesystem = %s", config.CoordinatorAddr)
-
-	case d["--consul"] != nil:
-		config.CoordinatorName = "consul"
-		config.CoordinatorAddr = utils.ArgumentMust(d, "--consul")
-		log.Warnf("option --consul = %s", config.CoordinatorAddr)
-
+	if coordinator, ok := coordarg.Parse(d); ok {
+		config.CoordinatorName = coordinator.Name
+		config.CoordinatorAddr = coordinator.Addr
+		if coordinator.HasAuth {
+			config.CoordinatorAuth = coordinator.Auth
+		}
+		log.Warnf("option --%s = %s", coordinator.Name, coordinator.Addr)
 	}
 
 	if s, ok := utils.Argument(d, "--product_name"); ok {

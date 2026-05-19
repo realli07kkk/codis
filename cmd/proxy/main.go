@@ -20,6 +20,7 @@ import (
 
 	"github.com/docopt/docopt-go"
 
+	coordarg "github.com/CodisLabs/codis/cmd/internal/coordinator"
 	"github.com/CodisLabs/codis/pkg/models"
 	"github.com/CodisLabs/codis/pkg/proxy"
 	"github.com/CodisLabs/codis/pkg/topom"
@@ -128,43 +129,9 @@ Options:
 		log.Warnf("option --dashboard = %s", s)
 	}
 
-	var coordinator struct {
-		name string
-		addr string
-		auth string
-	}
-
-	switch {
-
-	case d["--zookeeper"] != nil:
-		coordinator.name = "zookeeper"
-		coordinator.addr = utils.ArgumentMust(d, "--zookeeper")
-		if d["--zookeeper-auth"] != nil {
-			coordinator.auth = utils.ArgumentMust(d, "--zookeeper-auth")
-		}
-
-	case d["--etcd"] != nil:
-		coordinator.name = "etcd"
-		coordinator.addr = utils.ArgumentMust(d, "--etcd")
-		if d["--etcd-auth"] != nil {
-			coordinator.auth = utils.ArgumentMust(d, "--etcd-auth")
-		}
-
-	case d["--filesystem"] != nil:
-		coordinator.name = "filesystem"
-		coordinator.addr = utils.ArgumentMust(d, "--filesystem")
-
-	case d["--consul"] != nil:
-		coordinator.name = "consul"
-		coordinator.addr = utils.ArgumentMust(d, "--consul")
-		if d["--consul-auth"] != nil {
-			coordinator.auth = utils.ArgumentMust(d, "--consul-auth")
-		}
-
-	}
-
-	if coordinator.name != "" {
-		log.Warnf("option --%s = %s", coordinator.name, coordinator.addr)
+	coordinator, hasCoordinator := coordarg.Parse(d)
+	if hasCoordinator {
+		log.Warnf("option --%s = %s", coordinator.Name, coordinator.Addr)
 	}
 
 	var slots []*models.Slot
@@ -226,8 +193,8 @@ Options:
 	switch {
 	case dashboard != "":
 		go AutoOnlineWithDashboard(s, dashboard)
-	case coordinator.name != "":
-		go AutoOnlineWithCoordinator(s, coordinator.name, coordinator.addr, coordinator.auth)
+	case hasCoordinator:
+		go AutoOnlineWithCoordinator(s, coordinator.Name, coordinator.Addr, coordinator.Auth)
 	case slots != nil:
 		go AutoOnlineWithFillSlots(s, slots)
 	}

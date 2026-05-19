@@ -23,6 +23,7 @@ import (
 	"github.com/go-martini/martini"
 	"github.com/martini-contrib/render"
 
+	coordarg "github.com/CodisLabs/codis/cmd/internal/coordinator"
 	"github.com/CodisLabs/codis/pkg/models"
 	"github.com/CodisLabs/codis/pkg/utils"
 	"github.com/CodisLabs/codis/pkg/utils/errors"
@@ -130,47 +131,12 @@ Options:
 		loader = &StaticLoader{file}
 		log.Warnf("set --dashboard-list = %s", file)
 	} else {
-		var coordinator struct {
-			name string
-			addr string
-			auth string
-		}
+		coordinator := coordarg.MustParse(d)
+		log.Warnf("set --%s = %s", coordinator.Name, coordinator.Addr)
 
-		switch {
-		case d["--zookeeper"] != nil:
-			coordinator.name = "zookeeper"
-			coordinator.addr = utils.ArgumentMust(d, "--zookeeper")
-			if d["--zookeeper-auth"] != nil {
-				coordinator.auth = utils.ArgumentMust(d, "--zookeeper-auth")
-			}
-
-		case d["--etcd"] != nil:
-			coordinator.name = "etcd"
-			coordinator.addr = utils.ArgumentMust(d, "--etcd")
-			if d["--etcd-auth"] != nil {
-				coordinator.auth = utils.ArgumentMust(d, "--etcd-auth")
-			}
-
-		case d["--filesystem"] != nil:
-			coordinator.name = "filesystem"
-			coordinator.addr = utils.ArgumentMust(d, "--filesystem")
-
-		case d["--consul"] != nil:
-			coordinator.name = "consul"
-			coordinator.addr = utils.ArgumentMust(d, "--consul")
-			if d["--consul-auth"] != nil {
-				coordinator.auth = utils.ArgumentMust(d, "--consul-auth")
-			}
-
-		default:
-			log.Panicf("invalid coordinator")
-		}
-
-		log.Warnf("set --%s = %s", coordinator.name, coordinator.addr)
-
-		c, err := models.NewClient(coordinator.name, coordinator.addr, coordinator.auth, time.Minute)
+		c, err := models.NewClient(coordinator.Name, coordinator.Addr, coordinator.Auth, time.Minute)
 		if err != nil {
-			log.PanicErrorf(err, "create '%s' client to '%s' failed", coordinator.name, coordinator.addr)
+			log.PanicErrorf(err, "create '%s' client to '%s' failed", coordinator.Name, coordinator.Addr)
 		}
 		defer c.Close()
 

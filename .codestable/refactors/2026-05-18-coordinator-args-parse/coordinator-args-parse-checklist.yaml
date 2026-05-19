@@ -1,0 +1,27 @@
+refactor: 2026-05-18-coordinator-args-parse
+created: 2026-05-18
+
+steps:
+  - action: "新增 cmd/internal/coordinator.Parse 和 MustParse，并用刻画测试覆盖 zookeeper、etcd、filesystem、consul 与 auth flag 行为"
+    exit_signal: "go test ./cmd/internal/coordinator 通过"
+    status: done
+  - action: "替换 dashboard、proxy、admin、fe 的重复 coordinator switch 解析"
+    exit_signal: "go test ./cmd/... 通过，重复 switch 解析 grep 无残留"
+    status: done
+  - action: "运行全量 Go 回归并记录 apply notes"
+    exit_signal: "make gotest 和 checklist YAML 校验通过"
+    status: done
+
+checks:
+  - item: "新增 coordinator 后端时只需要改共享解析表，不再改 4 处 switch-case 解析"
+    source: scan #1
+    status: passed
+  - item: "dashboard CLI 覆盖 coordinator name/addr 时不意外清空配置文件里的 CoordinatorAuth"
+    source: 兼容性约束
+    status: passed
+  - item: "proxy 无 coordinator 时仍可走 dashboard 或 fillslots 路径"
+    source: 兼容性约束
+    status: passed
+  - item: "admin/fe 缺少 coordinator 时仍触发 invalid coordinator"
+    source: 兼容性约束
+    status: passed
