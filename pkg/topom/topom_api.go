@@ -77,6 +77,13 @@ func newApiServer(t *Topom) http.Handler {
 		r.Put("/reload/:xauth", api.Reload)
 		r.Put("/shutdown/:xauth", api.Shutdown)
 		r.Put("/loglevel/:xauth/:value", api.LogLevel)
+		r.Group("/rdb-analysis", func(r martini.Router) {
+			r.Post("/upload/:xauth", api.RDBAnalysisUpload)
+			r.Put("/start/:xauth", api.RDBAnalysisStart)
+			r.Put("/cancel/:xauth/:id", api.RDBAnalysisCancel)
+			r.Put("/remove/:xauth/:id", api.RDBAnalysisRemove)
+			r.Get("/:xauth/:id", api.RDBAnalysisGet)
+		})
 		r.Group("/proxy", func(r martini.Router) {
 			r.Put("/create/:xauth/:addr", api.CreateProxy)
 			r.Put("/online/:xauth/:addr", api.OnlineProxy)

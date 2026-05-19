@@ -601,7 +601,11 @@ dashboard.controller('MainCodisCtrl', ['$scope', '$http', '$uibModal', '$timeout
             $scope.slots_action_remain = 0;
             $scope.sentinel_servers = [];
             $scope.sentinel_out_of_sync = false;
+            if ($scope.resetRDBAnalysis) {
+                $scope.resetRDBAnalysis();
+            }
         }
+        initRDBAnalysis($scope, $http, $timeout);
         $scope.resetOverview();
 
         $http.get('/list').then(function (resp) {

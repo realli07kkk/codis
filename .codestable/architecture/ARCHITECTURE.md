@@ -4,7 +4,7 @@ slug: system-overview
 scope: Codis 仓库当前整体架构
 summary: Codis 通过 proxy 层隐藏 Redis 分片细节，由 dashboard/topom 维护拓扑、迁移和高可用状态，并用 models 抽象的 coordinator 存储集群元数据。
 status: current
-last_reviewed: 2026-05-18
+last_reviewed: 2026-05-19
 tags: [redis, proxy, topology, consul]
 depends_on: []
 implements: [redis-cluster-service]
@@ -19,6 +19,7 @@ implements: [redis-cluster-service]
 - **Coordinator / Store**：保存集群元数据的外部存储抽象。`models.Client` 定义读写、列表、watch、临时节点接口，支持 zookeeper、etcd、filesystem 和 consul 实现；Consul 后端用 KV 保存 `/codis3` / `/jodis` 数据，用 Session 表达 ephemeral ownership，见 `pkg/models/client.go:15`、`pkg/models/client.go:31` 和 `pkg/models/consul/consulclient.go:27`。
 - **Slot**：Codis 的路由分片单位，固定为 1024 个；模型常量在 `pkg/models/slots.go:13`，proxy 内部 slot 状态在 `pkg/proxy/slots.go:12`。
 - **Group**：一组后端 Redis Server，第一台按现有代码语义承担 master 位置，类型定义在 `pkg/models/group.go:8`。
+- **RDB Analysis**：dashboard/topom 进程内的离线 RDB 文件分析能力。它通过 `github.com/hdt3213/rdb` 解析已有 RDB 文件，输出 DB/type/prefix 聚合、big keys、hot keys 和 flamegraph 树形数据；它不在 proxy 业务请求路径中执行，也不是 Redis 在线命令或远端 RDB 抓取通道。核心类型在 `pkg/topom/topom_rdb_analysis.go:36` 到 `pkg/topom/topom_rdb_analysis.go:95`。
 - **Go module manifest**：仓库根目录的 `go.mod` / `go.sum`，用于现代 Go module mode 下解析 cmd/pkg 默认构建标签依赖；当前使用 `go 1.26.1`，默认 cmd/pkg、`cgo_jemalloc` proxy 构建和 Makefile 测试入口都已接通。
 
 ## 1. 定位与受众
@@ -58,9 +59,9 @@ slot 路由状态由 dashboard 下发到 proxy。`Topom.reinitProxy` 会向 prox
 
 迁移由 dashboard/topom 组织状态机，proxy 在请求转发时配合迁移。dashboard 创建 slot action 后把状态从 pending 推进到 prepared/migrating/finished，见 `pkg/topom/topom_slots.go:19`、`pkg/topom/topom_slots.go:188` 和 `pkg/topom/topom_slots.go:307`。真正搬迁 key 时，topom 根据 migration method 调用 Redis 侧迁移命令，见 `pkg/topom/topom_slots.go:358` 到 `pkg/topom/topom_slots.go:446`；proxy 在转发中遇到 migrating slot 会先执行同步或半异步迁移包装逻辑，见 `pkg/proxy/forward.go:35` 到 `pkg/proxy/forward.go:62` 和 `pkg/proxy/forward.go:72` 到 `pkg/proxy/forward.go:132`。Redis 8 Codis Server 的同步迁移路径由源端 `SLOTSMGRT*` 命令发起：源端复用 `server.slotsmgrt_cached_sockets` 中按 `host:port` 缓存的裸 TCP 连接，必要时先发 `AUTH` / `SELECT`，再用 `createDumpPayload` 生成 Redis 8 RDB fragment 并发送 `SLOTSRESTORE key ttlms payload [...]` 到目标；目标端反序列化成功后源端才 `dbSyncDelete` 删除本地 key，并把删除传播为确定性的 `DEL`。
 
-dashboard 的管理 API 在 `pkg/topom/topom_api.go:31` 注册。它暴露 proxy、group、slot action、rebalance、sentinel 等操作路由，见 `pkg/topom/topom_api.go:72` 到 `pkg/topom/topom_api.go:123`。proxy 自己的管理 API 在 `pkg/proxy/proxy_api.go:29` 注册，提供 model、stats、slots、start、fillslots、sentinels、forcegc、shutdown 等操作，见 `pkg/proxy/proxy_api.go:63` 到 `pkg/proxy/proxy_api.go:83`。
+dashboard 的管理 API 在 `pkg/topom/topom_api.go:31` 注册。它暴露 proxy、group、slot action、rebalance、sentinel 等操作路由，见 `pkg/topom/topom_api.go:72` 到 `pkg/topom/topom_api.go:126`。RDB Analysis API 也挂在 dashboard `/api/topom/rdb-analysis` 下，提供上传文件启动、workspace 路径启动、读取 job snapshot、取消和删除任务，所有路由都要求 `xauth`，见 `pkg/topom/topom_api.go:81` 到 `pkg/topom/topom_api.go:85` 和 `pkg/topom/topom_rdb_analysis_api.go:32` 到 `pkg/topom/topom_rdb_analysis_api.go:113`。proxy 自己的管理 API 在 `pkg/proxy/proxy_api.go:29` 注册，提供 model、stats、slots、start、fillslots、sentinels、forcegc、shutdown 等操作，见 `pkg/proxy/proxy_api.go:63` 到 `pkg/proxy/proxy_api.go:83`。
 
-运维入口分三类：`codis-admin` 是命令行入口，按参数分发到 proxy、dashboard 或底层配置操作，见 `cmd/admin/main.go:12` 到 `cmd/admin/main.go:85`；`codis-fe` 既提供静态前端资源，也根据静态列表或 coordinator 动态发现 dashboard 并做 reverse proxy，见 `cmd/fe/main.go:127` 到 `cmd/fe/main.go:194` 和 `cmd/fe/main.go:259` 到 `cmd/fe/main.go:330`；`codis-ha` 周期性读取 dashboard stats，发现异常 proxy/server 后通过 dashboard API 做清理或 promote，见 `cmd/ha/main.go:90` 到 `cmd/ha/main.go:99` 和 `cmd/ha/main.go:248` 到 `cmd/ha/main.go:369`。
+运维入口分三类：`codis-admin` 是命令行入口，按参数分发到 proxy、dashboard 或底层配置操作，见 `cmd/admin/main.go:12` 到 `cmd/admin/main.go:85`；`codis-fe` 既提供静态前端资源，也根据静态列表或 coordinator 动态发现 dashboard 并做 reverse proxy，见 `cmd/fe/main.go:127` 到 `cmd/fe/main.go:194` 和 `cmd/fe/main.go:259` 到 `cmd/fe/main.go:330`；`codis-fe` 的 AngularJS 页面还提供 RDB Analysis 区域，复用 product 选择、`xauth` 和 reverse proxy 访问 dashboard，前端逻辑在 `cmd/fe/assets/rdb-analysis.js:3`，页面入口在 `cmd/fe/assets/index.html:104`；`codis-ha` 周期性读取 dashboard stats，发现异常 proxy/server 后通过 dashboard API 做清理或 promote，见 `cmd/ha/main.go:90` 到 `cmd/ha/main.go:99` 和 `cmd/ha/main.go:248` 到 `cmd/ha/main.go:369`。
 
 ## 3. 数据与状态
 
@@ -68,7 +69,7 @@ dashboard 的管理 API 在 `pkg/topom/topom_api.go:31` 注册。它暴露 proxy
 
 当 coordinator 选择 Consul 时，上述 slash path 在 client 内部映射为 Consul KV key，例如 `/codis3/{product}/topom` 对应 `codis3/{product}/topom`。普通元数据使用 KV CAS/Put/Get/Delete 维护；Jodis `/jodis/{product}/proxy-{token}` 使用 Consul Session 持有 KV ownership，`Delete` / `Close` 会销毁 session 并只删除仍归属当前 session 的 key。Consul token 通过 `coordinator_auth` / `jodis_auth` 写入 API client config，不进入结构化日志。
 
-dashboard/topom 的内存状态分为 model、store、cache、action、stats、ha 几块：cache 保存 slots/group/proxy/sentinel 快照，action 保存迁移执行状态，stats 保存 Redis 和 proxy 统计，ha 保存 sentinel 观察到的 masters，见 `pkg/topom/topom.go:28` 到 `pkg/topom/topom.go:78`。
+dashboard/topom 的内存状态分为 model、store、cache、action、stats、ha 和 rdbAnalysis 几块：cache 保存 slots/group/proxy/sentinel 快照，action 保存迁移执行状态，stats 保存 Redis 和 proxy 统计，ha 保存 sentinel 观察到的 masters，rdbAnalysis 保存当前 dashboard 进程内的 RDB analysis job registry、并发限制、上传 workspace 和结果快照，见 `pkg/topom/topom.go:28` 到 `pkg/topom/topom.go:78` 和 `pkg/topom/topom_rdb_analysis.go:146` 到 `pkg/topom/topom_rdb_analysis.go:187`。RDB analysis job 不写入 coordinator，dashboard 重启后任务消失；job snapshot 只返回 source 摘要、进度和聚合结果，workspace 输入通过 `rdb_analysis_workspace` 限制，见 `pkg/topom/topom_rdb_analysis.go:195` 到 `pkg/topom/topom_rdb_analysis.go:438`。
 
 proxy 的内存状态包括身份认证 token、`models.Proxy`、两个 listener、router、HA sentinel monitor、可选 Jodis 注册器和活动 session registry，见 `pkg/proxy/proxy.go:29` 到 `pkg/proxy/proxy.go:54` 以及 `pkg/proxy/client_list.go:18` 到 `pkg/proxy/client_list.go:55`。router 持有 1024 个 slot、主从后端连接池和 online/closed 状态，见 `pkg/proxy/router.go:18` 到 `pkg/proxy/router.go:30`。session registry 以进程内递增 id 索引活动 `Session`，是 `SessionsAlive()` 和 `CLIENT LIST` 的当前活动连接权威来源；`stats.go` 中的 `sessions.total` 只表示累计连接数，见 `pkg/proxy/stats.go:169` 到 `pkg/proxy/stats.go:183`。
 
@@ -94,6 +95,8 @@ Go 组件访问 Redis Server 的协议边界仍由现有 `pkg/utils/redis.Client
 - `cmd/dashboard/main.go:main` — dashboard 进程入口、coordinator client 创建、topom 启动。
 - `pkg/topom.Topom` — 拓扑管理核心对象，承载 store/cache/action/stats/ha。
 - `pkg/topom/topom_api.go:newApiServer` — dashboard HTTP 管理 API 路由。
+- `pkg/topom/topom_rdb_analysis.go` — dashboard/topom 进程内 RDB analysis manager、job 生命周期、workspace/upload 输入控制、RDB 流式解析和聚合结果构建。
+- `pkg/topom/topom_rdb_analysis_api.go` — RDB Analysis dashboard API handler 与 `ApiClient` 封装，覆盖 upload/start/get/cancel/remove。
 - `pkg/topom/topom_slots.go` — slot action、迁移推进、rebalance。
 - `pkg/topom/topom_group.go` — group/server 增删、主从 promotion、同步标记。
 - `pkg/topom/topom_proxy.go` — proxy 注册、上线、重初始化和 slot 同步。
@@ -101,6 +104,7 @@ Go 组件访问 Redis Server 的协议边界仍由现有 `pkg/utils/redis.Client
 - `pkg/models.Client` / `pkg/models.Store` — coordinator 存储抽象和 Codis 元数据路径。
 - `pkg/models/consul` — Consul coordinator/Jodis 后端，使用 Consul KV + Session 实现 `models.Client`。
 - `cmd/fe/main.go` — FE 静态资源服务和 dashboard reverse proxy。
+- `cmd/fe/assets/rdb-analysis.js` / `cmd/fe/assets/index.html` — FE RDB Analysis 区域、任务创建、轮询、取消、错误展示、结果表格和 flamegraph 树形表格。
 - `cmd/admin/main.go` — admin CLI 参数分发。
 - `cmd/ha/main.go` — HA 巡检和自动维护循环。
 - `Makefile` — 二进制、嵌入式 Redis、默认配置的构建入口。
@@ -119,6 +123,7 @@ Go 组件访问 Redis Server 的协议边界仍由现有 `pkg/utils/redis.Client
 ## 6. 已知约束 / 边界情况
 
 - 当前仓库已建立 Go modules 编译闭环：默认 cmd/pkg module mode 可编译测试，`cgo_jemalloc` proxy 也可通过 `third_party/jemalloc-go` 的本地 replace 模块在 module mode 下构建；`Makefile` 已完成 module mode 切换（`make gotest`、`make build-all` 均不再依赖 GOPATH/vendor 参数）；旧 `vendor/` / `Godeps/` 已退休。
+- RDB Analysis 首版只分析“已经存在的 RDB 文件”：浏览器上传会先落到 dashboard 的 `rdb_analysis_workspace/uploads` 临时文件，本地路径模式只能读取 `rdb_analysis_workspace` 下的文件；它不自动执行 `BGSAVE` / `SAVE`，不读取 Redis Server 机器上的任意文件，不实现 replication stream 抓取 RDB。分析结果可能包含 key 名，所有 RDB Analysis API 都要求 `xauth`，任务和结果只保存在 dashboard 进程内存中，不进入 coordinator。
 - 默认 `make` / `make codis-server` 已切换为 Redis 8 Codis Server 发布物，`config/redis.conf` 显式启用 `codis-enabled yes`，但仍不启用 Redis Cluster 协议。Redis 3 只作为显式 `make codis-server-redis3` fallback 保留；`make codis-server-redis8` 是默认 Redis 8 产物的 suffixed alias，不再代表独立第二套 Redis 8 构建。Redis 8 ↔ Redis 8 的 1024 slot keyspace、tag index、RDB fragment restore、restore async ACK、fence/cancel/status、exec wrapper 写保护、Go proxy/topom/admin 关键协议兼容面、本地 Mac 非性能 e2e 和跨版本 fragment 观察已验证；远程 Linux 正式 e2e、性能基线、fork/RDB、复制、Docker/部署包装和最终 cutover 证据仍属于 `redis8-linux-validation-cutover`。
 - 本地跨版本 fragment 矩阵结论是 Redis 3 → Redis 8 `SLOTSMGRTTAGONE` 对 string/hash/list/zset 样本成功，Redis 8 → Redis 3 对同类样本返回可观测 `SLOTSRESTORE` 错误且源端 key 保留。该结论只约束 slot migration fragment 方向性，不等价于 Redis 8 持久化 RDB/AOF 可降级给 Redis 3。
 - 本地 Mac validation gate 不产出性能、fork/RDB、复制或网络栈正式结论；所有 throughput/latency、RDB/fork、replication、Docker/部署包装和生产 cutover 判断以后续 Linux 验证为准。

@@ -1,0 +1,120 @@
+feature: 2026-05-19-rdb-analysis-dashboard
+created: 2026-05-19
+
+steps:
+  - action: "后端 API 骨架：在 dashboard 下接入 rdb-analysis 路由和 job 状态机，先用 fake job 返回 queued/running/done"
+    exit_signal: "FE 或 curl 可创建 job、查询 job、取消 job，xauth 错误会被拒绝"
+    status: done
+  - action: "RDB 流式解析与聚合：使用 rdb/core、rdb/model 解析本地测试 RDB，生成 progress、summary 和 top N"
+    exit_signal: "用 rdb cases fixture 可得到稳定的 key count、type summary、big key 列表"
+    status: done
+  - action: "安全输入与配置：接入上传/受控 path 输入、workspace、大小限制、并发限制和任务清理"
+    exit_signal: "非法路径、超大文件、超过并发都返回明确 API error；合法上传能启动任务"
+    status: done
+  - action: "FE 静态结构：在现有 dashboard 页面加入 RDB Analysis 区域，能选择输入、设置参数、显示任务状态"
+    exit_signal: "选中 product 后页面出现分析入口；未选 product 或参数非法时按钮禁用"
+    status: done
+  - action: "FE 轮询与展示：接通任务创建、轮询、取消、错误展示和结果表格/图形"
+    exit_signal: "运行中任务能周期性刷新 progress，完成后停止轮询并展示最终结果"
+    status: done
+  - action: "依赖与文档收口：最小更新 go.mod/go.sum、dashboard 默认配置和用户说明"
+    exit_signal: "不含本机绝对 replace；配置模板说明默认限制；文档说明首版不自动抓远端 Redis RDB"
+    status: done
+  - action: "验证覆盖：补齐后端单测、API 状态机测试和 FE 手工验收路径"
+    exit_signal: "go test ./pkg/topom -run RDBAnalysis 与 make gotest 可通过；本地 FE 能完成一次小 RDB 上传分析"
+    status: done
+
+checks:
+  - item: "RDB analysis 能在 FE 中启动任务、查看 running/done/error/canceled 状态，并在运行中刷新进度和 top 列表"
+    source: 验收场景
+    status: passed
+  - item: "所有 RDB analysis API 都要求 xauth 鉴权"
+    source: 流程级约束
+    status: passed
+  - item: "分析过程不阻塞 RefreshRedisStats、slot migration、proxy sync 等 topom 主流程"
+    source: 编排骨架
+    status: passed
+  - item: "同一 dashboard 的并发分析任务数量受配置限制"
+    source: 流程级约束
+    status: passed
+  - item: "浏览器不直接解析 RDB 文件，不把完整 key/value JSON 常驻前端内存"
+    source: 范围守护
+    status: passed
+  - item: "删除 API 路由、analysis job manager、FE 区域和 Go module 依赖后，Codis 原有 dashboard/proxy/server 行为不变"
+    source: 挂载点
+    status: passed
+  - item: "go.mod 依赖 github.com/hdt3213/rdb 正式 module 版本，不提交指向 /Users/liyiming/gitcode/rdb 的绝对路径 replace"
+    source: 范围守护
+    status: passed
+  - item: "不在 proxy 业务请求路径中解析 RDB，不改 proxy 命令 allow-list，不向业务客户端暴露新 Redis 命令"
+    source: 范围守护
+    status: passed
+  - item: "不自动对后端 Redis 执行 BGSAVE/SAVE，不读取 Redis Server 机器上的任意文件，不实现 replication stream RDB 抓取"
+    source: 范围守护
+    status: passed
+  - item: "不把分析结果写入 coordinator；任务状态只属于当前 dashboard 进程"
+    source: 范围守护
+    status: passed
+  - item: "不生成完整 JSON/AOF 转换结果供前端展示"
+    source: 范围守护
+    status: passed
+  - item: "不复用 rdb 的 flamegraph 独立 web server"
+    source: 范围守护
+    status: passed
+  - item: "RDBAnalysisManager 挂在 Topom 内存态下，负责 job id、并发限流、生命周期、结果快照和过期清理"
+    source: 名词契约
+    status: passed
+  - item: "RDBAnalysisJob snapshot 包含 id、状态、source、options、进度、summary、top 列表、flamegraph 和 error"
+    source: 名词契约
+    status: passed
+  - item: "source 只记录安全摘要，不向前端暴露 dashboard 本地绝对路径"
+    source: 名词契约
+    status: passed
+  - item: "首版 UI/API 暴露 top_n、prefix_separators、max_depth、regex、include_expired 等保守参数，并受配置上限约束"
+    source: 名词契约
+    status: passed
+  - item: "dashboard 新增 upload/start/get/cancel/remove 这组 rdb-analysis API"
+    source: 挂载点
+    status: passed
+  - item: "FE 任务运行时每 1-2 秒拉取 job snapshot，切换 product 或任务结束时停止旧轮询"
+    source: 编排骨架
+    status: passed
+  - item: "本地 path 只能指向 rdb_analysis_workspace 下的文件，非法路径不创建 job"
+    source: 流程级约束
+    status: passed
+  - item: "超出 max_upload_size、max_concurrent_jobs、max_jobs_retained 或 max_top_n 时返回普通 API error，不 panic"
+    source: 流程级约束
+    status: passed
+  - item: "取消任务会停止后续解析并释放文件句柄"
+    source: 流程级约束
+    status: passed
+  - item: "非 RDB 文件、RDB version 不支持、io error、参数非法都进入 job error 状态并返回可读错误"
+    source: 流程级约束
+    status: passed
+  - item: "任务开始、完成、取消、失败记录 product、job id、source 摘要、文件大小、耗时和对象数"
+    source: 流程级约束
+    status: passed
+  - item: "上传小 RDB 文件后页面完成分析并展示 total size、key count、type summary、big keys"
+    source: 验收场景
+    status: passed
+  - item: "使用 dashboard workspace 内合法相对路径启动分析时，API 响应不暴露绝对路径"
+    source: 验收场景
+    status: passed
+  - item: "上传非 RDB 文件时 job 进入 error 状态，dashboard 不 panic"
+    source: 验收场景
+    status: passed
+  - item: "分析包含 LFU 信息的 RDB 时 hot key 表按 freq 降序返回；无 LFU 信息时 hot key 表为空且状态正常"
+    source: 验收场景
+    status: passed
+  - item: "prefix separator 和 max depth 会限制 prefix summary 输出"
+    source: 验收场景
+    status: passed
+  - item: "切换 Codis product 时旧 product 的 RDB job 轮询停止，新 product 不复用旧 job 结果"
+    source: 验收场景
+    status: passed
+  - item: "go test ./pkg/topom -run RDBAnalysis 通过"
+    source: 验收场景
+    status: passed
+  - item: "make gotest 通过"
+    source: 验收场景
+    status: passed

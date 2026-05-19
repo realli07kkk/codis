@@ -69,6 +69,8 @@ type Topom struct {
 		proxies map[string]*ProxyStats
 	}
 
+	rdbAnalysis *RDBAnalysisManager
+
 	ha struct {
 		redisp *redis.Pool
 
@@ -110,6 +112,7 @@ func New(client models.Client, config *Config) (*Topom, error) {
 	s.stats.redisp = redis.NewPool(config.ProductAuth, time.Second*5)
 	s.stats.servers = make(map[string]*RedisStats)
 	s.stats.proxies = make(map[string]*ProxyStats)
+	s.rdbAnalysis = NewRDBAnalysisManager(config)
 
 	if err := s.setup(config); err != nil {
 		s.Close()
@@ -163,6 +166,9 @@ func (s *Topom) Close() error {
 		if p != nil {
 			p.Close()
 		}
+	}
+	if s.rdbAnalysis != nil {
+		s.rdbAnalysis.Close()
 	}
 
 	defer s.store.Close()

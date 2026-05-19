@@ -101,6 +101,179 @@
             <div class="col-md-12"
                  style="margin-bottom: 10px; padding-bottom: 10px; border-bottom: solid 1px lightgray;">
                 <form class="form-inline">
+                    <h4 style="padding-left:30px; padding-right:20px; display: inline;">RDB Analysis</h4>
+                </form>
+            </div>
+            <div class="col-md-12" style="padding-bottom: 10px;">
+                <form class="form-inline">
+                    <span ng-if="codis_addr != 'NA'">
+                        <button class="btn btn-warning btn-sm active" style="width: 120px; font-size: 14px; padding: 2px;"
+                                ng-click="startRDBAnalysisUpload()"
+                                ng-disabled="!rdb_upload_file || rdbAnalysisRunning()">Upload
+                        </button>
+                        <input style="height: 28px; width: 280px;" type="file" class="form-control"
+                               onchange="angular.element(this).scope().setRDBAnalysisFile(this.files)">
+                        <button class="btn btn-warning btn-sm active" style="width: 120px; font-size: 14px; padding: 2px;"
+                                ng-click="startRDBAnalysisByPath()"
+                                ng-disabled="!rdb_path || rdbAnalysisRunning()">Workspace
+                        </button>
+                        <input style="height: 28px; width: 280px;" type="text" class="form-control" placeholder="RDB path under workspace"
+                               ng-model="rdb_path">
+                        <span style="padding-left: 10px;">TopN</span>
+                        <input style="height: 28px; width: 70px;" type="number" min="1" class="form-control"
+                               ng-model="rdb_options.top_n">
+                        <span style="padding-left: 10px;">Depth</span>
+                        <input style="height: 28px; width: 70px;" type="number" min="0" class="form-control"
+                               ng-model="rdb_options.max_depth">
+                        <span style="padding-left: 10px;">Sep</span>
+                        <input style="height: 28px; width: 90px;" type="text" class="form-control"
+                               ng-model="rdb_options.prefix_separators">
+                        <span style="padding-left: 10px;">Regex</span>
+                        <input style="height: 28px; width: 180px;" type="text" class="form-control"
+                               ng-model="rdb_options.regex">
+                        <label style="padding-left: 10px; font-weight: normal;">
+                            <input type="checkbox" ng-model="rdb_options.include_expired"> expired
+                        </label>
+                    </span>
+                </form>
+            </div>
+            <div class="col-md-12" ng-if="rdb_current_job">
+                <table class="table table-bordered table-condensed" style="white-space: nowrap">
+                    <tbody>
+                    <tr>
+                        <td style="width: 140px;"><b>Job</b></td>
+                        <td>[[rdb_current_job.id]]</td>
+                        <td style="width: 140px;"><b>Status</b></td>
+                        <td>
+                            <span ng-if="rdb_current_job.status == 'error'" class="status_label_error">[[rdb_current_job.status]]</span>
+                            <span ng-if="rdb_current_job.status == 'canceled'" class="status_label_warning">[[rdb_current_job.status]]</span>
+                            <span ng-if="rdb_current_job.status != 'error' && rdb_current_job.status != 'canceled'">[[rdb_current_job.status]]</span>
+                        </td>
+                        <td style="width: 140px;"><b>Source</b></td>
+                        <td>[[rdb_current_job.source]]</td>
+                        <td style="width: 140px;"><b>Progress</b></td>
+                        <td>[[rdbProgressPercent()]]%</td>
+                        <td class="button_tight_column" style="text-align: center">
+                            <button class="btn btn-danger btn-xs active" ng-if="rdbAnalysisRunning()"
+                                    ng-click="cancelRDBAnalysis()">
+                                <span class="glyphicon glyphicon-stop"></span>
+                            </button>
+                            <button class="btn btn-default btn-xs active" ng-if="!rdbAnalysisRunning()"
+                                    ng-click="clearRDBAnalysis()">
+                                <span class="glyphicon glyphicon-remove"></span>
+                            </button>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td><b>Objects</b></td>
+                        <td>[[rdb_current_job.objects_read]]</td>
+                        <td><b>DB Count</b></td>
+                        <td>[[rdb_current_job.db_count]]</td>
+                        <td><b>Total Size</b></td>
+                        <td>[[rdbReadableSize(rdb_current_job.total_size)]]</td>
+                        <td><b>Read</b></td>
+                        <td colspan="2">[[rdbReadableSize(rdb_current_job.bytes_read)]] / [[rdbReadableSize(rdb_current_job.file_size)]]</td>
+                    </tr>
+                    <tr ng-if="rdb_current_job.error">
+                        <td><b>Error</b></td>
+                        <td colspan="8"><span class="status_label_error">[[rdb_current_job.error]]</span></td>
+                    </tr>
+                    </tbody>
+                </table>
+            </div>
+            <div class="col-md-4" ng-if="(rdb_current_job.type_summary || []).length">
+                <table class="table table-bordered table-striped table-hover table-condensed" style="white-space: nowrap">
+                    <thead>
+                    <tr><th>Type</th><th>Keys</th><th>Size</th></tr>
+                    </thead>
+                    <tbody>
+                    <tr ng-repeat="row in rdb_current_job.type_summary">
+                        <td>[[row.name]]</td>
+                        <td>[[row.key_count]]</td>
+                        <td>[[row.size_readable]]</td>
+                    </tr>
+                    </tbody>
+                </table>
+            </div>
+            <div class="col-md-4" ng-if="(rdb_current_job.db_summary || []).length">
+                <table class="table table-bordered table-striped table-hover table-condensed" style="white-space: nowrap">
+                    <thead>
+                    <tr><th>DB</th><th>Keys</th><th>Size</th></tr>
+                    </thead>
+                    <tbody>
+                    <tr ng-repeat="row in rdb_current_job.db_summary">
+                        <td>[[row.name]]</td>
+                        <td>[[row.key_count]]</td>
+                        <td>[[row.size_readable]]</td>
+                    </tr>
+                    </tbody>
+                </table>
+            </div>
+            <div class="col-md-4" ng-if="(rdb_current_job.prefix_summary || []).length">
+                <table class="table table-bordered table-striped table-hover table-condensed" style="white-space: nowrap">
+                    <thead>
+                    <tr><th>Prefix</th><th>Keys</th><th>Size</th></tr>
+                    </thead>
+                    <tbody>
+                    <tr ng-repeat="row in rdb_current_job.prefix_summary">
+                        <td>[[row.name]]</td>
+                        <td>[[row.key_count]]</td>
+                        <td>[[row.size_readable]]</td>
+                    </tr>
+                    </tbody>
+                </table>
+            </div>
+            <div class="col-md-12" ng-if="(rdb_flame_rows || []).length">
+                <table class="table table-bordered table-striped table-hover table-condensed" style="white-space: nowrap">
+                    <thead>
+                    <tr><th>Flamegraph</th><th>Size</th></tr>
+                    </thead>
+                    <tbody>
+                    <tr ng-repeat="row in rdb_flame_rows">
+                        <td ng-style="{'padding-left': (8 + row.depth * 16) + 'px'}">[[row.name]]</td>
+                        <td>[[row.size_readable]]</td>
+                    </tr>
+                    </tbody>
+                </table>
+            </div>
+            <div class="col-md-6" ng-if="(rdb_current_job.top_big_keys || []).length">
+                <table class="table table-bordered table-striped table-hover table-condensed" style="white-space: nowrap">
+                    <thead>
+                    <tr><th>DB</th><th>Key</th><th>Type</th><th>Elements</th><th>Size</th></tr>
+                    </thead>
+                    <tbody>
+                    <tr ng-repeat="row in rdb_current_job.top_big_keys">
+                        <td>[[row.db]]</td>
+                        <td>[[row.key]]</td>
+                        <td>[[row.type]]</td>
+                        <td>[[row.element_count]]</td>
+                        <td>[[row.size_readable]]</td>
+                    </tr>
+                    </tbody>
+                </table>
+            </div>
+            <div class="col-md-6" ng-if="(rdb_current_job.top_hot_keys || []).length">
+                <table class="table table-bordered table-striped table-hover table-condensed" style="white-space: nowrap">
+                    <thead>
+                    <tr><th>DB</th><th>Key</th><th>Type</th><th>Freq</th><th>Size</th></tr>
+                    </thead>
+                    <tbody>
+                    <tr ng-repeat="row in rdb_current_job.top_hot_keys">
+                        <td>[[row.db]]</td>
+                        <td>[[row.key]]</td>
+                        <td>[[row.type]]</td>
+                        <td>[[row.frequency]]</td>
+                        <td>[[row.size_readable]]</td>
+                    </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <div class="row" style="min-width: 1200px">
+            <div class="col-md-12"
+                 style="margin-bottom: 10px; padding-bottom: 10px; border-bottom: solid 1px lightgray;">
+                <form class="form-inline">
                     <h4 style="padding-left:30px; padding-right:20px; display: inline;">Proxy</h4>
                 </form>
             </div>
@@ -769,6 +942,7 @@
 <script src="node_modules/convert-string/convert-string.js"></script>
 <script src="node_modules/convert-hex/convert-hex.js"></script>
 <script src="node_modules/sha256/lib/sha256.js"></script>
+<script src="rdb-analysis.js"></script>
 <script src="dashboard-fe.js"></script>
 </body>
 </html>
