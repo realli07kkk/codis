@@ -54,6 +54,11 @@ jodis_auth = ""
 jodis_timeout = "20s"
 jodis_compatible = false
 
+# Enable limited CLUSTER NODES compatibility for cluster-mode SDK bootstrap.
+# Allowed values: "disabled", "self", "all".
+cluster_nodes_compat = "disabled"
+cluster_nodes_refresh_period = "30s"
+
 # Set datacenter of proxy.
 proxy_datacenter = ""
 
@@ -153,6 +158,9 @@ type Config struct {
 	JodisTimeout    timesize.Duration `toml:"jodis_timeout" json:"jodis_timeout"`
 	JodisCompatible bool              `toml:"jodis_compatible" json:"jodis_compatible"`
 
+	ClusterNodesCompat        string            `toml:"cluster_nodes_compat" json:"cluster_nodes_compat"`
+	ClusterNodesRefreshPeriod timesize.Duration `toml:"cluster_nodes_refresh_period" json:"cluster_nodes_refresh_period"`
+
 	ProductName string `toml:"product_name" json:"product_name"`
 	ProductAuth string `toml:"product_auth" json:"-"`
 	SessionAuth string `toml:"session_auth" json:"-"`
@@ -243,6 +251,25 @@ func (c *Config) Validate() error {
 		}
 		if c.JodisTimeout < 0 {
 			return errors.New("invalid jodis_timeout")
+		}
+	}
+	if c.ClusterNodesCompat == "" {
+		c.ClusterNodesCompat = ClusterNodesCompatDisabled
+	}
+	switch c.ClusterNodesCompat {
+	default:
+		return errors.New("invalid cluster_nodes_compat")
+	case ClusterNodesCompatDisabled, ClusterNodesCompatSelf, ClusterNodesCompatAll:
+	}
+	if c.ClusterNodesRefreshPeriod < 0 {
+		return errors.New("invalid cluster_nodes_refresh_period")
+	}
+	if c.ClusterNodesCompat == ClusterNodesCompatAll {
+		if c.JodisName == "" || c.JodisAddr == "" {
+			return errors.New("invalid cluster_nodes_compat, all mode requires jodis_name and jodis_addr")
+		}
+		if c.ClusterNodesRefreshPeriod <= 0 {
+			return errors.New("invalid cluster_nodes_refresh_period")
 		}
 	}
 	if c.ProductName == "" {

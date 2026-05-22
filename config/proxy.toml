@@ -38,6 +38,11 @@ jodis_auth = ""
 jodis_timeout = "20s"
 jodis_compatible = false
 
+# Enable limited CLUSTER NODES compatibility for cluster-mode SDK bootstrap.
+# Allowed values: "disabled", "self", "all".
+cluster_nodes_compat = "disabled"
+cluster_nodes_refresh_period = "30s"
+
 # Set datacenter of proxy.
 proxy_datacenter = ""
 

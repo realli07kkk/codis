@@ -1,0 +1,96 @@
+feature: 2026-05-22-proxy-cluster-nodes-compat
+created: 2026-05-22
+
+steps:
+  - action: "配置与命令入口骨架：接入默认关闭配置，放开 CLUSTER 进入本地分支，disabled 保持不允许，self/all 下只有 NODES 有成功路径"
+    exit_signal: "默认配置下 CLUSTER NODES 仍不可用；self 模式可返回 stub 节点文本；其他 CLUSTER 子命令不会转发到 backend"
+    status: done
+  - action: "节点格式化与 self 模式：实现 fake node id、address/bus-port 格式、myself,master flags 和 0-16383 输出"
+    exit_signal: "单 proxy 输出符合 Redis Cluster CLUSTER NODES 文本字段数量和 slot range 要求"
+    status: done
+  - action: "all 模式存储轮询：复用 Jodis/coordinator 配置读取 proxy 注册列表，解析 online proxy，生成原子快照"
+    exit_signal: "模拟多个 Jodis 节点时，快照包含所有 online proxy，删除或新增节点后一个 refresh period 内更新"
+    status: done
+  - action: "slot 均分与容错：按稳定排序均分 0-16383，处理空列表、坏 JSON、存储失败和地址异常"
+    exit_signal: "任意 N > 0 的节点列表都无 gap/overlap 覆盖 0-16383；存储失败保留 last good snapshot"
+    status: done
+  - action: "文档与兼容边界：更新 unsupported command / proxy 配置说明，明确 CLUSTER NODES 是有限兼容"
+    exit_signal: "文档不再把整个 CLUSTER 命令笼统描述为只能失败，同时明确其他 CLUSTER 子命令仍不支持"
+    status: done
+  - action: "验证覆盖：补齐 proxy package 单测和必要的 models/Jodis 轮询测试"
+    exit_signal: "配置校验、命令解析、输出格式、slot 均分、轮询刷新和故障 fallback 都有可重复测试证据"
+    status: done
+
+checks:
+  - item: "CLUSTER 顶层命令只作为本地受控容器开放，首版只有 CLUSTER NODES 有成功路径"
+    source: 名词契约
+    status: passed
+  - item: "cluster_nodes_compat 支持 disabled、self、all；默认值为 disabled"
+    source: 名词契约
+    status: passed
+  - item: "cluster_nodes_compat=all 时必须配置 jodis_name 和 jodis_addr，并复用 jodis_auth、jodis_timeout、jodis_compatible"
+    source: 名词契约
+    status: passed
+  - item: "CLUSTER NODES 输出使用 40 位十六进制 fake node id、host:port@bus-port、master/myself flags 和 connected link"
+    source: 名词契约
+    status: passed
+  - item: "self 模式只返回当前 proxy 且 slot range 为 0-16383"
+    source: 名词契约
+    status: passed
+  - item: "all 模式从 Jodis/coordinator 后端存储轮询 proxy 注册信息，不通过 proxy 间通信生成清单"
+    source: 编排骨架
+    status: passed
+  - item: "all 模式稳定排序后均分 Redis Cluster 逻辑 slot 0-16383，输出无 gap、无 overlap"
+    source: 流程级约束
+    status: passed
+  - item: "命令路径只读取原子快照，不等待 coordinator IO；存储失败时使用上一份成功快照或 self fallback"
+    source: 流程级约束
+    status: passed
+  - item: "CLUSTER NODES 受 SessionAuth 保护，未认证时返回 NOAUTH Authentication required"
+    source: 流程级约束
+    status: passed
+  - item: "pkg/proxy/config.go / config/proxy.toml 新增 cluster_nodes_compat 和 cluster_nodes_refresh_period 配置项与校验"
+    source: 挂载点
+    status: passed
+  - item: "pkg/proxy/mapper.go 修改 CLUSTER 的禁用状态，让它进入本地命令分支"
+    source: 挂载点
+    status: passed
+  - item: "pkg/proxy/session.go 新增 CLUSTER 本地处理分支，阻止其他 CLUSTER 子命令落入 backend router"
+    source: 挂载点
+    status: passed
+  - item: "proxy runtime lifecycle 在启动/关闭时启动和停止 cluster nodes provider 后台轮询"
+    source: 挂载点
+    status: passed
+  - item: "不实现完整 Redis Cluster 协议，不支持 MOVED、ASK、cluster bus、gossip、failover 或 Redis Cluster 配置文件"
+    source: 范围守护
+    status: passed
+  - item: "不实现 CLUSTER SLOTS、CLUSTER INFO、CLUSTER KEYSLOT、CLUSTER SHARDS 等其他 CLUSTER 子命令成功路径"
+    source: 范围守护
+    status: passed
+  - item: "不修改 Codis 真实 MaxSlotNum=1024，也不把后端真实路由改成 Redis Cluster 16384 slot"
+    source: 范围守护
+    status: passed
+  - item: "不新增 proxy 之间的 RPC、探活或广播节点状态"
+    source: 范围守护
+    status: passed
+  - item: "不读取 Consul service catalog、health check 或 service mesh API"
+    source: 范围守护
+    status: passed
+  - item: "默认配置执行 CLUSTER NODES 仍表现为不允许或禁用，不返回伪装节点清单"
+    source: 验收场景
+    status: passed
+  - item: "self 模式执行 CLUSTER NODES 返回一行当前 proxy，包含 40 位 node id、myself,master 和 0-16383"
+    source: 验收场景
+    status: passed
+  - item: "all 模式下 3 个 online proxy 返回 3 行，并完整均分覆盖 0-16383"
+    source: 验收场景
+    status: passed
+  - item: "新增或删除 Jodis proxy 节点后，一个 refresh period 内 CLUSTER NODES 输出反映新列表"
+    source: 验收场景
+    status: passed
+  - item: "Jodis 中坏 JSON、空 addr、非 online state 条目被跳过，不影响其他正常 proxy 输出"
+    source: 验收场景
+    status: passed
+  - item: "Jodis 中重复 token 或重复 addr 的 online 条目会先规范化成唯一 proxy 节点集合，当前 proxy 优先保留"
+    source: 验收场景
+    status: passed

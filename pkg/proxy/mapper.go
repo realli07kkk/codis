@@ -73,7 +73,7 @@ func init() {
 		{"BRPOP", FlagWrite | FlagNotAllow},
 		{"BRPOPLPUSH", FlagWrite | FlagNotAllow},
 		{"CLIENT", 0},
-		{"CLUSTER", FlagNotAllow},
+		{"CLUSTER", 0},
 		{"COMMAND", 0},
 		{"CONFIG", FlagNotAllow},
 		{"DBSIZE", FlagNotAllow},

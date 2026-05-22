@@ -273,6 +273,9 @@ func (s *Session) handleRequest(r *Request, d *Router) error {
 	r.Broken = &s.broken
 	s.setLastOpStr(opstr)
 
+	if opstr == "CLUSTER" && d.clusterNodesDisabled() {
+		return fmt.Errorf("command '%s' is not allowed", opstr)
+	}
 	if flag.IsNotAllowed() {
 		return fmt.Errorf("command '%s' is not allowed", opstr)
 	}
@@ -301,6 +304,8 @@ func (s *Session) handleRequest(r *Request, d *Router) error {
 		return s.handleRequestInfo(r, d)
 	case "CLIENT":
 		return clientSessions.handleRequestClient(s, r)
+	case "CLUSTER":
+		return d.handleRequestCluster(r)
 	case "GET":
 		return d.handleRequestGet(r)
 	case "MGET":

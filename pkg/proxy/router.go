@@ -26,6 +26,7 @@ type Router struct {
 	slots        [MaxSlotNum]Slot
 	slotVersions [MaxSlotNum]atomic2.Int64
 	hotKeyCache  *HotKeyCache
+	clusterNodes *clusterNodesProvider
 
 	config *Config
 	online bool
@@ -37,6 +38,7 @@ func NewRouter(config *Config) *Router {
 	s.pool.primary = newSharedBackendConnPool(config, config.BackendPrimaryParallel)
 	s.pool.replica = newSharedBackendConnPool(config, config.BackendReplicaParallel)
 	s.hotKeyCache = newHotKeyCache(config)
+	s.clusterNodes = newClusterNodesProvider(config, nil, nil)
 	for i := range s.slots {
 		s.slots[i].id = i
 		s.slots[i].method = &forwardSync{}
@@ -51,6 +53,9 @@ func (s *Router) Start() {
 		return
 	}
 	s.online = true
+	if s.clusterNodes != nil {
+		s.clusterNodes.Start()
+	}
 }
 
 func (s *Router) Close() {
@@ -60,6 +65,9 @@ func (s *Router) Close() {
 		return
 	}
 	s.closed = true
+	if s.clusterNodes != nil {
+		s.clusterNodes.Close()
+	}
 
 	for i := range s.slots {
 		s.fillSlot(&models.Slot{Id: i}, false, nil)
