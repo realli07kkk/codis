@@ -16,6 +16,11 @@ product_auth = ""
 #      to issue AUTH <PASSWORD> before processing any other commands.
 session_auth = ""
 
+# Enable IP-based brute-force protection for session AUTH. Disabled by default.
+session_auth_bruteforce_enabled = false
+session_auth_bruteforce_max_failures = 5
+session_auth_bruteforce_lock_duration = "60s"
+
 # Set bind address for admin(rpc), tcp only.
 admin_addr = "0.0.0.0:11080"
 

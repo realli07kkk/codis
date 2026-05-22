@@ -32,6 +32,11 @@ product_auth = ""
 #      to issue AUTH <PASSWORD> before processing any other commands.
 session_auth = ""
 
+# Enable IP-based brute-force protection for session AUTH. Disabled by default.
+session_auth_bruteforce_enabled = false
+session_auth_bruteforce_max_failures = 5
+session_auth_bruteforce_lock_duration = "60s"
+
 # Set bind address for admin(rpc), tcp only.
 admin_addr = "0.0.0.0:11080"
 
@@ -165,6 +170,10 @@ type Config struct {
 	ProductAuth string `toml:"product_auth" json:"-"`
 	SessionAuth string `toml:"session_auth" json:"-"`
 
+	SessionAuthBruteforceEnabled      bool              `toml:"session_auth_bruteforce_enabled" json:"session_auth_bruteforce_enabled"`
+	SessionAuthBruteforceMaxFailures  int               `toml:"session_auth_bruteforce_max_failures" json:"session_auth_bruteforce_max_failures"`
+	SessionAuthBruteforceLockDuration timesize.Duration `toml:"session_auth_bruteforce_lock_duration" json:"session_auth_bruteforce_lock_duration"`
+
 	ProxyDataCenter      string         `toml:"proxy_datacenter" json:"proxy_datacenter"`
 	ProxyMaxClients      int            `toml:"proxy_max_clients" json:"proxy_max_clients"`
 	ProxyMaxOffheapBytes bytesize.Int64 `toml:"proxy_max_offheap_size" json:"proxy_max_offheap_size"`
@@ -274,6 +283,14 @@ func (c *Config) Validate() error {
 	}
 	if c.ProductName == "" {
 		return errors.New("invalid product_name")
+	}
+	if c.SessionAuthBruteforceEnabled {
+		if c.SessionAuthBruteforceMaxFailures <= 0 {
+			return errors.New("invalid session_auth_bruteforce_max_failures")
+		}
+		if c.SessionAuthBruteforceLockDuration <= 0 {
+			return errors.New("invalid session_auth_bruteforce_lock_duration")
+		}
 	}
 	if c.ProxyMaxClients < 0 {
 		return errors.New("invalid proxy_max_clients")

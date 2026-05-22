@@ -1,0 +1,87 @@
+feature: 2026-05-22-proxy-auth-bruteforce
+created: 2026-05-22
+
+steps:
+  - action: "配置与空 guard 骨架：接入默认关闭配置、校验和 disabled/no-op guard"
+    exit_signal: "默认配置加载成功；session_auth_bruteforce_enabled=false 时 AUTH 成功/失败行为与现状一致"
+    status: done
+  - action: "IP 提取与失败记录：实现 TCP remote address 到客户端 IP 的规范化，以及 thread-safe 失败计数记录"
+    exit_signal: "IPv4/IPv6 remote address 能归一到 IP；无法提取 IP 时回退现有 AUTH 行为；并发记录无 data race"
+    status: done
+  - action: "锁定与成功清零编排：在 Session.handleAuth 中接入锁定检查、失败达到阈值锁定、成功认证清零"
+    exit_signal: "同一 IP 连续输错达到阈值后被锁；锁定期间正确密码也返回 locked error；成功认证会清掉此前失败计数"
+    status: done
+  - action: "自动解锁与记录清理：基于 locked_until 和记录过期规则清理锁定/未锁定失败记录"
+    exit_signal: "锁定时长过去后同一 IP 可以重新认证；长期无新失败的记录不会无限保留"
+    status: done
+  - action: "stats、日志与文档边界：补齐 proxy stats 聚合字段、锁定/解锁日志和用户配置说明"
+    exit_signal: "stats 可看到 enabled、tracked_ips、locked_ips、failures、locks、unlocks；文档明确 proxy-local、NAT、多 proxy 和已有会话边界"
+    status: done
+  - action: "验证覆盖：补齐 proxy package 单测和必要的集成式 session 测试"
+    exit_signal: "默认关闭、阈值锁定、自动解锁、成功清零、不同 IP 隔离、已认证 session 不受影响和 stats 场景都有可重复测试证据"
+    status: done
+
+checks:
+  - item: "默认关闭时 AUTH 成功/失败行为与现状一致，不生成 locked error"
+    source: 范围守护
+    status: passed
+  - item: "session_auth_bruteforce_enabled、session_auth_bruteforce_max_failures、session_auth_bruteforce_lock_duration 默认配置和校验落地"
+    source: 名词契约
+    status: passed
+  - item: "guard 只在 session_auth 非空、配置启用、IP 可提取、session 未认证时生效"
+    source: 名词契约
+    status: passed
+  - item: "AuthBruteforceGuard 以 IP 保存 failures、last_failure_at、locked_until"
+    source: 名词契约
+    status: passed
+  - item: "AUTH 参数数量错误沿用 ERR wrong number of arguments for 'AUTH' command 且不记录失败"
+    source: 验收场景
+    status: passed
+  - item: "session_auth 为空时 AUTH 沿用 ERR Client sent AUTH, but no password is set 且不记录失败"
+    source: 验收场景
+    status: passed
+  - item: "同一 IP 连续输错达到 max_failures 后进入 locked 状态"
+    source: 验收场景
+    status: passed
+  - item: "锁定期间未认证连接即使提交正确密码也返回 locked error，不设置 authorized"
+    source: 验收场景
+    status: passed
+  - item: "锁定超过 lock_duration 后自动解锁，同一 IP 可重新认证"
+    source: 验收场景
+    status: passed
+  - item: "正确 AUTH 会清除该 IP 既有失败计数"
+    source: 验收场景
+    status: passed
+  - item: "不同 IP 的失败计数和锁定状态互相隔离"
+    source: 验收场景
+    status: passed
+  - item: "records map 有内部 tracked IP 上限，插入新 IP 前会清理过期记录，仍满时淘汰最旧未锁定记录"
+    source: 流程级约束
+    status: passed
+  - item: "已有已认证 session 不因同 IP 后续锁定而关闭、降级或返回 NOAUTH"
+    source: 流程级约束
+    status: passed
+  - item: "无法解析 remote IP 的连接不触发 IP 锁定，回退现有 AUTH 行为"
+    source: 验收场景
+    status: passed
+  - item: "proxy stats 暴露 session_auth_bruteforce enabled、tracked_ips、locked_ips、failures、locks、unlocks 聚合字段"
+    source: 验收场景
+    status: passed
+  - item: "日志和 stats 不输出客户端提交的密码，也不在 stats 中列出完整 IP 列表"
+    source: 流程级约束
+    status: passed
+  - item: "不修改 product_auth、dashboard/topom xauth 或 coordinator/Jodis auth 校验路径"
+    source: 范围守护
+    status: passed
+  - item: "不把锁定状态写入 coordinator、models.Store 或 Jodis"
+    source: 范围守护
+    status: passed
+  - item: "不新增跨 proxy RPC、pubsub 或广播同步失败计数"
+    source: 范围守护
+    status: passed
+  - item: "不新增 dashboard/FE 管理页面、手动解锁 API、allowlist/denylist/CIDR 配置"
+    source: 范围守护
+    status: passed
+  - item: "不引入 Redis ACL username 语义或改变当前 AUTH <password> 契约"
+    source: 范围守护
+    status: passed

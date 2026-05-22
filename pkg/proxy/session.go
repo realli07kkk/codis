@@ -46,8 +46,9 @@ type Session struct {
 	}
 	start sync.Once
 
-	broken atomic2.Bool
-	config *Config
+	broken         atomic2.Bool
+	config         *Config
+	authBruteforce *AuthBruteforceGuard
 
 	authorized bool
 }
@@ -71,6 +72,10 @@ func (s *Session) String() string {
 }
 
 func NewSession(sock net.Conn, config *Config) *Session {
+	return NewSessionWithAuthBruteforceGuard(sock, config, nil)
+}
+
+func NewSessionWithAuthBruteforceGuard(sock net.Conn, config *Config, guard *AuthBruteforceGuard) *Session {
 	c := redis.NewConn(sock,
 		config.SessionRecvBufsize.AsInt(),
 		config.SessionSendBufsize.AsInt(),
@@ -80,9 +85,11 @@ func NewSession(sock net.Conn, config *Config) *Session {
 	c.SetKeepAlivePeriod(config.SessionKeepAlivePeriod.Duration())
 
 	s := &Session{
-		Id:   clientSessions.nextID(),
-		Conn: c, config: config,
-		CreateUnix: time.Now().Unix(),
+		Id:             clientSessions.nextID(),
+		Conn:           c,
+		config:         config,
+		authBruteforce: guard,
+		CreateUnix:     time.Now().Unix(),
 	}
 	s.stats.opmap = make(map[string]*opStats, 16)
 	log.Infof("session [%p] create: %s", s, s)
@@ -344,17 +351,39 @@ func (s *Session) handleAuth(r *Request) error {
 		r.Resp = redis.NewErrorf("ERR wrong number of arguments for 'AUTH' command")
 		return nil
 	}
-	switch {
-	case s.config.SessionAuth == "":
+	if s.config.SessionAuth == "" {
 		r.Resp = redis.NewErrorf("ERR Client sent AUTH, but no password is set")
+		return nil
+	}
+
+	wasAuthorized := s.isAuthorized()
+	now := time.Now()
+	remoteAddr := s.remoteAddr()
+	if s.authBruteforce.BeforeAuth(remoteAddr, wasAuthorized, now) {
+		r.Resp = redis.NewErrorf(authBruteforceLockedMessage)
+		return nil
+	}
+
+	switch {
 	case s.config.SessionAuth != string(r.Multi[1].Value):
 		s.setAuthorized(false)
+		if !wasAuthorized {
+			s.authBruteforce.RecordAuthFailure(remoteAddr, wasAuthorized, now)
+		}
 		r.Resp = redis.NewErrorf("ERR invalid password")
 	default:
 		s.setAuthorized(true)
+		s.authBruteforce.RecordAuthSuccess(remoteAddr)
 		r.Resp = RespOK
 	}
 	return nil
+}
+
+func (s *Session) remoteAddr() string {
+	if s.Conn == nil {
+		return ""
+	}
+	return s.Conn.RemoteAddr()
 }
 
 func (s *Session) handleSelect(r *Request) error {

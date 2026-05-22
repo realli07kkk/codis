@@ -38,9 +38,10 @@ type Proxy struct {
 	online bool
 	closed bool
 
-	config *Config
-	router *Router
-	ignore []byte
+	config         *Config
+	router         *Router
+	ignore         []byte
+	authBruteforce *AuthBruteforceGuard
 
 	lproxy net.Listener
 	ladmin net.Listener
@@ -68,6 +69,7 @@ func New(config *Config) (*Proxy, error) {
 	s.exit.C = make(chan struct{})
 	s.router = NewRouter(config)
 	s.ignore = make([]byte, config.ProxyHeapPlaceholder.Int64())
+	s.authBruteforce = newAuthBruteforceGuard(config)
 
 	s.model = &models.Proxy{
 		StartTime: time.Now().String(),
@@ -416,7 +418,7 @@ func (s *Proxy) serveProxy() {
 			if err != nil {
 				return err
 			}
-			NewSession(c, s.config).Start(s.router)
+			NewSessionWithAuthBruteforceGuard(c, s.config, s.authBruteforce).Start(s.router)
 		}
 	}(s.lproxy)
 
@@ -508,7 +510,8 @@ type Stats struct {
 		PrimaryOnly bool `json:"primary_only"`
 	} `json:"backend"`
 
-	HotKeyCache *HotKeyCacheStats `json:"hot_key_cache,omitempty"`
+	HotKeyCache           *HotKeyCacheStats    `json:"hot_key_cache,omitempty"`
+	SessionAuthBruteforce *AuthBruteforceStats `json:"session_auth_bruteforce,omitempty"`
 
 	Runtime *RuntimeStats `json:"runtime,omitempty"`
 }
@@ -609,6 +612,9 @@ func (s *Proxy) Stats(flags StatsFlags) *Stats {
 	stats.Backend.PrimaryOnly = s.Config().BackendPrimaryOnly
 	if hotKeyCache := s.router.hotKeyCache.Stats(); hotKeyCache.Visible() {
 		stats.HotKeyCache = &hotKeyCache
+	}
+	if authBruteforce := s.authBruteforce.Stats(); authBruteforce.Visible() {
+		stats.SessionAuthBruteforce = &authBruteforce
 	}
 
 	if flags.HasBit(StatsRuntime) {
