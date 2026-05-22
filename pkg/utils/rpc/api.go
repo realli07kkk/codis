@@ -109,6 +109,10 @@ func apiMarshalJson(v interface{}) ([]byte, error) {
 }
 
 func apiRequestJson(method string, url string, args, reply interface{}) error {
+	return apiRequestJsonWithClient(client, method, url, args, reply)
+}
+
+func apiRequestJsonWithClient(c *http.Client, method string, url string, args, reply interface{}) error {
 	var body []byte
 	if args != nil {
 		b, err := apiMarshalJson(args)
@@ -129,7 +133,7 @@ func apiRequestJson(method string, url string, args, reply interface{}) error {
 
 	var start = time.Now()
 
-	rsp, err := client.Do(req)
+	rsp, err := c.Do(req)
 	if err != nil {
 		return errors.Trace(err)
 	}
@@ -171,6 +175,17 @@ func ApiGetJson(url string, reply interface{}) error {
 
 func ApiPutJson(url string, args, reply interface{}) error {
 	return apiRequestJson(MethodPut, url, args, reply)
+}
+
+func ApiPutJsonWithTimeout(url string, args, reply interface{}, timeout time.Duration) error {
+	if timeout <= 0 {
+		return ApiPutJson(url, args, reply)
+	}
+	c := &http.Client{
+		Transport: client.Transport,
+		Timeout:   timeout,
+	}
+	return apiRequestJsonWithClient(c, MethodPut, url, args, reply)
 }
 
 func ApiPostJson(url string, args interface{}) error {

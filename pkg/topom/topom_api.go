@@ -18,6 +18,7 @@ import (
 	"github.com/martini-contrib/render"
 
 	"github.com/CodisLabs/codis/pkg/models"
+	"github.com/CodisLabs/codis/pkg/proxy"
 	"github.com/CodisLabs/codis/pkg/utils/errors"
 	"github.com/CodisLabs/codis/pkg/utils/log"
 	"github.com/CodisLabs/codis/pkg/utils/redis"
@@ -35,6 +36,7 @@ func newApiServer(t *Topom) http.Handler {
 	m.Use(func(w http.ResponseWriter, req *http.Request, c martini.Context) {
 		path := req.URL.Path
 		if req.Method != "GET" && strings.HasPrefix(path, "/api/") {
+			path = redactHotKeyCacheInvalidatePath(path)
 			var remoteAddr = req.RemoteAddr
 			var headerAddr string
 			for _, key := range []string{"X-Real-IP", "X-Forwarded-For"} {
@@ -84,6 +86,7 @@ func newApiServer(t *Topom) http.Handler {
 			r.Put("/remove/:xauth/:id", api.RDBAnalysisRemove)
 			r.Get("/:xauth/:id", api.RDBAnalysisGet)
 		})
+		r.Put("/hot-key-cache/invalidate/:xauth", binding.Json(proxy.HotKeyCacheBroadcastRequest{}), api.HotKeyCacheInvalidate)
 		r.Group("/proxy", func(r martini.Router) {
 			r.Put("/create/:xauth/:addr", api.CreateProxy)
 			r.Put("/online/:xauth/:addr", api.OnlineProxy)
@@ -132,6 +135,14 @@ func newApiServer(t *Topom) http.Handler {
 	m.MapTo(r, (*martini.Routes)(nil))
 	m.Action(r.Handle)
 	return m
+}
+
+func redactHotKeyCacheInvalidatePath(path string) string {
+	const prefix = "/api/topom/hot-key-cache/invalidate/"
+	if strings.HasPrefix(path, prefix) {
+		return prefix + ":xauth"
+	}
+	return path
 }
 
 func (s *apiServer) verifyXAuth(params martini.Params) error {
@@ -210,6 +221,17 @@ func (s *apiServer) Reload(params martini.Params) (int, string) {
 	} else {
 		return rpc.ApiResponseJson("OK")
 	}
+}
+
+func (s *apiServer) HotKeyCacheInvalidate(req proxy.HotKeyCacheBroadcastRequest, params martini.Params) (int, string) {
+	if err := s.verifyXAuth(params); err != nil {
+		return rpc.ApiResponseError(err)
+	}
+	result, err := s.topom.HotKeyCacheInvalidate(&req)
+	if err != nil {
+		return rpc.ApiResponseError(err)
+	}
+	return rpc.ApiResponseJson(result)
 }
 
 func (s *apiServer) parseAddr(params martini.Params) (string, error) {
@@ -833,6 +855,15 @@ func (c *ApiClient) LogLevel(level log.LogLevel) error {
 func (c *ApiClient) Shutdown() error {
 	url := c.encodeURL("/api/topom/shutdown/%s", c.xauth)
 	return rpc.ApiPutJson(url, nil, nil)
+}
+
+func (c *ApiClient) InvalidateHotKeyCache(req *proxy.HotKeyCacheBroadcastRequest) (*proxy.HotKeyCacheBroadcastResult, error) {
+	url := c.encodeURL("/api/topom/hot-key-cache/invalidate/%s", c.xauth)
+	result := &proxy.HotKeyCacheBroadcastResult{}
+	if err := rpc.ApiPutJson(url, req, result); err != nil {
+		return nil, err
+	}
+	return result, nil
 }
 
 func (c *ApiClient) CreateProxy(addr string) error {

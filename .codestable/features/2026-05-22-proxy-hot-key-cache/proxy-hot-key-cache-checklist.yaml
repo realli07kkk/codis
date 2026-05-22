@@ -23,6 +23,21 @@ steps:
   - action: "验证覆盖：补齐 proxy package 单测和必要的 fake backend 计数测试"
     exit_signal: "关闭开关、GET/MGET、TTL、写失效、迁移绕过、stats 场景都有可观察证据"
     status: done
+  - action: "二期配置与上线地址接入：新增广播开关、timeout、queue size 和 proxy 持有 dashboard/topom admin 地址的运行态入口"
+    exit_signal: "默认关闭时行为与一期一致；通过 dashboard/coordinator 上线的 proxy 能拿到 topom admin 地址；--fillslots 模式广播不可用但不报错"
+    status: done
+  - action: "proxy 本地远端失效 API：让目标 proxy admin API 接收 binary-safe DB+keys 并执行幂等本地删除"
+    exit_signal: "目标 proxy 收到 remote invalidation 后，仅当本地已缓存该 DB+key 时删除 entry；未启用 cache、未配置 key、entry 不存在均返回成功"
+    status: done
+  - action: "dashboard/topom fan-out 编排：新增 source proxy 上报 API，由 dashboard/topom 排除 source 后锁外通知其余 online proxy"
+    exit_signal: "两个以上 proxy 注册时，source 上报一个 hot key 写事件后，其余 proxy 的同 DB+key cache 被删除；某个目标 proxy 失败时返回摘要和日志，不影响其他 proxy；fan-out 网络 IO 不持有 topom 全局锁"
+    status: done
+  - action: "写后广播触发与统计：把可枚举 key 的写后本地失效事件接入 source proxy 有界合并 reporter，并补齐广播 attempts/failures/dropped/coalesced/remote invalidations 统计"
+    exit_signal: "SET/MSET/DEL/EXPIRE/PERSIST 等写命令成功响应后进入异步广播队列；后端写失败、broadcast disabled、topom 地址未知、队列满、脚本/未知 may-write 不影响 Redis 写响应"
+    status: done
+  - action: "跨 proxy 验证覆盖与文档边界：补齐 proxy/topom 单测或集成式 fake admin API 测试，并更新用户文档"
+    exit_signal: "本地失效、远端失效、dashboard fan-out、失败降级、默认关闭和 --fillslots 退化场景都有可观察证据；文档明确 admin 指 dashboard/topom 管理面而不是 codis-admin CLI"
+    status: done
 
 checks:
   - item: "默认关闭时不改变 GET/MGET 的 backend 请求数量和响应"
@@ -73,6 +88,42 @@ checks:
   - item: "不为 GETRANGE/GETBIT/STRLEN 等派生读命令增加 cache hit 成功路径"
     source: 范围守护
     status: passed
-  - item: "不新增跨 proxy 失效广播或 pubsub 依赖"
+  - item: "不新增 proxy-to-proxy 直接通信、pubsub、gossip 或 coordinator 持久化广播队列"
     source: 范围守护
+    status: passed
+  - item: "广播由 source proxy -> dashboard/topom -> other proxy admin API 编排，不经过 codis-admin CLI"
+    source: 编排骨架
+    status: passed
+  - item: "广播 payload 只包含 source proxy token、database、binary-safe keys_base64 和 timeout 元数据，不携带或保存 Redis value"
+    source: 名词契约
+    status: passed
+  - item: "非 UTF-8 Redis key 通过广播链路后仍按原始 bytes 失效，不被 JSON string 改写"
+    source: 名词契约
+    status: passed
+  - item: "target proxy 收到 remote invalidation 后只检查本地 allowlist 并删除 DB+key entry，不主动访问 backend Redis"
+    source: 名词契约
+    status: passed
+  - item: "broadcast disabled、topom 地址未知或 --fillslots 模式下行为退化为一期本地失效 + TTL 收敛"
+    source: 验收场景
+    status: passed
+  - item: "dashboard/topom fan-out 排除 source proxy，并对其他 online proxy 并发通知；单个目标失败不影响其他目标"
+    source: 编排骨架
+    status: passed
+  - item: "dashboard/topom 锁内只校验 source 和复制 proxy registry 快照，锁外执行 fan-out，并对请求 timeout 做保守归一化"
+    source: 编排骨架
+    status: passed
+  - item: "source proxy 上报 dashboard/topom 失败或目标 proxy 超时不能改变成功写命令的客户端响应"
+    source: 流程级约束
+    status: passed
+  - item: "source proxy 广播使用有界队列，短窗口合并重复 DB+key，队列满时丢弃事件并计数"
+    source: 流程级约束
+    status: passed
+  - item: "source proxy 合并后的 broadcast keys 仍按单次 max keys 上限二次分片，不让 coalesce 绕开 topom/proxy 校验"
+    source: 流程级约束
+    status: passed
+  - item: "后端写失败、EVAL/EVALSHA/未知 may-write 的保守 DB 清理不触发精确 key 跨 proxy 广播"
+    source: 流程级约束
+    status: passed
+  - item: "proxy stats JSON 或 dashboard/topom fan-out 摘要提供 broadcast attempts/failures/dropped/coalesced/remote invalidations 的可观测证据"
+    source: 验收场景
     status: passed

@@ -23,10 +23,11 @@ type Router struct {
 		primary *sharedBackendConnPool
 		replica *sharedBackendConnPool
 	}
-	slots        [MaxSlotNum]Slot
-	slotVersions [MaxSlotNum]atomic2.Int64
-	hotKeyCache  *HotKeyCache
-	clusterNodes *clusterNodesProvider
+	slots                [MaxSlotNum]Slot
+	slotVersions         [MaxSlotNum]atomic2.Int64
+	hotKeyCache          *HotKeyCache
+	hotKeyCacheBroadcast *hotKeyCacheBroadcastReporter
+	clusterNodes         *clusterNodesProvider
 
 	config *Config
 	online bool
@@ -38,6 +39,7 @@ func NewRouter(config *Config) *Router {
 	s.pool.primary = newSharedBackendConnPool(config, config.BackendPrimaryParallel)
 	s.pool.replica = newSharedBackendConnPool(config, config.BackendReplicaParallel)
 	s.hotKeyCache = newHotKeyCache(config)
+	s.hotKeyCacheBroadcast = newHotKeyCacheBroadcastReporter(config, s.hotKeyCache)
 	s.clusterNodes = newClusterNodesProvider(config, nil, nil)
 	for i := range s.slots {
 		s.slots[i].id = i
@@ -67,6 +69,9 @@ func (s *Router) Close() {
 	s.closed = true
 	if s.clusterNodes != nil {
 		s.clusterNodes.Close()
+	}
+	if s.hotKeyCacheBroadcast != nil {
+		s.hotKeyCacheBroadcast.Close()
 	}
 
 	for i := range s.slots {

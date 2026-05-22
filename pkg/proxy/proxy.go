@@ -142,6 +142,9 @@ func (s *Proxy) setup(config *Config) error {
 		config.ProductAuth,
 		s.model.Token,
 	)
+	if s.router != nil && s.router.hotKeyCacheBroadcast != nil {
+		s.router.hotKeyCacheBroadcast.SetSource(s.model.Token, rpc.NewXAuth(config.ProductName))
+	}
 
 	if config.JodisAddr != "" {
 		c, err := models.NewClient(config.JodisName, config.JodisAddr, config.JodisAuth, config.JodisTimeout.Duration())
@@ -218,6 +221,23 @@ func (s *Proxy) Model() *models.Proxy {
 
 func (s *Proxy) Config() *Config {
 	return s.config
+}
+
+func (s *Proxy) SetTopomAdminAddr(addr string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.router != nil && s.router.hotKeyCacheBroadcast != nil {
+		s.router.hotKeyCacheBroadcast.SetTopomAdminAddr(addr)
+	}
+}
+
+func (s *Proxy) InvalidateHotKeyCache(database int32, keys [][]byte) (int64, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.closed {
+		return 0, ErrClosedProxy
+	}
+	return s.router.hotKeyCacheInvalidateRemote(database, keys), nil
 }
 
 func (s *Proxy) IsOnline() bool {

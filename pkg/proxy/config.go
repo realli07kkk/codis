@@ -125,12 +125,15 @@ session_break_on_failure = false
 # Enable local short-TTL cache for configured string hot keys. Disabled by default.
 # The cache is per proxy process. Writes through the same proxy invalidate local
 # entries, while writes through other proxies or direct Redis connections converge
-# after hot_key_cache_ttl.
+# after hot_key_cache_ttl unless best-effort broadcast invalidation is enabled.
 hot_key_cache_enabled = false
 hot_key_cache_ttl = "1s"
 hot_key_cache_max_entries = 1024
 hot_key_cache_max_value_size = "64kb"
 hot_key_cache_keys = []
+hot_key_cache_broadcast_enabled = false
+hot_key_cache_broadcast_timeout = "100ms"
+hot_key_cache_broadcast_queue_size = 1024
 
 # Set metrics server (such as http://localhost:28000), proxy will report json formatted metrics to specified server in a predefined period.
 metrics_report_server = ""
@@ -199,11 +202,14 @@ type Config struct {
 	SessionKeepAlivePeriod timesize.Duration `toml:"session_keepalive_period" json:"session_keepalive_period"`
 	SessionBreakOnFailure  bool              `toml:"session_break_on_failure" json:"session_break_on_failure"`
 
-	HotKeyCacheEnabled      bool              `toml:"hot_key_cache_enabled" json:"hot_key_cache_enabled"`
-	HotKeyCacheTTL          timesize.Duration `toml:"hot_key_cache_ttl" json:"hot_key_cache_ttl"`
-	HotKeyCacheMaxEntries   int               `toml:"hot_key_cache_max_entries" json:"hot_key_cache_max_entries"`
-	HotKeyCacheMaxValueSize bytesize.Int64    `toml:"hot_key_cache_max_value_size" json:"hot_key_cache_max_value_size"`
-	HotKeyCacheKeys         []string          `toml:"hot_key_cache_keys" json:"hot_key_cache_keys"`
+	HotKeyCacheEnabled            bool              `toml:"hot_key_cache_enabled" json:"hot_key_cache_enabled"`
+	HotKeyCacheTTL                timesize.Duration `toml:"hot_key_cache_ttl" json:"hot_key_cache_ttl"`
+	HotKeyCacheMaxEntries         int               `toml:"hot_key_cache_max_entries" json:"hot_key_cache_max_entries"`
+	HotKeyCacheMaxValueSize       bytesize.Int64    `toml:"hot_key_cache_max_value_size" json:"hot_key_cache_max_value_size"`
+	HotKeyCacheKeys               []string          `toml:"hot_key_cache_keys" json:"hot_key_cache_keys"`
+	HotKeyCacheBroadcastEnabled   bool              `toml:"hot_key_cache_broadcast_enabled" json:"hot_key_cache_broadcast_enabled"`
+	HotKeyCacheBroadcastTimeout   timesize.Duration `toml:"hot_key_cache_broadcast_timeout" json:"hot_key_cache_broadcast_timeout"`
+	HotKeyCacheBroadcastQueueSize int               `toml:"hot_key_cache_broadcast_queue_size" json:"hot_key_cache_broadcast_queue_size"`
 
 	MetricsReportServer           string            `toml:"metrics_report_server" json:"metrics_report_server"`
 	MetricsReportPeriod           timesize.Duration `toml:"metrics_report_period" json:"metrics_report_period"`
@@ -371,6 +377,18 @@ func (c *Config) Validate() error {
 		if c.HotKeyCacheMaxEntries == 0 {
 			return errors.New("invalid hot_key_cache_max_entries")
 		}
+	}
+	if c.HotKeyCacheBroadcastTimeout < 0 {
+		return errors.New("invalid hot_key_cache_broadcast_timeout")
+	}
+	if c.HotKeyCacheBroadcastQueueSize < 0 {
+		return errors.New("invalid hot_key_cache_broadcast_queue_size")
+	}
+	if c.HotKeyCacheBroadcastEnabled && c.HotKeyCacheBroadcastTimeout <= 0 {
+		return errors.New("invalid hot_key_cache_broadcast_timeout")
+	}
+	if c.HotKeyCacheBroadcastEnabled && c.HotKeyCacheBroadcastQueueSize == 0 {
+		return errors.New("invalid hot_key_cache_broadcast_queue_size")
 	}
 
 	if c.MetricsReportPeriod < 0 {

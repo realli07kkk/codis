@@ -4,6 +4,11 @@
 package proxy
 
 import (
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
 	"strings"
 	"sync"
 	"testing"
@@ -574,4 +579,305 @@ func TestHotKeyCacheStatsAreOmittedWhenDisabled(t *testing.T) {
 	if stats.HotKeyCache != nil {
 		t.Fatalf("disabled hot key cache stats should be omitted, got %+v", stats.HotKeyCache)
 	}
+}
+
+func TestHotKeyCacheRemoteInvalidationAPI(t *testing.T) {
+	binaryHotKey := string([]byte{0xff, 'h', 'o', 't'})
+	s := redistest.NewServer(t, func(args []string) *redistest.Resp {
+		if strings.ToUpper(args[0]) == "GET" {
+			return redistest.Bulk("value")
+		}
+		t.Fatalf("unexpected command: %v", args)
+		return nil
+	})
+
+	config := newHotKeyCacheTestConfig(binaryHotKey)
+	p, err := New(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer p.Close()
+	if err := p.FillSlot(&models.Slot{
+		Id:            int(Hash([]byte(binaryHotKey)) % MaxSlotNum),
+		BackendAddr:   s.Addr(),
+		ForwardMethod: models.ForwardSync,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	session := &Session{config: config}
+	_ = hotKeyCacheCall(t, session, p.router, "GET", binaryHotKey)
+	_ = hotKeyCacheCall(t, session, p.router, "GET", binaryHotKey)
+	if stats := p.router.hotKeyCache.Stats(); stats.Entries != 1 {
+		t.Fatalf("cache stats before remote invalidation = %+v", stats)
+	}
+
+	client := NewApiClient(p.Model().AdminAddr)
+	client.SetXAuth(config.ProductName, config.ProductAuth, p.Model().Token)
+	result, err := client.InvalidateHotKeyCache(&HotKeyCacheInvalidationRequest{
+		Database: 0,
+		Keys:     [][]byte{[]byte(binaryHotKey), []byte("cold")},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.TotalKeys != 2 || result.Invalidated != 1 {
+		t.Fatalf("remote invalidation result = %+v", result)
+	}
+	stats := p.router.hotKeyCache.Stats()
+	if stats.Entries != 0 || stats.RemoteInvalidations != 1 {
+		t.Fatalf("cache stats after remote invalidation = %+v", stats)
+	}
+}
+
+func TestHotKeyCacheBroadcastAfterWrite(t *testing.T) {
+	binaryHotKey := string([]byte{0xff, 'h', 'o', 't'})
+	requests := make(chan HotKeyCacheBroadcastRequest, 1)
+	topom := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/topom/hot-key-cache/invalidate/xauth" {
+			t.Errorf("unexpected topom path = %s", r.URL.Path)
+		}
+		defer r.Body.Close()
+		var req HotKeyCacheBroadcastRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Errorf("decode request failed: %v", err)
+		}
+		requests <- req
+		_ = json.NewEncoder(w).Encode(&HotKeyCacheBroadcastResult{TotalProxies: 1})
+	}))
+	defer topom.Close()
+
+	value := "v1"
+	s := redistest.NewServer(t, func(args []string) *redistest.Resp {
+		switch strings.ToUpper(args[0]) {
+		case "GET":
+			return redistest.Bulk(value)
+		case "MSET":
+			value = "v2"
+			return redistest.OK()
+		case "SET":
+			return redistest.Error("ERR backend")
+		default:
+			t.Fatalf("unexpected command: %v", args)
+			return nil
+		}
+	})
+
+	config := newHotKeyCacheTestConfig(binaryHotKey, "hot2")
+	config.HotKeyCacheBroadcastEnabled = true
+	config.HotKeyCacheBroadcastTimeout.Set(time.Second)
+	router := newHotKeyCacheTestRouter(t, config, s.Addr(), binaryHotKey, "hot2", "cold")
+	defer router.Close()
+	router.hotKeyCacheBroadcast.SetSource("source-token", "xauth")
+	u, err := url.Parse(topom.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	router.hotKeyCacheBroadcast.SetTopomAdminAddr(u.Host)
+
+	session := &Session{config: config}
+	_ = hotKeyCacheCall(t, session, router, "MSET", binaryHotKey, "v2", "hot2", "v3", "cold", "v4")
+
+	select {
+	case req := <-requests:
+		if req.SourceProxyToken != "source-token" || req.Database != 0 {
+			t.Fatalf("broadcast request = %+v", req)
+		}
+		gotKeys := make(map[string]bool)
+		for _, key := range req.Keys {
+			gotKeys[string(key)] = true
+		}
+		if len(gotKeys) != 2 || !gotKeys[binaryHotKey] || !gotKeys["hot2"] {
+			t.Fatalf("broadcast keys = %v", req.Keys)
+		}
+		if req.TimeoutMillis <= 0 {
+			t.Fatalf("broadcast timeout should be included: %+v", req)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("broadcast request was not sent")
+	}
+	waitUntil(t, func() bool {
+		return router.hotKeyCache.Stats().BroadcastAttempts == 1
+	})
+	if stats := router.hotKeyCache.Stats(); stats.BroadcastFailures != 0 {
+		t.Fatalf("broadcast stats after MSET = %+v", stats)
+	}
+
+	_ = hotKeyCacheCall(t, session, router, "SET", binaryHotKey, "v2")
+	if stats := router.hotKeyCache.Stats(); stats.BroadcastAttempts != 1 {
+		t.Fatalf("backend error should not trigger broadcast: %+v", stats)
+	}
+}
+
+func TestHotKeyCacheBroadcastRequiresTopomAddr(t *testing.T) {
+	s := redistest.NewServer(t, func(args []string) *redistest.Resp {
+		switch strings.ToUpper(args[0]) {
+		case "MSET":
+			return redistest.OK()
+		default:
+			t.Fatalf("unexpected command: %v", args)
+			return nil
+		}
+	})
+
+	config := newHotKeyCacheTestConfig("hot")
+	config.HotKeyCacheBroadcastEnabled = true
+	config.HotKeyCacheBroadcastTimeout.Set(time.Second)
+	router := newHotKeyCacheTestRouter(t, config, s.Addr(), "hot")
+	defer router.Close()
+	router.hotKeyCacheBroadcast.SetSource("source-token", "xauth")
+
+	session := &Session{config: config}
+	_ = hotKeyCacheCall(t, session, router, "MSET", "hot", "v2")
+	if stats := router.hotKeyCache.Stats(); stats.BroadcastAttempts != 0 || stats.BroadcastFailures != 0 {
+		t.Fatalf("broadcast should be disabled without topom addr: %+v", stats)
+	}
+}
+
+func TestHotKeyCacheBroadcastCoalescesDuplicateKeys(t *testing.T) {
+	requests := make(chan HotKeyCacheBroadcastRequest, 2)
+	topom := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		defer r.Body.Close()
+		var req HotKeyCacheBroadcastRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Errorf("decode request failed: %v", err)
+		}
+		requests <- req
+		_ = json.NewEncoder(w).Encode(&HotKeyCacheBroadcastResult{TotalProxies: 1})
+	}))
+	defer topom.Close()
+
+	config := newHotKeyCacheTestConfig("hot")
+	config.HotKeyCacheBroadcastEnabled = true
+	config.HotKeyCacheBroadcastTimeout.Set(time.Second)
+	config.HotKeyCacheBroadcastQueueSize = 64
+	router := NewRouter(config)
+	defer router.Close()
+	router.hotKeyCacheBroadcast.SetSource("source-token", "xauth")
+	u, err := url.Parse(topom.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	router.hotKeyCacheBroadcast.SetTopomAdminAddr(u.Host)
+
+	router.hotKeyCacheBroadcastKeys(0, [][]byte{[]byte("hot")})
+	router.hotKeyCacheBroadcastKeys(0, [][]byte{[]byte("hot")})
+
+	select {
+	case req := <-requests:
+		if len(req.Keys) != 1 || string(req.Keys[0]) != "hot" {
+			t.Fatalf("coalesced request = %+v", req)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("broadcast request was not sent")
+	}
+	waitUntil(t, func() bool {
+		return router.hotKeyCache.Stats().BroadcastCoalesced != 0
+	})
+	if stats := router.hotKeyCache.Stats(); stats.BroadcastAttempts != 1 || stats.BroadcastFailures != 0 {
+		t.Fatalf("broadcast stats = %+v", stats)
+	}
+}
+
+func TestHotKeyCacheBroadcastSplitsCoalescedKeys(t *testing.T) {
+	requests := make(chan HotKeyCacheBroadcastRequest, 4)
+	topom := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		defer r.Body.Close()
+		var req HotKeyCacheBroadcastRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Errorf("decode request failed: %v", err)
+		}
+		if len(req.Keys) > HotKeyCacheBroadcastMaxKeys {
+			t.Errorf("request keys len = %d, max = %d", len(req.Keys), HotKeyCacheBroadcastMaxKeys)
+		}
+		requests <- req
+		_ = json.NewEncoder(w).Encode(&HotKeyCacheBroadcastResult{TotalProxies: 1})
+	}))
+	defer topom.Close()
+
+	config := newHotKeyCacheTestConfig("hot")
+	config.HotKeyCacheBroadcastEnabled = true
+	config.HotKeyCacheBroadcastTimeout.Set(time.Second)
+	config.HotKeyCacheBroadcastQueueSize = 4
+	router := NewRouter(config)
+	defer router.Close()
+	router.hotKeyCacheBroadcast.SetSource("source-token", "xauth")
+	u, err := url.Parse(topom.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	router.hotKeyCacheBroadcast.SetTopomAdminAddr(u.Host)
+
+	keys := make([][]byte, HotKeyCacheBroadcastMaxKeys+1)
+	for i := range keys {
+		keys[i] = []byte(fmt.Sprintf("hot-%04d", i))
+	}
+	router.hotKeyCacheBroadcastKeys(0, keys)
+
+	gotTotal := 0
+	for i := 0; i < 2; i++ {
+		select {
+		case req := <-requests:
+			gotTotal += len(req.Keys)
+		case <-time.After(time.Second):
+			t.Fatalf("broadcast request %d was not sent", i+1)
+		}
+	}
+	if gotTotal != HotKeyCacheBroadcastMaxKeys+1 {
+		t.Fatalf("broadcast keys total = %d, want %d", gotTotal, HotKeyCacheBroadcastMaxKeys+1)
+	}
+	waitUntil(t, func() bool {
+		return router.hotKeyCache.Stats().BroadcastAttempts == 2
+	})
+	if stats := router.hotKeyCache.Stats(); stats.BroadcastFailures != 0 {
+		t.Fatalf("broadcast stats = %+v", stats)
+	}
+}
+
+func TestHotKeyCacheBroadcastDropsWhenQueueIsFull(t *testing.T) {
+	started := make(chan struct{}, 1)
+	release := make(chan struct{})
+	released := false
+
+	topom := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		started <- struct{}{}
+		<-release
+		_ = json.NewEncoder(w).Encode(&HotKeyCacheBroadcastResult{TotalProxies: 1})
+	}))
+	defer topom.Close()
+	defer func() {
+		if !released {
+			close(release)
+		}
+	}()
+
+	config := newHotKeyCacheTestConfig("hot")
+	config.HotKeyCacheBroadcastEnabled = true
+	config.HotKeyCacheBroadcastTimeout.Set(time.Second)
+	config.HotKeyCacheBroadcastQueueSize = 1
+	router := NewRouter(config)
+	defer router.Close()
+	router.hotKeyCacheBroadcast.SetSource("source-token", "xauth")
+	u, err := url.Parse(topom.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	router.hotKeyCacheBroadcast.SetTopomAdminAddr(u.Host)
+
+	router.hotKeyCacheBroadcastKeys(0, [][]byte{[]byte("hot")})
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("first broadcast request was not sent")
+	}
+
+	for i := 0; i < 100; i++ {
+		router.hotKeyCacheBroadcastKeys(0, [][]byte{[]byte("hot")})
+	}
+	waitUntil(t, func() bool {
+		return router.hotKeyCache.Stats().BroadcastDropped != 0
+	})
+
+	close(release)
+	released = true
 }

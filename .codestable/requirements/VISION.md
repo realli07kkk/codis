@@ -1,7 +1,7 @@
 ---
 doc_type: requirements-index
 status: current
-last_reviewed: 2026-05-11
+last_reviewed: 2026-05-22
 ---
 
 # Codis 能力愿景索引

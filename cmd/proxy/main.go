@@ -314,6 +314,7 @@ func OnlineProxy(p *proxy.Proxy, dashboard string) bool {
 		log.WarnErrorf(err, "rpc online proxy failed")
 		return false
 	} else {
+		p.SetTopomAdminAddr(t.AdminAddr)
 		log.Warnf("rpc online proxy seems OK")
 		return true
 	}

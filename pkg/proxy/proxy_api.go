@@ -8,6 +8,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"time"
 
 	_ "net/http/pprof"
 
@@ -33,6 +34,7 @@ func newApiServer(p *Proxy) http.Handler {
 	m.Use(func(w http.ResponseWriter, req *http.Request, c martini.Context) {
 		path := req.URL.Path
 		if req.Method != "GET" && strings.HasPrefix(path, "/api/") {
+			path = redactHotKeyCacheInvalidatePath(path)
 			var remoteAddr = req.RemoteAddr
 			var headerAddr string
 			for _, key := range []string{"X-Real-IP", "X-Forwarded-For"} {
@@ -80,11 +82,20 @@ func newApiServer(p *Proxy) http.Handler {
 		r.Put("/fillslots/:xauth", binding.Json([]*models.Slot{}), api.FillSlots)
 		r.Put("/sentinels/:xauth", binding.Json(models.Sentinel{}), api.SetSentinels)
 		r.Put("/sentinels/:xauth/rewatch", api.RewatchSentinels)
+		r.Put("/hot-key-cache/invalidate/:xauth", binding.Json(HotKeyCacheInvalidationRequest{}), api.HotKeyCacheInvalidate)
 	})
 
 	m.MapTo(r, (*martini.Routes)(nil))
 	m.Action(r.Handle)
 	return m
+}
+
+func redactHotKeyCacheInvalidatePath(path string) string {
+	const prefix = "/api/proxy/hot-key-cache/invalidate/"
+	if strings.HasPrefix(path, prefix) {
+		return prefix + ":xauth"
+	}
+	return path
 }
 
 func (s *apiServer) verifyXAuth(params martini.Params) error {
@@ -235,9 +246,27 @@ func (s *apiServer) RewatchSentinels(params martini.Params) (int, string) {
 	return rpc.ApiResponseJson("OK")
 }
 
+func (s *apiServer) HotKeyCacheInvalidate(req HotKeyCacheInvalidationRequest, params martini.Params) (int, string) {
+	if err := s.verifyXAuth(params); err != nil {
+		return rpc.ApiResponseError(err)
+	}
+	if len(req.Keys) > HotKeyCacheBroadcastMaxKeys {
+		return rpc.ApiResponseError(errors.Errorf("too many hot key cache invalidation keys: %d", len(req.Keys)))
+	}
+	n, err := s.proxy.InvalidateHotKeyCache(req.Database, req.Keys)
+	if err != nil {
+		return rpc.ApiResponseError(err)
+	}
+	return rpc.ApiResponseJson(&HotKeyCacheInvalidationResult{
+		TotalKeys:   len(req.Keys),
+		Invalidated: n,
+	})
+}
+
 type ApiClient struct {
-	addr  string
-	xauth string
+	addr    string
+	xauth   string
+	timeout time.Duration
 }
 
 func NewApiClient(addr string) *ApiClient {
@@ -246,6 +275,10 @@ func NewApiClient(addr string) *ApiClient {
 
 func (c *ApiClient) SetXAuth(name, auth string, token string) {
 	c.xauth = rpc.NewXAuth(name, auth, token)
+}
+
+func (c *ApiClient) SetTimeout(timeout time.Duration) {
+	c.timeout = timeout
 }
 
 func (c *ApiClient) encodeURL(format string, args ...interface{}) string {
@@ -340,4 +373,13 @@ func (c *ApiClient) SetSentinels(sentinel *models.Sentinel) error {
 func (c *ApiClient) RewatchSentinels() error {
 	url := c.encodeURL("/api/proxy/sentinels/%s/rewatch", c.xauth)
 	return rpc.ApiPutJson(url, nil, nil)
+}
+
+func (c *ApiClient) InvalidateHotKeyCache(req *HotKeyCacheInvalidationRequest) (*HotKeyCacheInvalidationResult, error) {
+	url := c.encodeURL("/api/proxy/hot-key-cache/invalidate/%s", c.xauth)
+	result := &HotKeyCacheInvalidationResult{}
+	if err := rpc.ApiPutJsonWithTimeout(url, req, result, c.timeout); err != nil {
+		return nil, err
+	}
+	return result, nil
 }
