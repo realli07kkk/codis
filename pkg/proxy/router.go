@@ -11,6 +11,7 @@ import (
 	"github.com/CodisLabs/codis/pkg/utils/errors"
 	"github.com/CodisLabs/codis/pkg/utils/log"
 	"github.com/CodisLabs/codis/pkg/utils/redis"
+	"github.com/CodisLabs/codis/pkg/utils/sync2/atomic2"
 )
 
 const MaxSlotNum = models.MaxSlotNum
@@ -22,7 +23,9 @@ type Router struct {
 		primary *sharedBackendConnPool
 		replica *sharedBackendConnPool
 	}
-	slots [MaxSlotNum]Slot
+	slots        [MaxSlotNum]Slot
+	slotVersions [MaxSlotNum]atomic2.Int64
+	hotKeyCache  *HotKeyCache
 
 	config *Config
 	online bool
@@ -33,6 +36,7 @@ func NewRouter(config *Config) *Router {
 	s := &Router{config: config}
 	s.pool.primary = newSharedBackendConnPool(config, config.BackendPrimaryParallel)
 	s.pool.replica = newSharedBackendConnPool(config, config.BackendReplicaParallel)
+	s.hotKeyCache = newHotKeyCache(config)
 	for i := range s.slots {
 		s.slots[i].id = i
 		s.slots[i].method = &forwardSync{}
@@ -168,6 +172,7 @@ func (s *Router) dispatchAddr(r *Request, addr string) bool {
 func (s *Router) fillSlot(m *models.Slot, switched bool, method forwardMethod) {
 	slot := &s.slots[m.Id]
 	slot.blockAndWait()
+	s.hotKeyCacheInvalidateSlot(m.Id)
 
 	slot.backend.bc.Release()
 	slot.backend.bc = nil

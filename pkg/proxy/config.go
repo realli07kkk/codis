@@ -112,6 +112,16 @@ session_keepalive_period = "75s"
 # Set session to be sensitive to failures. Default is false, instead of closing socket, proxy will send an error response to client.
 session_break_on_failure = false
 
+# Enable local short-TTL cache for configured string hot keys. Disabled by default.
+# The cache is per proxy process. Writes through the same proxy invalidate local
+# entries, while writes through other proxies or direct Redis connections converge
+# after hot_key_cache_ttl.
+hot_key_cache_enabled = false
+hot_key_cache_ttl = "1s"
+hot_key_cache_max_entries = 1024
+hot_key_cache_max_value_size = "64kb"
+hot_key_cache_keys = []
+
 # Set metrics server (such as http://localhost:28000), proxy will report json formatted metrics to specified server in a predefined period.
 metrics_report_server = ""
 metrics_report_period = "1s"
@@ -171,6 +181,12 @@ type Config struct {
 	SessionMaxPipeline     int               `toml:"session_max_pipeline" json:"session_max_pipeline"`
 	SessionKeepAlivePeriod timesize.Duration `toml:"session_keepalive_period" json:"session_keepalive_period"`
 	SessionBreakOnFailure  bool              `toml:"session_break_on_failure" json:"session_break_on_failure"`
+
+	HotKeyCacheEnabled      bool              `toml:"hot_key_cache_enabled" json:"hot_key_cache_enabled"`
+	HotKeyCacheTTL          timesize.Duration `toml:"hot_key_cache_ttl" json:"hot_key_cache_ttl"`
+	HotKeyCacheMaxEntries   int               `toml:"hot_key_cache_max_entries" json:"hot_key_cache_max_entries"`
+	HotKeyCacheMaxValueSize bytesize.Int64    `toml:"hot_key_cache_max_value_size" json:"hot_key_cache_max_value_size"`
+	HotKeyCacheKeys         []string          `toml:"hot_key_cache_keys" json:"hot_key_cache_keys"`
 
 	MetricsReportServer           string            `toml:"metrics_report_server" json:"metrics_report_server"`
 	MetricsReportPeriod           timesize.Duration `toml:"metrics_report_period" json:"metrics_report_period"`
@@ -293,6 +309,24 @@ func (c *Config) Validate() error {
 	}
 	if c.SessionKeepAlivePeriod < 0 {
 		return errors.New("invalid session_keepalive_period")
+	}
+
+	if c.HotKeyCacheTTL < 0 {
+		return errors.New("invalid hot_key_cache_ttl")
+	}
+	if c.HotKeyCacheMaxEntries < 0 {
+		return errors.New("invalid hot_key_cache_max_entries")
+	}
+	if d := c.HotKeyCacheMaxValueSize; d < 0 || d > MaxInt {
+		return errors.New("invalid hot_key_cache_max_value_size")
+	}
+	if c.HotKeyCacheEnabled {
+		if c.HotKeyCacheTTL <= 0 {
+			return errors.New("invalid hot_key_cache_ttl")
+		}
+		if c.HotKeyCacheMaxEntries == 0 {
+			return errors.New("invalid hot_key_cache_max_entries")
+		}
 	}
 
 	if c.MetricsReportPeriod < 0 {

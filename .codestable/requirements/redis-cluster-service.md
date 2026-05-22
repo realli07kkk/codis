@@ -3,7 +3,7 @@ doc_type: requirement
 slug: redis-cluster-service
 pitch: 让业务像使用单机 Redis 一样使用可扩缩容的 Redis 集群
 status: current
-last_reviewed: 2026-05-19
+last_reviewed: 2026-05-22
 implemented_by: [system-overview]
 tags: [redis, cluster, operations]
 ---
@@ -13,6 +13,7 @@ tags: [redis, cluster, operations]
 ## 用户故事
 
 - 作为业务开发者，我希望继续使用普通 Redis 客户端连接服务，而不是为了分片、迁移和主从切换改造业务代码。
+- 作为热点读业务的开发者，我希望在不改 Redis 客户端的前提下缓解少量 string 热 key 对后端 Redis 的读放大，而不是把缓存逻辑散落到每个业务进程。
 - 作为集群运维者，我希望在不停机的情况下增减 Redis Server、迁移 slot、重新均衡容量，而不是每次扩容都重启整套服务。
 - 作为平台维护者，我希望多台 proxy 能共同承载流量并被自动发现，而不是把一个 proxy 实例变成单点。
 - 作为值班人员，我希望能通过 dashboard、FE 或命令行看到 proxy、group、slot、sentinel 的状态并执行修复动作，而不是直接改底层元数据。
@@ -25,7 +26,7 @@ tags: [redis, cluster, operations]
 
 ## 怎么解决
 
-业务流量先进 proxy，proxy 根据 key 所在 slot 转发到后端 Redis；dashboard 维护集群拓扑、slot 归属和迁移动作，并把状态同步给各个 proxy；FE、admin 和 HA 工具围绕 dashboard 提供可视化、命令行和巡检维护入口。proxy 还在 Redis 协议面提供有限的本地观测命令，例如 `CLIENT LIST` 返回当前 proxy 实例的活动客户端连接快照。dashboard/topom 还提供进程内 RDB Analysis 任务能力，允许 FE 通过 `xauth` 上传 RDB 文件或选择 dashboard 受控 workspace 内的 RDB 文件，异步解析并展示 DB/type/prefix 聚合、big keys、hot keys 和 flamegraph 树形数据；该能力只保留摘要和 top N，不把完整 key/value 列表常驻前端。后端 Codis Server 承载 slot keyspace、slot 查询/删除和迁移命令；默认构建产物已切到 Redis 8 Codis Server，具备 Redis 8 ↔ Redis 8 同步迁移、异步迁移与 `SLOTSRESTORE` / `SLOTSRESTORE-ASYNC` RDB fragment restore 能力，Redis 3 通过显式 fallback 构建目标保留。底层元数据放在 filesystem、Zookeeper、Etcd 或 Consul 这类 coordinator 中；Consul 后端只使用 KV 和 Session 语义。
+业务流量先进 proxy，proxy 根据 key 所在 slot 转发到后端 Redis；dashboard 维护集群拓扑、slot 归属和迁移动作，并把状态同步给各个 proxy；FE、admin 和 HA 工具围绕 dashboard 提供可视化、命令行和巡检维护入口。proxy 还在 Redis 协议面提供有限的本地观测命令，例如 `CLIENT LIST` 返回当前 proxy 实例的活动客户端连接快照；对运维显式配置的 string hot key，proxy 可启用进程内短 TTL Hot key cache，让 `GET` / `MGET` 在本 proxy 本地命中时直接返回 copied bulk value，减少后端读放大。dashboard/topom 还提供进程内 RDB Analysis 任务能力，允许 FE 通过 `xauth` 上传 RDB 文件或选择 dashboard 受控 workspace 内的 RDB 文件，异步解析并展示 DB/type/prefix 聚合、big keys、hot keys 和 flamegraph 树形数据；该能力只保留摘要和 top N，不把完整 key/value 列表常驻前端。后端 Codis Server 承载 slot keyspace、slot 查询/删除和迁移命令；默认构建产物已切到 Redis 8 Codis Server，具备 Redis 8 ↔ Redis 8 同步迁移、异步迁移与 `SLOTSRESTORE` / `SLOTSRESTORE-ASYNC` RDB fragment restore 能力，Redis 3 通过显式 fallback 构建目标保留。底层元数据放在 filesystem、Zookeeper、Etcd 或 Consul 这类 coordinator 中；Consul 后端只使用 KV 和 Session 语义。
 
 ## 实现进展
 
@@ -36,12 +37,14 @@ tags: [redis, cluster, operations]
 - 2026-05-17：Redis 8 默认发布物完成本地 Mac 非性能 validation-cutover。证据覆盖 `make gotest`、Redis 8 Codis Tcl suite、短生命周期 dashboard/proxy/admin/Redis 8 e2e、`semi-async` 与 `sync` slot migration、普通 key / hash tag key / 非 0 DB key 迁移后读回，以及 Redis 3 ↔ Redis 8 fragment 方向性观察。当前矩阵中 Redis 3 → Redis 8 成功，Redis 8 → Redis 3 可观测失败且源端 key 保留；Linux 正式性能基线、fork/RDB、复制、Docker/部署包装和最终 cutover gate 仍待后续 `redis8-linux-validation-cutover`。
 - 2026-05-18：Coordinator / Jodis 后端新增 Consul 支持。Codis 现在可通过 `coordinator_name = "consul"` 或 `jodis_name = "consul"` 使用 Consul KV 保存 `/codis3` 元数据、使用 Consul Session 维护 `/jodis` ephemeral 注册；默认 coordinator、既有 Zookeeper/Etcd/filesystem 行为和存量元数据迁移边界不变。
 - 2026-05-19：Dashboard / FE 新增 RDB Analysis 离线分析能力。值班人员可在选中 product 后上传 RDB 或填写 dashboard `rdb_analysis_workspace` 下的相对路径，dashboard/topom 在进程内创建异步 job，通过 `github.com/hdt3213/rdb` 输出进度、summary、top big/hot keys、prefix 和 flamegraph 数据；所有 API 均要求 `xauth`，任务结果不进入 coordinator，首版不自动对 Redis Server 执行 `BGSAVE`/`SAVE` 或远端文件抓取。
+- 2026-05-22：Codis Proxy 新增默认关闭的 Hot key cache。运维可在 proxy 配置中显式声明 exact string hot key、TTL、条目数和 value size 上限；同一 proxy 内 `GET` / `MGET` 首次 miss 仍访问后端，后续 TTL 内可本地命中，写命令经过同一 proxy 后在后端响应完成时失效本地条目。该进展不改变默认行为，不新增 dashboard 管理页或 coordinator 元数据，不承诺跨 proxy 强一致。
 
 ## 边界
 
 - 它不是 Redis Cluster 协议实现，客户端不需要也不应该依赖 Redis Cluster 协议。
 - 它不保证支持所有 Redis 命令；命令兼容边界以 `doc/unsupported_cmds.md` 和 proxy 命令处理逻辑为准。
 - `CLIENT` 命令族只支持 `CLIENT LIST`；该命令只返回当前 proxy 实例接入的客户端连接，不聚合多个 proxy，不下探后端 Redis，也不承诺 Redis 8.x 的所有字段。
+- Hot key cache 默认关闭，只缓存配置 allowlist 中 exact key 的 `GET` / `MGET` string bulk value；它是 proxy 进程内短 TTL 弱一致缓存，同 proxy 写入会清理本地 cache，另一个 proxy 或直连后端 Redis 的写入只能靠 TTL 收敛，不适合要求跨 proxy 强一致的 key。
 - 集群拓扑变更必须经由 dashboard/topom 管理，不应绕过它直接改 coordinator 中的状态。
 - Consul 只作为 coordinator/Jodis 的 KV + Session 后端，不提供存量元数据自动迁移，也不代表 Codis 使用 Consul service catalog、health check 或 service mesh。
 - 后端数据最终仍存放在 Codis Server/Redis Server；Redis 本身的容量、持久化和资源隔离仍需要单独规划。

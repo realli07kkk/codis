@@ -503,6 +503,8 @@ type Stats struct {
 		PrimaryOnly bool `json:"primary_only"`
 	} `json:"backend"`
 
+	HotKeyCache *HotKeyCacheStats `json:"hot_key_cache,omitempty"`
+
 	Runtime *RuntimeStats `json:"runtime,omitempty"`
 }
 
@@ -600,6 +602,9 @@ func (s *Proxy) Stats(flags StatsFlags) *Stats {
 	}
 
 	stats.Backend.PrimaryOnly = s.Config().BackendPrimaryOnly
+	if hotKeyCache := s.router.hotKeyCache.Stats(); hotKeyCache.Visible() {
+		stats.HotKeyCache = &hotKeyCache
+	}
 
 	if flags.HasBit(StatsRuntime) {
 		var r runtime.MemStats

@@ -1,0 +1,78 @@
+feature: 2026-05-22-proxy-hot-key-cache
+created: 2026-05-22
+
+steps:
+  - action: "配置与空缓存骨架：接入默认关闭的配置、校验和 HotKeyCache 空实现"
+    exit_signal: "默认配置加载成功；关闭时 GET/MGET 行为和现状一致"
+    status: done
+  - action: "GET 命中/miss 编排：在 request path 接入单 key cache lookup、store 和直通回退"
+    exit_signal: "配置 hot key 后，第一次 GET 访问 backend，第二次 TTL 内 GET 不访问 backend且响应相同"
+    status: done
+  - action: "MGET 局部命中编排：按 key 拆分命中/miss，复用现有 coalesce 保持顺序"
+    exit_signal: "MGET 混合命中和 miss 时返回数组顺序正确，backend 只收到 miss key"
+    status: done
+  - action: "写失效与保守清理：覆盖 string 写、TTL 写、多 key 写和脚本/未知 may-write 的本地失效策略"
+    exit_signal: "同 proxy 写入 hot key 后，下一次 GET 必须访问 backend 并返回新值或后端当前结果"
+    status: done
+  - action: "slot 变更与迁移边界：在 slot migrating/locked 时绕过 cache，FillSlot 后失效对应 slot"
+    exit_signal: "迁移状态下 GET 不从旧 cache 返回；slot 映射更新后旧条目不可命中"
+    status: done
+  - action: "stats 与文档边界：补齐 proxy stats、配置注释和命令兼容说明"
+    exit_signal: "stats JSON 能看到 cache enabled、entries、hits、misses、invalidations、evictions；文档明确弱一致边界"
+    status: done
+  - action: "验证覆盖：补齐 proxy package 单测和必要的 fake backend 计数测试"
+    exit_signal: "关闭开关、GET/MGET、TTL、写失效、迁移绕过、stats 场景都有可观察证据"
+    status: done
+
+checks:
+  - item: "默认关闭时不改变 GET/MGET 的 backend 请求数量和响应"
+    source: 范围守护
+    status: passed
+  - item: "只缓存配置 allowlist 中的 exact key"
+    source: 名词契约
+    status: passed
+  - item: "cache entry 以 database + raw key bytes 区分，并保存 copied bulk bytes、slot id、expire unix nano"
+    source: 名词契约
+    status: passed
+  - item: "GET hot 首次 miss 访问 backend，后续 TTL 内 hit 不访问 backend"
+    source: 验收场景
+    status: passed
+  - item: "MGET 混合 hit/miss 时保持响应数组顺序，backend 只收到 miss 或不可缓存 key"
+    source: 验收场景
+    status: passed
+  - item: "nil bulk、Redis error、超出 max value size 的响应不写入 cache"
+    source: 验收场景
+    status: passed
+  - item: "SET/MSET/DEL/EXPIRE/PERSIST 等同 proxy 写请求使本地 hot key cache 失效"
+    source: 流程级约束
+    status: passed
+  - item: "EVAL/EVALSHA/未知 may-write 命令在 cache 开启时保守清理当前 DB cache"
+    source: 流程级约束
+    status: passed
+  - item: "slot migrating/locked 或 FillSlot 更新后不从旧 cache 返回"
+    source: 流程级约束
+    status: passed
+  - item: "cache entries、value size、TTL 和淘汰策略受配置约束"
+    source: 流程级约束
+    status: passed
+  - item: "proxy stats JSON 暴露 hot key cache enabled、entries、hits、misses、stores、invalidations、evictions"
+    source: 验收场景
+    status: passed
+  - item: "不新增 dashboard/FE 管理页面"
+    source: 范围守护
+    status: passed
+  - item: "不新增 coordinator schema 或 models.Store hot key cache 元数据"
+    source: 范围守护
+    status: passed
+  - item: "不实现自动 per-key QPS 统计和热点晋升逻辑"
+    source: 范围守护
+    status: passed
+  - item: "不缓存 hash/list/set/zset/stream/module value"
+    source: 范围守护
+    status: passed
+  - item: "不为 GETRANGE/GETBIT/STRLEN 等派生读命令增加 cache hit 成功路径"
+    source: 范围守护
+    status: passed
+  - item: "不新增跨 proxy 失效广播或 pubsub 依赖"
+    source: 范围守护
+    status: passed

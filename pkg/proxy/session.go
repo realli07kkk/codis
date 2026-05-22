@@ -301,12 +301,18 @@ func (s *Session) handleRequest(r *Request, d *Router) error {
 		return s.handleRequestInfo(r, d)
 	case "CLIENT":
 		return clientSessions.handleRequestClient(s, r)
+	case "GET":
+		return d.handleRequestGet(r)
 	case "MGET":
-		return s.handleRequestMGet(r, d)
+		return s.handleRequestMGetWithHotKeyCache(r, d)
 	case "MSET":
-		return s.handleRequestMSet(r, d)
+		return d.handleRequestWithHotKeyCacheInvalidation(r, func() error {
+			return s.handleRequestMSet(r, d)
+		})
 	case "DEL":
-		return s.handleRequestDel(r, d)
+		return d.handleRequestWithHotKeyCacheInvalidation(r, func() error {
+			return s.handleRequestDel(r, d)
+		})
 	case "EXISTS":
 		return s.handleRequestExists(r, d)
 	case "SLOTSINFO":
@@ -316,7 +322,9 @@ func (s *Session) handleRequest(r *Request, d *Router) error {
 	case "SLOTSMAPPING":
 		return s.handleRequestSlotsMapping(r, d)
 	default:
-		return d.dispatch(r)
+		return d.handleRequestWithHotKeyCacheInvalidation(r, func() error {
+			return d.dispatch(r)
+		})
 	}
 }
 
