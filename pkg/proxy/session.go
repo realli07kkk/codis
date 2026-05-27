@@ -334,6 +334,9 @@ func (s *Session) handleRequest(r *Request, d *Router) error {
 	case "SLOTSMAPPING":
 		return s.handleRequestSlotsMapping(r, d)
 	default:
+		if isStreamCommand(opstr) {
+			return d.handleRequestStream(r)
+		}
 		return d.handleRequestWithHotKeyCacheInvalidation(r, func() error {
 			return d.dispatch(r)
 		})

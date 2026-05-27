@@ -4,6 +4,7 @@
 package proxy
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/CodisLabs/codis/pkg/proxy/redis"
@@ -139,6 +140,39 @@ func TestGetOpStrCmd(t *testing.T) {
 		s, _, err := getOpInfo(multi)
 		assert.MustNoError(err)
 		assert.Must(s == v)
+	}
+}
+
+func TestGetOpInfoStreamCommands(t *testing.T) {
+	tests := []struct {
+		cmd  string
+		flag OpFlag
+	}{
+		{"xadd", FlagWrite},
+		{"xgroup", FlagWrite},
+		{"xinfo", 0},
+		{"xlen", 0},
+		{"xrange", 0},
+		{"xread", 0},
+		{"xreadgroup", FlagWrite},
+		{"xtrim", FlagWrite},
+	}
+	for _, tt := range tests {
+		opstr, flag, err := getOpInfo(redisMultiBulk(tt.cmd))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if opstr != strings.ToUpper(tt.cmd) || flag != tt.flag {
+			t.Fatalf("%s => opstr=%s flag=%d, want %s/%d", tt.cmd, opstr, flag, strings.ToUpper(tt.cmd), tt.flag)
+		}
+	}
+
+	opstr, flag, err := getOpInfo(redisMultiBulk("xunknown", "key"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if opstr != "XUNKNOWN" || flag != FlagMayWrite {
+		t.Fatalf("unknown Stream-like command => opstr=%s flag=%d, want XUNKNOWN/%d", opstr, flag, FlagMayWrite)
 	}
 }
 

@@ -527,6 +527,31 @@ func (s *Router) hotKeyCacheInvalidationPlanForRequest(r *Request) hotKeyCacheIn
 
 func (s *Router) handleRequestWithHotKeyCacheInvalidation(r *Request, dispatch func() error) error {
 	plan := s.hotKeyCacheInvalidationPlanForRequest(r)
+	return s.handleRequestWithHotKeyCacheInvalidationPlan(r, plan, dispatch)
+}
+
+func (s *Router) hotKeyCacheInvalidationPlanForKeys(r *Request, keys [][]byte) hotKeyCacheInvalidationPlan {
+	if !s.hotKeyCacheEnabled() || r == nil || r.OpFlag.IsReadOnly() {
+		return hotKeyCacheInvalidationPlan{}
+	}
+
+	plan := hotKeyCacheInvalidationPlan{router: s, database: r.Database}
+	if (r.OpFlag&FlagMayWrite) != 0 && (r.OpFlag&FlagWrite) == 0 {
+		plan.clearDB = true
+		return plan
+	}
+	for _, key := range keys {
+		plan.keys = append(plan.keys, append([]byte(nil), key...))
+	}
+	return plan
+}
+
+func (s *Router) handleRequestWithHotKeyCacheInvalidationKeys(r *Request, keys [][]byte, dispatch func() error) error {
+	plan := s.hotKeyCacheInvalidationPlanForKeys(r, keys)
+	return s.handleRequestWithHotKeyCacheInvalidationPlan(r, plan, dispatch)
+}
+
+func (s *Router) handleRequestWithHotKeyCacheInvalidationPlan(r *Request, plan hotKeyCacheInvalidationPlan, dispatch func() error) error {
 	if err := dispatch(); err != nil {
 		return err
 	}

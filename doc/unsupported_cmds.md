@@ -75,6 +75,17 @@ cluster bus, or failover semantics. Old configs keep the default `disabled`
 behavior; `all` mode depends on Jodis proxy registrations and filters duplicate
 or invalid records before building the fake node list.
 
+Redis Stream commands are supported as a constrained Redis 8 proxy-routing
+subset. Single-key commands such as `XADD`, `XDEL`, `XTRIM`, `XACK`, `XLEN`,
+`XPENDING`, `XRANGE`, and `XREVRANGE` are routed by their stream key. `XGROUP`
+supports `CREATE`, `SETID`, `DESTROY`, `CREATECONSUMER`, and `DELCONSUMER`,
+and `XINFO` supports `STREAM`, `GROUPS`, and `CONSUMERS`; both route by the
+stream key argument after the subcommand. Non-blocking `XREAD` and `XREADGROUP`
+are supported when all stream keys in one request share the same hash tag/key.
+`XREAD` / `XREADGROUP` with `BLOCK`, cross-hash-tag multi-stream requests,
+`XGROUP HELP`, `XINFO HELP`, and unknown Stream subcommands are rejected by
+proxy instead of being forwarded to an arbitrary backend slot.
+
 
 These commands is "half-supported". Codis does not support cross-node operation, so you must use Hash Tags (See [this blog](http://oldblog.antirez.com/post/redis-presharding.html)'s "Hash tags" section) to put all the keys which may shown in one request into the same slot then you can use these commands. Codis does not check if the keys have same tag, so if you don't use tag, your program will get wrong response.
 

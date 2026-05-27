@@ -1,0 +1,114 @@
+feature: 2026-05-27-proxy-stream-commands
+created: 2026-05-27
+
+steps:
+  - action: "Stream metadata 骨架：把 Stream 命令纳入显式命令属性，并建立 Stream 命令识别入口"
+    exit_signal: "getOpInfo 对 Stream 命令返回稳定 upper-case opstr 和正确读写 flag；非 Stream 未知命令仍保持 FlagMayWrite fallback"
+    status: done
+  - action: "单 key 与容器命令 resolver：实现 X* key、XGROUP subcmd key、XINFO subcmd key 的 key 提取和错误返回"
+    exit_signal: "XGROUP CREATE mystream 和 XINFO GROUPS mystream 都按 mystream 路由；未知或无 key subcommand 不转发后端"
+    status: done
+  - action: "XREAD / XREADGROUP 安全解析：解析 STREAMS 段，拒绝 BLOCK，校验 key/id 数量和 multi-stream hash key 一致性"
+    exit_signal: "单 stream 非阻塞请求可路由；带 BLOCK 或跨 hash tag multi-stream 请求返回 Redis error；同 hash tag multi-stream 请求整条转发"
+    status: done
+  - action: "接入现有转发语义：让 Stream dispatch 复用 slot.forward、迁移包装、replica/master 选择和 hot key cache 失效计划"
+    exit_signal: "Stream 读命令保持 read-only 路由语义，Stream 写命令保持 master-only 和写后失效语义；迁移 slot 上使用解析出的 hash key"
+    status: done
+  - action: "文档与测试覆盖：补齐 mapper/session/router 相关单测和 unsupported command 文档"
+    exit_signal: "关键验收场景都有可重复测试或文档证据，目标包测试通过"
+    status: done
+
+checks:
+  - item: "Stream 命令进入显式 metadata，不再依赖未知命令 fallback"
+    source: 名词契约
+    status: passed
+  - item: "XADD 等单 key Stream 命令按第 1 参数提取 stream key，并按 Redis 8 metadata 设置读写属性"
+    source: 名词契约
+    status: passed
+  - item: "XGROUP CREATE/SETID/DESTROY/CREATECONSUMER/DELCONSUMER 按第 2 参数提取 stream key"
+    source: 名词契约
+    status: passed
+  - item: "XINFO STREAM/GROUPS/CONSUMERS 按第 2 参数提取 stream key"
+    source: 名词契约
+    status: passed
+  - item: "XREAD / XREADGROUP 从 STREAMS 关键字后解析 key 列表，key 数必须等于后续 id 数"
+    source: 名词契约
+    status: passed
+  - item: "Stream dispatch 分支位于 default backend dispatch 前，且只对显式 Stream 命令生效"
+    source: 编排骨架
+    status: passed
+  - item: "Stream resolver 成功后复用现有 slot.forward、后端连接池、pipeline 写回和迁移包装逻辑"
+    source: 编排骨架
+    status: passed
+  - item: "参数不足、STREAMS 缺失、key/id 数量不匹配、未知 subcommand、BLOCK、跨 hash tag 都返回 Redis error，不关闭连接"
+    source: 流程级约束
+    status: passed
+  - item: "所有放行的 multi-stream 请求必须共享同一 hash key，使迁移期 hkey 能代表整条命令涉及的 key group"
+    source: 流程级约束
+    status: passed
+  - item: "只读 Stream 命令可按现有 replica 规则走 replica；写命令和 XREADGROUP 必须走 master"
+    source: 流程级约束
+    status: passed
+  - item: "Stream 写命令按解析到的 stream key 触发现有写后失效；不为 Stream value 新增缓存能力"
+    source: 流程级约束
+    status: passed
+  - item: "新增 Stream 命令的 OpInfo / Stream 命令识别入口"
+    source: 挂载点
+    status: passed
+  - item: "新增 Stream dispatch 分支，负责调用 Stream key resolver 并在拒绝场景设置 Redis error"
+    source: 挂载点
+    status: passed
+  - item: "新增 Stream 专用 hash key 解析，不改变其他命令的 getHashKey 行为"
+    source: 挂载点
+    status: passed
+  - item: "doc/unsupported_cmds.md 明确 Stream 命令支持边界，特别说明 BLOCK 和跨 hash tag multi-stream 不支持"
+    source: 挂载点
+    status: passed
+  - item: "不新增 Vector Set、Hash field expiration、RedisJSON、RedisBloom、RedisTimeSeries、RediSearch 或其他 Redis 8 能力的 proxy 支持逻辑"
+    source: 范围守护
+    status: passed
+  - item: "不动态读取 Redis COMMAND / command JSON 来生成 proxy 命令表"
+    source: 范围守护
+    status: passed
+  - item: "不新增 Stream 相关配置项、dashboard/FE 页面、coordinator schema 或 proxy admin API"
+    source: 范围守护
+    status: passed
+  - item: "不改动 EVAL / EVALSHA、transactions、pub/sub、Codis migration 命令的 allow/deny 策略"
+    source: 范围守护
+    status: passed
+  - item: "输入 XADD mystream * f v 时，proxy 按 mystream 计算 Codis slot，写请求发往 master，后端响应原样返回"
+    source: 验收场景
+    status: passed
+  - item: "输入 XLEN mystream / XRANGE mystream - + 时，proxy 识别为 read-only Stream 命令并按 mystream 路由"
+    source: 验收场景
+    status: passed
+  - item: "输入 XGROUP CREATE mystream group-1 0 时，proxy 按第 2 参数 mystream 路由，而不是按 CREATE 路由"
+    source: 验收场景
+    status: passed
+  - item: "输入 XINFO GROUPS mystream / XINFO CONSUMERS mystream group-1 时，proxy 按第 2 参数 mystream 路由"
+    source: 验收场景
+    status: passed
+  - item: "输入 XREAD STREAMS mystream 0-0 时，proxy 解析 STREAMS 段并按 mystream 路由"
+    source: 验收场景
+    status: passed
+  - item: "输入 XREADGROUP GROUP group-1 consumer-1 STREAMS mystream > 时，proxy 解析 STREAMS 段，按 mystream 路由，并按写命令走 master"
+    source: 验收场景
+    status: passed
+  - item: "输入 XREAD STREAMS {u1}:a {u1}:b 0-0 0-0 时，proxy 识别两个 stream key 共享 hash key u1 并整条转发"
+    source: 验收场景
+    status: passed
+  - item: "输入 XREAD STREAMS a b 0-0 0-0 时，proxy 返回 cross-slot 风格 Redis error，不转发到后端"
+    source: 验收场景
+    status: passed
+  - item: "输入带 BLOCK 的 XREAD / XREADGROUP 时，proxy 返回 unsupported blocking Stream error，不转发到后端"
+    source: 验收场景
+    status: passed
+  - item: "输入 XGROUP HELP / XINFO HELP / XGROUP UNKNOWN mystream 时，proxy 返回 unsupported Stream subcommand error，不转发到后端"
+    source: 验收场景
+    status: passed
+  - item: "后端是 Redis 3 时输入 XADD mystream * f v，proxy 仍正确路由，由后端返回 unknown command error"
+    source: 验收场景
+    status: passed
+  - item: "现有非 Stream 命令如 GET、MGET、CLUSTER NODES、未知 FOO key 的行为与本 feature 前一致"
+    source: 验收场景
+    status: passed

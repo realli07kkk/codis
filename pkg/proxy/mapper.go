@@ -260,6 +260,7 @@ func init() {
 	} {
 		opTable[i.Name] = i
 	}
+	registerStreamCommandOps(opTable)
 }
 
 var (
@@ -295,16 +296,25 @@ func getOpInfo(multi []*redis.Resp) (string, OpFlag, error) {
 }
 
 func Hash(key []byte) uint32 {
+	return crc32.ChecksumIEEE(hashTagOrKey(key))
+}
+
+func hashTagOrKey(key []byte) []byte {
+	hkey, _ := hashTagOrKeyWithTag(key)
+	return hkey
+}
+
+func hashTagOrKeyWithTag(key []byte) ([]byte, bool) {
 	const (
 		TagBeg = '{'
 		TagEnd = '}'
 	)
 	if beg := bytes.IndexByte(key, TagBeg); beg >= 0 {
 		if end := bytes.IndexByte(key[beg+1:], TagEnd); end >= 0 {
-			key = key[beg+1 : beg+1+end]
+			return key[beg+1 : beg+1+end], true
 		}
 	}
-	return crc32.ChecksumIEEE(key)
+	return key, false
 }
 
 func getHashKey(multi []*redis.Resp, opstr string) []byte {
