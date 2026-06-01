@@ -1,0 +1,99 @@
+feature: 2026-06-01-multi-platform-build
+created: 2026-06-01
+
+steps:
+  - action: "默认入口兼容回归：保留 make / make build-all 的 host build 语义"
+    exit_signal: "make -n build-all 不进入默认 Linux 矩阵 guard，旧 root bin/codis-* userspace 仍由默认入口生成"
+    status: done
+  - action: "显式矩阵骨架：新增 build-platforms / release-platforms、TARGET_PLATFORMS、platform label 和 bin/<os>-<arch>/ 输出目录"
+    exit_signal: "make -n build-platforms TARGET_PLATFORMS=\"darwin/arm64\" 只展开 bin/darwin-arm64"
+    status: done
+  - action: "Host-side 默认配置生成：拆出可复用配置生成步骤，避免跨平台流程执行 target 二进制"
+    exit_signal: "platform build 复制配置；不会执行 bin/linux-amd64/codis-dashboard --default-config 或 target proxy 生成配置"
+    status: done
+  - action: "C/cgo guard 与平台变量校验：在任何平台产物目录写入前检测 allowlist、host、target 和显式 cross toolchain 条件"
+    exit_signal: "直接调用 build-platform-artifact TARGET_OS=linux TARGET_ARCH=amd64 也会 fail-fast，不复制 host Redis 或进入 rm -rf"
+    status: done
+  - action: "Full platform build 节点：将 dashboard、proxy、admin、ha、fe、Redis 8 和 helper 构建到对应平台目录"
+    exit_signal: "host platform 能生成完整平台目录；默认 proxy 仍使用 cgo_jemalloc；Redis 8 上游 Makefile 不被改造"
+    status: done
+  - action: "No-redis 平台构建与产物检查：替换误导性的 Go-only 命名，补齐 file 输出校验和范围守护"
+    exit_signal: "build-no-redis-platform 不声称 Go-only；full platform build 输出 file 检查；diff 不触碰 Docker 或运行期逻辑"
+    status: done
+
+checks:
+  - item: "make / make build-all 默认保持 host build，不因默认 Linux 矩阵缺 cross toolchain 而失败"
+    source: 兼容性契约
+    status: passed
+  - item: "多平台矩阵通过显式 make build-platforms 或 make release-platforms 触发"
+    source: 名词契约
+    status: passed
+  - item: "默认 TARGET_PLATFORMS 为 darwin/arm64 linux/amd64 linux/arm64，且可通过变量覆盖"
+    source: 名词契约
+    status: passed
+  - item: "平台产物输出到 bin/<os>-<arch>/，不同平台产物不在根 bin 文件名空间平铺混放"
+    source: 名词契约
+    status: passed
+  - item: "每个平台目录包含对应 Go 二进制、Redis 8 codis-server、Redis helper、FE assets 和配置副本"
+    source: 名词契约
+    status: passed
+  - item: "full platform build 的 codis-proxy 继续使用 cgo_jemalloc"
+    source: 名词契约
+    status: passed
+  - item: "No-redis platform build 不能命名或描述为 Go-only，不能替代默认 full platform build"
+    source: 名词契约
+    status: passed
+  - item: "跨平台默认配置生成不执行 target dashboard/proxy 二进制"
+    source: 编排骨架
+    status: passed
+  - item: "build-platform-artifact 自身绑定 platform allowlist 和 C/cgo guard，不能被直接调用绕过"
+    source: 编排骨架
+    status: passed
+  - item: "Mac arm64 上构建 linux/amd64 且缺少 Linux x86_64 C/cgo toolchain 时 fail-fast"
+    source: 流程级约束
+    status: passed
+  - item: "C/cgo 条件不满足时不能复制 host Redis 产物假冒 target 产物"
+    source: 流程级约束
+    status: passed
+  - item: "非法 TARGET_OS / TARGET_ARCH 不能进入 rm -rf bin/<label>"
+    source: 流程级约束
+    status: passed
+  - item: "重复执行同一 TARGET_PLATFORMS 只覆盖对应平台目录，不影响未列入矩阵的平台目录"
+    source: 流程级约束
+    status: passed
+  - item: "make clean 仍能清理所有 bin 生成产物"
+    source: 流程级约束
+    status: passed
+  - item: "根 Makefile 承载兼容 host build 入口和显式 matrix build 入口"
+    source: 挂载点
+    status: passed
+  - item: "Host-side config generation 是 platform build 的共享挂载点"
+    source: 挂载点
+    status: passed
+  - item: "产物检查 / fail-fast guard 能阻止错误平台产物混入"
+    source: 挂载点
+    status: passed
+  - item: "Diff 不新增或修改任何 Docker 相关文件、Docker 脚本、buildx 或镜像发布逻辑"
+    source: 范围守护
+    status: passed
+  - item: "Diff 不修改 Redis 8 extern/redis-8.6.3/src/Makefile 来做通用 C cross compile"
+    source: 范围守护
+    status: passed
+  - item: "Diff 不默认关闭 codis-proxy 的 cgo_jemalloc"
+    source: 范围守护
+    status: passed
+  - item: "Diff 不修改 proxy/topom/admin/Redis 运行期行为"
+    source: 范围守护
+    status: passed
+  - item: "Diff 不执行全量 go mod tidy，不引入 GOPATH/vendor 回退"
+    source: 范围守护
+    status: passed
+  - item: "执行 make build-platforms 且环境满足默认矩阵 C/cgo 条件时，生成 bin/darwin-arm64、bin/linux-amd64、bin/linux-arm64"
+    source: 验收场景
+    status: passed
+  - item: "执行 make build-platforms TARGET_PLATFORMS=\"darwin/arm64\" 时，只构建 bin/darwin-arm64"
+    source: 验收场景
+    status: passed
+  - item: "在 Mac arm64 缺少 Linux C/cgo cross toolchain 时执行 make build-platforms，错误信息包含 host、target、缺失条件和建议处理方式"
+    source: 验收场景
+    status: passed

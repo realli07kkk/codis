@@ -10,6 +10,7 @@
 
 - 本仓库已完成 Go modules 构建迁移，`go.mod` / `go.sum` 是默认 Go 依赖入口；不要恢复旧 GOPATH/vendor 构建路径。
 - 默认构建命令是 `make`；它会构建 Go 二进制、嵌入式 Redis、前端资源和默认配置。
+- 多平台发布产物走显式 `make build-platforms` 或 `make release-platforms`；默认 `make` 仍是 host build，非 host full artifact 需要 C/cgo cross toolchain。
 - 不要顺手现代化 Go 依赖；依赖版本偏离必须有可复现的现代 Go 编译原因。
 - `cgo_jemalloc` 的 module mode 来源现在走 `go.mod` 的 `replace github.com/spinlock/jemalloc-go => ./third_party/jemalloc-go`；后续相关修改应改 `third_party/jemalloc-go`，不是旧 `vendor/github.com/spinlock/jemalloc-go`。
 
