@@ -46,6 +46,10 @@ rdb_analysis_max_upload_size = "1gb"
 rdb_analysis_max_concurrent_jobs = 1
 rdb_analysis_max_jobs_retained = 16
 rdb_analysis_max_top_n = 100
+rdb_analysis_remote_fetch_enabled = false
+rdb_analysis_remote_fetch_auth = ""
+rdb_analysis_remote_fetch_timeout = "30m"
+rdb_analysis_remote_fetch_max_concurrent = 1
 
 # Set arguments for data migration (only accept 'sync' & 'semi-async').
 migration_method = "semi-async"
@@ -77,11 +81,15 @@ type Config struct {
 	ProductName string `toml:"product_name" json:"product_name"`
 	ProductAuth string `toml:"product_auth" json:"-"`
 
-	RDBAnalysisWorkspace         string         `toml:"rdb_analysis_workspace" json:"rdb_analysis_workspace"`
-	RDBAnalysisMaxUploadSize     bytesize.Int64 `toml:"rdb_analysis_max_upload_size" json:"rdb_analysis_max_upload_size"`
-	RDBAnalysisMaxConcurrentJobs int            `toml:"rdb_analysis_max_concurrent_jobs" json:"rdb_analysis_max_concurrent_jobs"`
-	RDBAnalysisMaxJobsRetained   int            `toml:"rdb_analysis_max_jobs_retained" json:"rdb_analysis_max_jobs_retained"`
-	RDBAnalysisMaxTopN           int            `toml:"rdb_analysis_max_top_n" json:"rdb_analysis_max_top_n"`
+	RDBAnalysisWorkspace                string            `toml:"rdb_analysis_workspace" json:"rdb_analysis_workspace"`
+	RDBAnalysisMaxUploadSize            bytesize.Int64    `toml:"rdb_analysis_max_upload_size" json:"rdb_analysis_max_upload_size"`
+	RDBAnalysisMaxConcurrentJobs        int               `toml:"rdb_analysis_max_concurrent_jobs" json:"rdb_analysis_max_concurrent_jobs"`
+	RDBAnalysisMaxJobsRetained          int               `toml:"rdb_analysis_max_jobs_retained" json:"rdb_analysis_max_jobs_retained"`
+	RDBAnalysisMaxTopN                  int               `toml:"rdb_analysis_max_top_n" json:"rdb_analysis_max_top_n"`
+	RDBAnalysisRemoteFetchEnabled       bool              `toml:"rdb_analysis_remote_fetch_enabled" json:"rdb_analysis_remote_fetch_enabled"`
+	RDBAnalysisRemoteFetchAuth          string            `toml:"rdb_analysis_remote_fetch_auth" json:"-"`
+	RDBAnalysisRemoteFetchTimeout       timesize.Duration `toml:"rdb_analysis_remote_fetch_timeout" json:"rdb_analysis_remote_fetch_timeout"`
+	RDBAnalysisRemoteFetchMaxConcurrent int               `toml:"rdb_analysis_remote_fetch_max_concurrent" json:"rdb_analysis_remote_fetch_max_concurrent"`
 
 	MigrationMethod        string            `toml:"migration_method" json:"migration_method"`
 	MigrationParallelSlots int               `toml:"migration_parallel_slots" json:"migration_parallel_slots"`
@@ -150,6 +158,15 @@ func (c *Config) Validate() error {
 	}
 	if c.RDBAnalysisMaxTopN < 0 {
 		return errors.New("invalid rdb_analysis_max_top_n")
+	}
+	if c.RDBAnalysisRemoteFetchEnabled && c.RDBAnalysisRemoteFetchAuth == "" {
+		return errors.New("invalid rdb_analysis_remote_fetch_auth")
+	}
+	if c.RDBAnalysisRemoteFetchTimeout < 0 {
+		return errors.New("invalid rdb_analysis_remote_fetch_timeout")
+	}
+	if c.RDBAnalysisRemoteFetchMaxConcurrent < 0 {
+		return errors.New("invalid rdb_analysis_remote_fetch_max_concurrent")
 	}
 	if _, ok := models.ParseForwardMethod(c.MigrationMethod); !ok {
 		return errors.New("invalid migration_method")

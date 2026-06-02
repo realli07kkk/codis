@@ -1,0 +1,252 @@
+feature: 2026-05-19-rdb-remote-transfer-analysis
+created: 2026-06-02
+
+steps:
+  - action: "配置与 API 骨架：增加 remote fetch 配置、持久化 auth 校验、请求/响应类型、route、ApiClient 方法和 server allowlist stub"
+    exit_signal: "remote fetch 默认关闭；开启但 auth 为空时配置校验失败；错误 xauth 被拒；不属于当前 product 的 server addr 被拒且无出站 HTTP"
+    status: done
+
+  - action: "remote HTTP 下载节点：实现 Redis export GET、禁止 redirect、status code 映射、timeout、size limit、临时文件 copy 和 cleanup"
+    exit_signal: "fake HTTP export 200 可落临时文件；403/404/400、超限、超时和 client cancel 都返回明确错误并清理临时文件"
+    status: done
+
+  - action: "analysis job 衔接：把完整下载文件以 remote-http:<server>/<filename> source 交给现有 manager，复用 job get/cancel/remove/prune"
+    exit_signal: "成功 remote fetch 返回 job id；轮询现有 API 能看到 running/done/error；删除 job 会删除 remote 临时文件"
+    status: done
+
+  - action: "codis-admin 入口：新增 CLI 参数、options 解析和 job id 输出"
+    exit_signal: "codis-admin --dashboard ... --rdb-analysis-remote-fetch 能触发 dashboard API；CLI 不接收或打印 Redis export auth"
+    status: done
+
+  - action: "FE Remote 入口：新增 server addr 选择/输入、按钮状态、页面内错误展示和复用现有轮询"
+    exit_signal: "FE 能从当前 product server 触发 remote fetch；成功后展示同一 job；失败时在 RDB Analysis 页面显示 dashboard 错误；FE 无 export auth 输入或存储"
+    status: done
+
+  - action: "验证覆盖：补 dashboard API/fake export 单测、admin 参数测试和 FE 静态交互检查"
+    exit_signal: "go test ./pkg/topom -run RDB.*Remote、go test ./cmd/admin -run RDB.*Remote、make gotest 通过"
+    status: done
+
+  - action: "job id UUID v7 补充约束：RDBAnalysisManager.startJob 使用 github.com/google/uuid 的 uuid.NewV7() 生成 job id"
+    exit_signal: "workspace/upload/remote fetch 创建的 job id 可解析为 UUID version 7；代码检索不到 uuid.NewString() 作为 job id 生成入口；go test ./pkg/topom -run RDBAnalysis 通过"
+    status: done
+
+  - action: "review hardening：收紧 remote fetch 内部边界、补下载阶段日志、补错误 xauth、invalid server_addr 和 remote fetch 并发上限测试"
+    exit_signal: "manager 不再暴露接受裸 serverAddr 的 StartRemoteFetch；下载日志覆盖 start/status/bytes/duration/job id 且不打印 auth；go test ./pkg/topom -run RDB.*Remote 通过"
+    status: done
+
+checks:
+  - item: "RDB Analysis remote fetch 配置包含 rdb_analysis_remote_fetch_enabled、rdb_analysis_remote_fetch_auth、rdb_analysis_remote_fetch_timeout 和 rdb_analysis_remote_fetch_max_concurrent"
+    source: 名词契约
+    status: passed
+
+  - item: "rdb_analysis_remote_fetch_auth 是 dashboard 本地持久化 Redis export auth，开启 remote fetch 时必须非空，并在 Config JSON/API 输出中隐藏"
+    source: 名词契约
+    status: passed
+
+  - item: "remote fetch API 为 PUT /api/topom/rdb-analysis/remote-fetch/:xauth，请求体只包含 server_addr 和 RDBAnalysisOptions，不携带 export auth"
+    source: 名词契约
+    status: passed
+
+  - item: "server_addr 必须精确匹配当前 topom model 的 group server 地址"
+    source: 名词契约
+    status: passed
+
+  - item: "dashboard remote HTTP client 使用 GET http://{server_addr}/codis/rdb/latest 和配置中的 X-Codis-RDB-Auth，不跟随 redirect"
+    source: 名词契约
+    status: passed
+
+  - item: "remote fetch 成功后创建的 RDBAnalysisJob source 使用 remote-http:<server>/<filename> 安全摘要"
+    source: 名词契约
+    status: passed
+
+  - item: "新创建的 RDBAnalysisJob id 使用 github.com/google/uuid 的 uuid.NewV7() 生成 UUID v7，不使用 uuid.NewString() 或自增数字"
+    source: 名词契约
+    status: passed
+
+  - item: "codis-admin 新增 --rdb-analysis-remote-fetch 入口，命令不接收 Redis export auth 参数"
+    source: 名词契约
+    status: passed
+
+  - item: "FE Remote 入口只选择或输入 server addr，不出现 export auth 输入框，也不保存该密钥"
+    source: 名词契约
+    status: passed
+
+  - item: "remote fetch handler 顺序为 xauth 校验、配置和持久化 auth 校验、product server allowlist、Redis HTTP GET、临时文件下载、analysis job 创建"
+    source: 编排骨架
+    status: passed
+
+  - item: "remote fetch 的 manager 内部入口只接受已验证 target，不暴露接受裸 serverAddr 的导出 StartRemoteFetch"
+    source: 编排骨架
+    status: passed
+
+  - item: "dashboard xauth 失败时不做 server allowlist，不读取 remote fetch auth 配置，不发出 HTTP 请求"
+    source: 流程级约束
+    status: passed
+
+  - item: "server_addr 不接受 scheme、path、query、IP 段通配或 redirect 作为目标"
+    source: 流程级约束
+    status: passed
+
+  - item: "export auth 只从 dashboard 持久化配置读取，并只放在发往 Redis 的 header"
+    source: 流程级约束
+    status: passed
+
+  - item: "export auth 不写 URL、请求体、API response、日志、job source、error message、FE storage 或 coordinator"
+    source: 流程级约束
+    status: passed
+
+  - item: "remote fetch 不支持断点续传，失败重试会重新拉取一次当前 Redis dbfilename"
+    source: 流程级约束
+    status: passed
+
+  - item: "只有 remote HTTP body 完整写入 dashboard 临时文件后才创建 analysis job，不解析半文件"
+    source: 流程级约束
+    status: passed
+
+  - item: "analysis job 创建时统一生成 UUID v7 job id，workspace、upload 与 remote fetch 入口保持一致"
+    source: 流程级约束
+    status: passed
+
+  - item: "remote fetch 并发、HTTP timeout、size limit 和临时文件清理由 dashboard 控制，analysis 并发仍由现有 manager 控制"
+    source: 流程级约束
+    status: passed
+
+  - item: "Redis export 403/404/400 和网络错误映射成 dashboard 可读错误，不回显远端 body 中可能包含的路径细节"
+    source: 流程级约束
+    status: passed
+
+  - item: "remote fetch API error 写入 FE RDB Analysis 页面内错误区域，不要求用户打开控制台或只依赖 alert"
+    source: 流程级约束
+    status: passed
+
+  - item: "remote fetch 下载阶段日志记录 product、server addr、status、content length、download bytes、duration、source、job id 和错误类型，且不打印 export auth"
+    source: 流程级约束
+    status: passed
+
+  - item: "现有 upload/workspace/start/get/cancel/remove API 不变"
+    source: 范围守护
+    status: passed
+
+  - item: "不使用 tusd、不新增 tus endpoint、不实现断点续传、Range request 或 resume state"
+    source: 范围守护
+    status: passed
+
+  - item: "不让远端机器上的 Go client 读取任意本地路径后主动上传到 dashboard"
+    source: 范围守护
+    status: passed
+
+  - item: "不使用 scp、rsync、SSH、NFS 或共享目录作为传输通道"
+    source: 范围守护
+    status: passed
+
+  - item: "不执行或触发 SAVE、BGSAVE、replication stream RDB 抓取，也不调用 Redis 侧 RDB save 函数"
+    source: 范围守护
+    status: passed
+
+  - item: "不允许请求传任意 URL、任意路径、query auth 或跨 product server"
+    source: 范围守护
+    status: passed
+
+  - item: "不修改 proxy 业务请求路径，不新增 Redis 命令，不修改已实现的 Redis 8 RDB HTTP export C 代码"
+    source: 范围守护
+    status: passed
+
+  - item: "pkg/topom/config.go 与 config/dashboard.toml 挂入 rdb_analysis_remote_fetch_* 配置"
+    source: 挂载点
+    status: passed
+
+  - item: "pkg/topom/topom_api.go 与 pkg/topom/topom_rdb_analysis_api.go 挂入 /api/topom/rdb-analysis/remote-fetch/:xauth"
+    source: 挂载点
+    status: passed
+
+  - item: "pkg/topom.ApiClient 挂入 remote fetch client method"
+    source: 挂载点
+    status: passed
+
+  - item: "go.mod 与 go.sum 引入 github.com/google/uuid v1.5.0+，用于 RDBAnalysisJob id UUID v7 生成"
+    source: 挂载点
+    status: passed
+
+  - item: "cmd/admin/main.go、cmd/admin/dashboard.go 与新增 admin 文件挂入 --rdb-analysis-remote-fetch 命令入口"
+    source: 挂载点
+    status: passed
+
+  - item: "cmd/fe/assets/rdb-analysis.js 与 cmd/fe/assets/index.html 挂入 Remote 表单和触发按钮"
+    source: 挂载点
+    status: passed
+
+  - item: "默认配置 rdb_analysis_remote_fetch_enabled=false 时 remote fetch API 返回 disabled 类错误，现有 upload/workspace API 仍可启动 RDB Analysis"
+    source: 验收场景
+    status: passed
+
+  - item: "rdb_analysis_remote_fetch_enabled=true 但 rdb_analysis_remote_fetch_auth 为空时 dashboard 配置校验失败"
+    source: 验收场景
+    status: passed
+
+  - item: "错误 dashboard xauth 调用 remote fetch API 时请求被拒，不校验 server、不发出 Redis HTTP 请求、不读取或记录 export auth"
+    source: 验收场景
+    status: passed
+
+  - item: "开启 remote fetch 但 server_addr 不属于当前 product model group servers 时返回 allowlist 错误且无出站 HTTP 请求"
+    source: 验收场景
+    status: passed
+
+  - item: "dashboard 配置的 export auth 与目标 Redis 不匹配导致 Redis 403 时，dashboard 返回可读错误，不创建 job，不保留临时文件，不打印 auth"
+    source: 验收场景
+    status: passed
+
+  - item: "目标 Redis 未开启 export 或没有有效当前 dbfilename RDB 导致 Redis 404 时，dashboard 返回可读错误，不创建 job，不触发 SAVE/BGSAVE"
+    source: 验收场景
+    status: passed
+
+  - item: "目标 Redis export 返回 200、合法 Content-Length 和有效 RDB body 时，remote fetch API 返回 job id，现有 job API 可轮询到 done 或 parser error"
+    source: 验收场景
+    status: passed
+
+  - item: "workspace、browser upload 和 remote fetch 成功创建 job 时，返回的 job id 可被 google/uuid 解析且 Version()==7"
+    source: 验收场景
+    status: passed
+
+  - item: "同一 RDB 分别通过 browser upload 和 remote fetch 使用相同 RDBAnalysisOptions 进入分析时，summary、DB/type/prefix/top key 结果一致"
+    source: 验收场景
+    status: passed
+
+  - item: "Redis response Content-Length 大于 rdb_analysis_max_upload_size 时下载前拒绝，不创建 job"
+    source: 验收场景
+    status: passed
+
+  - item: "Redis response 无 Content-Length 但实际 body 超过上限时 copy 失败并删除临时文件"
+    source: 验收场景
+    status: passed
+
+  - item: "Redis export 返回 HTTP redirect 时 dashboard 不跟随 redirect，不向新地址发送 X-Codis-RDB-Auth"
+    source: 验收场景
+    status: passed
+
+  - item: "FE/admin 请求在下载中取消或超时时，dashboard 停止下载、关闭 response body、删除临时文件"
+    source: 验收场景
+    status: passed
+
+  - item: "同时超过 rdb_analysis_remote_fetch_max_concurrent 的 remote fetch 时，超出的请求被拒，已有下载不受影响"
+    source: 验收场景
+    status: passed
+
+  - item: "下载完成但 analysis 并发已满时，返回并发错误并删除下载临时文件"
+    source: 验收场景
+    status: passed
+
+  - item: "codis-admin --rdb-analysis-remote-fetch 成功时打印 job id，命令不需要也不接受 Redis export auth 参数"
+    source: 验收场景
+    status: passed
+
+  - item: "FE Remote 表单触发失败时，RDB Analysis 页面内显示可读错误"
+    source: 验收场景
+    status: passed
+
+  - item: "FE Remote 表单触发成功后切换 product 或 reset 时，停止旧轮询或清空本地输入，FE 没有 export auth 状态残留"
+    source: 验收场景
+    status: passed
+
+  - item: "go test ./pkg/topom -run RDB.*Remote、go test ./cmd/admin -run RDB.*Remote、make gotest 通过"
+    source: 验收场景
+    status: passed

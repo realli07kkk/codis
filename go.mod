@@ -9,6 +9,7 @@ require (
 	github.com/emirpasic/gods v1.9.0
 	github.com/garyburd/redigo v1.0.1-0.20170208211623-48545177e92a
 	github.com/go-martini/martini v0.0.0-20160908070901-fe605b5cd210
+	github.com/google/uuid v1.5.0
 	github.com/hashicorp/consul/api v1.34.2
 	github.com/hdt3213/rdb v1.3.2
 	github.com/influxdata/influxdb v1.1.1-0.20170109231301-8c2cfd14af25

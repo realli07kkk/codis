@@ -97,6 +97,23 @@ function initRDBAnalysis($scope, $http, $timeout) {
         pollJob(jobID);
     }
 
+    function rdbErrorText(failedResp) {
+        if (!failedResp) {
+            return "error response";
+        }
+        if ((failedResp.status === 1500 || failedResp.status === 800) && failedResp.data) {
+            return failedResp.data.Cause || angular.toJson(failedResp.data);
+        }
+        if (failedResp.data) {
+            return failedResp.data.toString();
+        }
+        return "error response";
+    }
+
+    function showRDBError(failedResp) {
+        $scope.rdb_error = rdbErrorText(failedResp);
+    }
+
     $scope.resetRDBAnalysis = function () {
         stopPoll();
         $scope.rdb_current_job = null;
@@ -104,6 +121,7 @@ function initRDBAnalysis($scope, $http, $timeout) {
         $scope.rdb_error = "";
         $scope.rdb_upload_file = null;
         $scope.rdb_path = "";
+        $scope.rdb_remote_server = "";
         $scope.rdb_options = {
             top_n: 20,
             prefix_separators: ":",
@@ -158,7 +176,7 @@ function initRDBAnalysis($scope, $http, $timeout) {
             $scope.rdb_flame_rows = [];
             startPolling(resp.data.id);
         }, function (failedResp) {
-            alertErrorResp(failedResp);
+            showRDBError(failedResp);
         });
     };
 
@@ -181,7 +199,27 @@ function initRDBAnalysis($scope, $http, $timeout) {
             $scope.rdb_flame_rows = [];
             startPolling(resp.data.id);
         }, function (failedResp) {
-            alertErrorResp(failedResp);
+            showRDBError(failedResp);
+        });
+    };
+
+    $scope.startRDBAnalysisRemoteFetch = function () {
+        var codis_name = $scope.codis_name;
+        if (!isValidInput(codis_name) || !isValidInput($scope.rdb_remote_server) || $scope.rdbAnalysisRunning()) {
+            return;
+        }
+        var xauth = genXAuth(codis_name);
+        var url = concatUrl("/api/topom/rdb-analysis/remote-fetch/" + xauth, codis_name);
+        $http.put(url, {
+            server_addr: $scope.rdb_remote_server,
+            options: buildOptions()
+        }).then(function (resp) {
+            $scope.rdb_error = "";
+            $scope.rdb_current_job = {id: resp.data.id, status: "queued"};
+            $scope.rdb_flame_rows = [];
+            startPolling(resp.data.id);
+        }, function (failedResp) {
+            showRDBError(failedResp);
         });
     };
 
@@ -197,7 +235,7 @@ function initRDBAnalysis($scope, $http, $timeout) {
             stopPoll();
             startPolling(job.id);
         }, function (failedResp) {
-            alertErrorResp(failedResp);
+            showRDBError(failedResp);
         });
     };
 

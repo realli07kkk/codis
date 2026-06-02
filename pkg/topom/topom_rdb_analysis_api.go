@@ -22,6 +22,11 @@ type RDBAnalysisStartResponse struct {
 	ID string `json:"id"`
 }
 
+type RDBAnalysisRemoteFetchRequest struct {
+	ServerAddr string             `json:"server_addr"`
+	Options    RDBAnalysisOptions `json:"options"`
+}
+
 func (s *apiServer) rdbAnalysisManager() (*RDBAnalysisManager, error) {
 	if s.topom == nil || s.topom.rdbAnalysis == nil {
 		return nil, errors.New("rdb analysis is not initialized")
@@ -71,6 +76,32 @@ func (s *apiServer) RDBAnalysisStart(params martini.Params, req *http.Request) (
 		return rpc.ApiResponseError(errors.Trace(err))
 	}
 	job, err := manager.StartWorkspace(request.Path, request.Options)
+	if err != nil {
+		return rpc.ApiResponseError(err)
+	}
+	return rpc.ApiResponseJson(&RDBAnalysisStartResponse{ID: job.ID})
+}
+
+func (s *apiServer) RDBAnalysisRemoteFetch(params martini.Params, req *http.Request) (int, string) {
+	if err := s.verifyXAuth(params); err != nil {
+		return rpc.ApiResponseError(err)
+	}
+	if _, err := s.rdbAnalysisManager(); err != nil {
+		return rpc.ApiResponseError(err)
+	}
+	config := s.topom.Config()
+	if !config.RDBAnalysisRemoteFetchEnabled {
+		return rpc.ApiResponseError(errors.New("rdb analysis remote fetch is disabled"))
+	}
+	if config.RDBAnalysisRemoteFetchAuth == "" {
+		return rpc.ApiResponseError(errors.New("missing rdb_analysis_remote_fetch_auth"))
+	}
+
+	var request RDBAnalysisRemoteFetchRequest
+	if err := json.NewDecoder(req.Body).Decode(&request); err != nil {
+		return rpc.ApiResponseError(errors.Trace(err))
+	}
+	job, err := s.topom.startRDBAnalysisRemoteFetch(req.Context(), request.ServerAddr, request.Options)
 	if err != nil {
 		return rpc.ApiResponseError(err)
 	}
@@ -140,6 +171,15 @@ func (c *ApiClient) StartRDBAnalysis(path string, options RDBAnalysisOptions) (s
 	url := c.encodeURL("/api/topom/rdb-analysis/start/%s", c.xauth)
 	var resp RDBAnalysisStartResponse
 	if err := rpc.ApiPutJson(url, &RDBAnalysisStartRequest{Path: path, Options: options}, &resp); err != nil {
+		return "", err
+	}
+	return resp.ID, nil
+}
+
+func (c *ApiClient) StartRDBAnalysisRemoteFetch(serverAddr string, options RDBAnalysisOptions) (string, error) {
+	url := c.encodeURL("/api/topom/rdb-analysis/remote-fetch/%s", c.xauth)
+	var resp RDBAnalysisStartResponse
+	if err := rpc.ApiPutJson(url, &RDBAnalysisRemoteFetchRequest{ServerAddr: serverAddr, Options: options}, &resp); err != nil {
 		return "", err
 	}
 	return resp.ID, nil

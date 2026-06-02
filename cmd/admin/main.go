@@ -49,6 +49,7 @@ Usage:
 	codis-admin [-v] --dashboard=ADDR            --slot-action    --interval=VALUE
 	codis-admin [-v] --dashboard=ADDR            --slot-action    --disabled=VALUE
 	codis-admin [-v] --dashboard=ADDR            --rebalance     [--confirm]
+	codis-admin [-v] --dashboard=ADDR            --rdb-analysis-remote-fetch --server=ADDR [--topn=N] [--prefix-sep=SEP] [--max-depth=N] [--regex=REGEX] [--include-expired]
 	codis-admin [-v] --dashboard=ADDR            --sentinel-add   --addr=ADDR
 	codis-admin [-v] --dashboard=ADDR            --sentinel-del   --addr=ADDR [--force]
 	codis-admin [-v] --dashboard=ADDR            --sentinel-resync
@@ -63,6 +64,11 @@ Options:
 	-x ADDR, --addr=ADDR
 	-t TOKEN, --token=TOKEN
 	-g ID, --gid=ID
+	--server=ADDR
+	--topn=N
+	--prefix-sep=SEP
+	--max-depth=N
+	--regex=REGEX
 `
 
 	d, err := docopt.Parse(usage, nil, true, "", false)

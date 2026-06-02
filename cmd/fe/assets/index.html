@@ -137,6 +137,21 @@
                     </span>
                 </form>
             </div>
+            <div class="col-md-12" style="padding-bottom: 10px;">
+                <form class="form-inline">
+                    <span ng-if="codis_addr != 'NA'">
+                        <button class="btn btn-warning btn-sm active" style="width: 120px; font-size: 14px; padding: 2px;"
+                                ng-click="startRDBAnalysisRemoteFetch()"
+                                ng-disabled="!rdb_remote_server || rdbAnalysisRunning()">Remote
+                        </button>
+                        <input style="height: 28px; width: 280px;" type="text" class="form-control" placeholder="Redis server addr"
+                               ng-model="rdb_remote_server">
+                    </span>
+                </form>
+            </div>
+            <div class="col-md-12" ng-if="rdb_error && (!rdb_current_job || !rdb_current_job.error)">
+                <div class="alert alert-danger" style="padding: 6px 12px; margin-bottom: 10px;">[[rdb_error]]</div>
+            </div>
             <div class="col-md-12" ng-if="rdb_current_job">
                 <table class="table table-bordered table-condensed" style="white-space: nowrap">
                     <tbody>

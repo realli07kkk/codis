@@ -84,6 +84,9 @@ func (t *cmdDashboard) Main(d map[string]interface{}) {
 	case d["--rebalance"].(bool):
 		t.handleSlotRebalance(d)
 
+	case d["--rdb-analysis-remote-fetch"].(bool):
+		t.handleRDBAnalysisRemoteFetch(d)
+
 	}
 }
 

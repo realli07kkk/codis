@@ -82,6 +82,7 @@ func newApiServer(t *Topom) http.Handler {
 		r.Group("/rdb-analysis", func(r martini.Router) {
 			r.Post("/upload/:xauth", api.RDBAnalysisUpload)
 			r.Put("/start/:xauth", api.RDBAnalysisStart)
+			r.Put("/remote-fetch/:xauth", api.RDBAnalysisRemoteFetch)
 			r.Put("/cancel/:xauth/:id", api.RDBAnalysisCancel)
 			r.Put("/remove/:xauth/:id", api.RDBAnalysisRemove)
 			r.Get("/:xauth/:id", api.RDBAnalysisGet)

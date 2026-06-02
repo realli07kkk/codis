@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"net/http"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -17,6 +18,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/google/uuid"
 	rdbmodel "github.com/hdt3213/rdb/model"
 	"github.com/hdt3213/rdb/parser"
 
@@ -145,13 +147,17 @@ func (j *RDBAnalysisJob) updateSnapshot(snapshot *rdbAnalysisSnapshot) {
 
 type RDBAnalysisManager struct {
 	mu            sync.Mutex
-	nextID        int64
 	jobs          map[string]*RDBAnalysisJob
 	workspace     string
 	maxUpload     int64
 	maxConcurrent int
 	maxRetained   int
 	maxTopN       int
+
+	remoteFetchAuth          string
+	remoteFetchTimeout       time.Duration
+	remoteFetchMaxConcurrent int
+	remoteFetchActive        int
 }
 
 func NewRDBAnalysisManager(config *Config) *RDBAnalysisManager {
@@ -178,6 +184,14 @@ func NewRDBAnalysisManager(config *Config) *RDBAnalysisManager {
 	if maxTopN <= 0 {
 		maxTopN = 100
 	}
+	remoteFetchTimeout := config.RDBAnalysisRemoteFetchTimeout.Duration()
+	if remoteFetchTimeout <= 0 {
+		remoteFetchTimeout = 30 * time.Minute
+	}
+	remoteFetchMaxConcurrent := config.RDBAnalysisRemoteFetchMaxConcurrent
+	if remoteFetchMaxConcurrent <= 0 {
+		remoteFetchMaxConcurrent = 1
+	}
 	return &RDBAnalysisManager{
 		jobs:          make(map[string]*RDBAnalysisJob),
 		workspace:     workspace,
@@ -185,6 +199,10 @@ func NewRDBAnalysisManager(config *Config) *RDBAnalysisManager {
 		maxConcurrent: maxConcurrent,
 		maxRetained:   maxRetained,
 		maxTopN:       maxTopN,
+
+		remoteFetchAuth:          config.RDBAnalysisRemoteFetchAuth,
+		remoteFetchTimeout:       remoteFetchTimeout,
+		remoteFetchMaxConcurrent: remoteFetchMaxConcurrent,
 	}
 }
 
@@ -233,6 +251,15 @@ func (m *RDBAnalysisManager) StartUpload(filename string, reader io.Reader, opti
 		return nil, errors.Errorf("rdb upload exceeds max size %s", bytesize.Int64(m.maxUpload).HumanString())
 	}
 	return m.startJob("upload:"+name, path, n, true, options)
+}
+
+func (m *RDBAnalysisManager) newRemoteFetchHTTPClient() *http.Client {
+	return &http.Client{
+		Timeout: m.remoteFetchTimeout,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
 }
 
 func (m *RDBAnalysisManager) Get(id string) (*RDBAnalysisJob, error) {
@@ -314,12 +341,17 @@ func (m *RDBAnalysisManager) startJob(source, path string, fileSize int64, clean
 		}
 		return nil, err
 	}
+	id, err := newRDBAnalysisJobID()
+	if err != nil {
+		if cleanup {
+			_ = os.Remove(path)
+		}
+		return nil, err
+	}
 
 	ctx, cancel := stdcontext.WithCancel(stdcontext.Background())
 	now := time.Now()
 	m.mu.Lock()
-	m.nextID++
-	id := strconv.FormatInt(m.nextID, 10)
 	job := &RDBAnalysisJob{
 		ID:        id,
 		CreatedAt: now,
@@ -339,6 +371,14 @@ func (m *RDBAnalysisManager) startJob(source, path string, fileSize int64, clean
 
 	go m.runJob(ctx, job)
 	return job.Snapshot(), nil
+}
+
+func newRDBAnalysisJobID() (string, error) {
+	id, err := uuid.NewV7()
+	if err != nil {
+		return "", errors.Trace(err)
+	}
+	return id.String(), nil
 }
 
 func (m *RDBAnalysisManager) checkConcurrentLimit() error {
