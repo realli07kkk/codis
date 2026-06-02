@@ -24,6 +24,8 @@ typedef struct codisRdbExportState {
     char buf[PROTO_IOBUF_LEN];
     size_t buf_len;
     size_t buf_sent;
+    long long resume_time_event_id;
+    int throttle_paused;
 } codisRdbExportState;
 
 typedef struct codisRdbExportFile {
@@ -34,6 +36,11 @@ typedef struct codisRdbExportFile {
 } codisRdbExportFile;
 
 static void codisRdbExportWriteHandler(connection *conn);
+static void codisRdbExportAbort(client *c, const char *reason);
+static void codisRdbExportResumeClient(client *c, codisRdbExportState *state,
+                                       int delete_timer);
+static int codisRdbExportResumeTimeProc(struct aeEventLoop *eventLoop,
+                                        long long id, void *clientData);
 
 static int codisRdbExportMoveToMainThread(client *c) {
     if (c->running_tid == IOTHREAD_MAIN_THREAD_ID) return 0;
@@ -262,6 +269,135 @@ static void codisRdbExportAccountWritten(client *c, ssize_t nwritten) {
     c->lastinteraction = server.unixtime;
 }
 
+static long long codisRdbExportRateBurst(void) {
+    if (server.codis_rdb_export_rate_limit == 0) return 0;
+    size_t burst = server.codis_rdb_export_rate_limit;
+    if (burst > NET_MAX_WRITES_PER_EVENT) burst = NET_MAX_WRITES_PER_EVENT;
+    if (burst == 0) burst = 1;
+    return (long long)burst;
+}
+
+static void codisRdbExportRefillRateLimit(mstime_t now) {
+    if (server.codis_rdb_export_rate_limit == 0) return;
+
+    long long burst = codisRdbExportRateBurst();
+    if (server.codis_rdb_export_rate_tokens > burst)
+        server.codis_rdb_export_rate_tokens = burst;
+    else if (server.codis_rdb_export_rate_tokens < 0)
+        server.codis_rdb_export_rate_tokens = 0;
+
+    if (server.codis_rdb_export_rate_last_ms == 0 ||
+        server.codis_rdb_export_rate_last_ms > now)
+    {
+        server.codis_rdb_export_rate_tokens = burst;
+        server.codis_rdb_export_rate_last_ms = now;
+        return;
+    }
+
+    mstime_t elapsed = now - server.codis_rdb_export_rate_last_ms;
+    if (elapsed <= 0) return;
+
+    long double generated =
+        (long double)server.codis_rdb_export_rate_limit * (long double)elapsed / 1000.0L;
+    if (generated < 1.0L) return;
+    if (generated > (long double)LLONG_MAX) generated = (long double)LLONG_MAX;
+
+    long long add = (long long)generated;
+    if (server.codis_rdb_export_rate_tokens > burst - add)
+        server.codis_rdb_export_rate_tokens = burst;
+    else
+        server.codis_rdb_export_rate_tokens += add;
+    server.codis_rdb_export_rate_last_ms = now;
+}
+
+void codisRdbExportRateLimitChanged(void) {
+    mstime_t now = mstime();
+
+    if (server.codis_rdb_export_rate_limit == 0) {
+        server.codis_rdb_export_rate_tokens = 0;
+        server.codis_rdb_export_rate_last_ms = 0;
+    } else {
+        long long burst = codisRdbExportRateBurst();
+        if (server.codis_rdb_export_rate_last_ms == 0 ||
+            server.codis_rdb_export_rate_tokens > burst)
+            server.codis_rdb_export_rate_tokens = burst;
+        else if (server.codis_rdb_export_rate_tokens < 0)
+            server.codis_rdb_export_rate_tokens = 0;
+        server.codis_rdb_export_rate_last_ms = now;
+    }
+
+    listIter li;
+    listNode *ln;
+    listRewind(server.clients, &li);
+    while ((ln = listNext(&li)) != NULL) {
+        client *c = listNodeValue(ln);
+        codisRdbExportState *state = c->codis_rdb_export_state;
+        if (state && state->throttle_paused)
+            codisRdbExportResumeClient(c, state, 1);
+    }
+}
+
+static size_t codisRdbExportBodyAllowance(size_t written_in_event) {
+    if (written_in_event >= NET_MAX_WRITES_PER_EVENT) return 0;
+
+    size_t event_left = NET_MAX_WRITES_PER_EVENT - written_in_event;
+    if (server.codis_rdb_export_rate_limit == 0) return event_left;
+
+    codisRdbExportRefillRateLimit(mstime());
+    if (server.codis_rdb_export_rate_tokens <= 0) return 0;
+    if ((unsigned long long)server.codis_rdb_export_rate_tokens < event_left)
+        return (size_t)server.codis_rdb_export_rate_tokens;
+    return event_left;
+}
+
+static void codisRdbExportConsumeBodyBytes(size_t n) {
+    if (server.codis_rdb_export_rate_limit == 0 || n == 0) return;
+    if ((unsigned long long)server.codis_rdb_export_rate_tokens <= n)
+        server.codis_rdb_export_rate_tokens = 0;
+    else
+        server.codis_rdb_export_rate_tokens -= n;
+}
+
+static long long codisRdbExportResumeDelayMs(void) {
+    if (server.codis_rdb_export_rate_limit == 0) return 0;
+
+    codisRdbExportRefillRateLimit(mstime());
+    long long burst = codisRdbExportRateBurst();
+    long long tokens = server.codis_rdb_export_rate_tokens;
+    if (tokens >= burst) return 0;
+    if (tokens < 0) tokens = 0;
+
+    unsigned long long missing = (unsigned long long)(burst - tokens);
+    unsigned long long rate = (unsigned long long)server.codis_rdb_export_rate_limit;
+    unsigned long long delay = (missing * 1000 + rate - 1) / rate;
+    if (delay == 0) delay = 1;
+    if (delay > LLONG_MAX) delay = LLONG_MAX;
+    return (long long)delay;
+}
+
+static void codisRdbExportPauseUntilBudget(client *c, codisRdbExportState *state) {
+    if (server.codis_rdb_export_rate_limit == 0 || state->throttle_paused) return;
+
+    long long delay = codisRdbExportResumeDelayMs();
+    if (delay <= 0) delay = 1;
+
+    if (c->conn) connSetWriteHandler(c->conn, NULL);
+    state->throttle_paused = 1;
+    state->resume_time_event_id =
+        aeCreateTimeEvent(server.el, delay, codisRdbExportResumeTimeProc, c, NULL);
+    if (state->resume_time_event_id == AE_DELETED_EVENT_ID) {
+        state->throttle_paused = 0;
+        codisRdbExportAbort(c, "rate-limit timer creation failed");
+    }
+}
+
+static void codisRdbExportClearResumeTimer(codisRdbExportState *state) {
+    if (state->resume_time_event_id != AE_DELETED_EVENT_ID) {
+        aeDeleteTimeEvent(server.el, state->resume_time_event_id);
+        state->resume_time_event_id = AE_DELETED_EVENT_ID;
+    }
+}
+
 static void codisRdbExportFinish(client *c) {
     if (c->conn) connSetWriteHandler(c->conn, NULL);
     codisRdbExportCleanupClient(c);
@@ -294,8 +430,19 @@ static int codisRdbExportWriteOrDefer(client *c, const char *buf, size_t len,
     return C_OK;
 }
 
+static int codisRdbExportWriteBodyOrDefer(client *c, const char *buf, size_t len,
+                                          size_t allowance, ssize_t *nwritten)
+{
+    if (len > allowance) len = allowance;
+    if (codisRdbExportWriteOrDefer(c, buf, len, nwritten) == C_ERR)
+        return C_ERR;
+    codisRdbExportConsumeBodyBytes((size_t)*nwritten);
+    return C_OK;
+}
+
 static int codisRdbExportStartState(client *c, codisRdbExportState *state) {
     c->codis_rdb_export_state = state;
+    state->resume_time_event_id = AE_DELETED_EVENT_ID;
 
     if (c->querybuf) {
         sdsclear(c->querybuf);
@@ -443,11 +590,39 @@ void codisRdbExportCleanupClient(client *c) {
     codisRdbExportState *state = c->codis_rdb_export_state;
     if (!state) return;
 
+    codisRdbExportClearResumeTimer(state);
     if (state->fd != -1) close(state->fd);
     sdsfree(state->filename);
     sdsfree(state->header);
     zfree(state);
     c->codis_rdb_export_state = NULL;
+}
+
+static void codisRdbExportResumeClient(client *c, codisRdbExportState *state,
+                                       int delete_timer)
+{
+    if (delete_timer)
+        codisRdbExportClearResumeTimer(state);
+    else
+        state->resume_time_event_id = AE_DELETED_EVENT_ID;
+    state->throttle_paused = 0;
+
+    if (!c->conn || connSetWriteHandler(c->conn, codisRdbExportWriteHandler) == C_ERR)
+        codisRdbExportAbort(c, "rate-limit resume failed");
+}
+
+static int codisRdbExportResumeTimeProc(struct aeEventLoop *eventLoop,
+                                        long long id, void *clientData)
+{
+    UNUSED(eventLoop);
+    UNUSED(id);
+
+    client *c = clientData;
+    codisRdbExportState *state = c->codis_rdb_export_state;
+    if (!state) return AE_NOMORE;
+
+    codisRdbExportResumeClient(c, state, 0);
+    return AE_NOMORE;
 }
 
 static void codisRdbExportWriteHandler(connection *conn) {
@@ -500,8 +675,13 @@ static void codisRdbExportWriteHandler(connection *conn) {
         }
 
         size_t left = state->buf_len - state->buf_sent;
-        if (codisRdbExportWriteOrDefer(c, state->buf + state->buf_sent,
-                                       left, &nwritten) == C_ERR)
+        size_t allowance = codisRdbExportBodyAllowance(written_in_event);
+        if (allowance == 0) {
+            codisRdbExportPauseUntilBudget(c, state);
+            return;
+        }
+        if (codisRdbExportWriteBodyOrDefer(c, state->buf + state->buf_sent,
+                                           left, allowance, &nwritten) == C_ERR)
             return;
         state->buf_sent += nwritten;
         state->sent_file_bytes += nwritten;

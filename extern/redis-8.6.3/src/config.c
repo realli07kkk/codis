@@ -3130,6 +3130,12 @@ static int applyClientMaxMemoryUsage(const char **err) {
     return 1;
 }
 
+static int applyCodisRdbExportRateLimit(const char **err) {
+    UNUSED(err);
+    codisRdbExportRateLimitChanged();
+    return 1;
+}
+
 standardConfig static_configs[] = {
     /* Bool configs */
     createBoolConfig("rdbchecksum", NULL, IMMUTABLE_CONFIG, server.rdb_checksum, 1, NULL, NULL),
@@ -3315,6 +3321,7 @@ standardConfig static_configs[] = {
     createULongLongConfig("cluster-link-sendbuf-limit", NULL, MODIFIABLE_CONFIG, 0, ULLONG_MAX, server.cluster_link_msg_queue_limit_bytes, 0, MEMORY_CONFIG, NULL, NULL),
 
     /* Size_t configs */
+    createSizeTConfig("codis-rdb-export-rate-limit", NULL, MODIFIABLE_CONFIG, 0, LONG_MAX, server.codis_rdb_export_rate_limit, 0, MEMORY_CONFIG, NULL, applyCodisRdbExportRateLimit),
     createSizeTConfig("hash-max-listpack-entries", "hash-max-ziplist-entries", MODIFIABLE_CONFIG, 0, LONG_MAX, server.hash_max_listpack_entries, 512, INTEGER_CONFIG, NULL, NULL),
     createSizeTConfig("set-max-intset-entries", NULL, MODIFIABLE_CONFIG, 0, LONG_MAX, server.set_max_intset_entries, 512, INTEGER_CONFIG, NULL, NULL),
     createSizeTConfig("set-max-listpack-entries", NULL, MODIFIABLE_CONFIG, 0, LONG_MAX, server.set_max_listpack_entries, 128, INTEGER_CONFIG, NULL, NULL),

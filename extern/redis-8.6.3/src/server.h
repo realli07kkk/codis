@@ -2256,6 +2256,9 @@ struct redisServer {
     char *rdb_filename;             /* Name of RDB file */
     int codis_rdb_export_enabled;   /* Is Codis RDB HTTP export enabled? */
     char *codis_rdb_export_auth;    /* Auth token for Codis RDB HTTP export */
+    size_t codis_rdb_export_rate_limit;      /* RDB HTTP export body bytes/sec, 0 means unlimited. */
+    long long codis_rdb_export_rate_tokens;  /* Available RDB HTTP export body bytes. */
+    mstime_t codis_rdb_export_rate_last_ms;  /* Last RDB HTTP export token refill time. */
     int rdb_compression;            /* Use compression in RDB? */
     int rdb_checksum;               /* Use RDB checksum? */
     int rdb_del_sync_files;         /* Remove RDB files used only for SYNC if
@@ -3166,6 +3169,7 @@ void readQueryFromClient(connection *conn);
 #define CODIS_RDB_EXPORT_HANDLED 2
 int codisRdbExportTryHandle(client *c);
 void codisRdbExportCleanupClient(client *c);
+void codisRdbExportRateLimitChanged(void);
 int prepareClientToWrite(client *c);
 void addReplyNull(client *c);
 void addReplyNullArray(client *c);

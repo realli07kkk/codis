@@ -1,0 +1,104 @@
+feature: 2026-06-02-redis8-rdb-http-export-rate-limit
+created: 2026-06-02
+
+steps:
+  - action: "配置与状态：新增 codis-rdb-export-rate-limit，并在 redisServer 中加入 RDB export 专用 token bucket 状态"
+    exit_signal: "make codis-server 编译通过；CONFIG GET codis-rdb-export-rate-limit 返回默认 0；CONFIG SET 可设置 0 和正数，非法值被拒绝"
+    status: done
+
+  - action: "body 限速 helper：在 codis_rdb_export.c 内实现只服务 RDB export body 的 server 级 token bucket"
+    exit_signal: "rate-limit 为 0 时成功导出行为与原版本一致；rate-limit 为正数时 body 写出按全局预算扣减；HTTP header 和错误响应不消耗 token"
+    status: done
+
+  - action: "低优先级暂停恢复：token 不足时移除 export writable handler，并用 ae time event 延后恢复"
+    exit_signal: "time event 只恢复 write handler，不直接写 RDB；cleanup 会删除 pending resume timer；大 RDB 限速下载期间普通 PING/GET 能及时返回"
+    status: done
+
+  - action: "配置模板收口：补 extern/redis-8.6.3/redis.conf 和 config/redis.conf 的限速配置说明"
+    exit_signal: "两个 redis.conf 都包含 codis-rdb-export-rate-limit 0 默认配置，说明其只限制 RDB HTTP export body，不限制普通 Redis 命令"
+    status: done
+
+  - action: "Redis Tcl 回归：扩展 unit/codis_rdb_export 覆盖限速、运行期调整和普通命令线程模型不变"
+    exit_signal: "cd extern/redis-8.6.3 && ./runtest --single unit/codis_rdb_export 通过；必要时 ./runtest --single unit/protocol 通过"
+    status: done
+
+checks:
+  - item: "默认 codis-rdb-export-rate-limit 为 0，RDB HTTP export 不额外限速"
+    source: 功能契约
+    status: passed
+
+  - item: "codis-rdb-export-rate-limit 的正数语义是单 Redis Server 进程内所有 RDB export 连接共享的 body bytes/sec"
+    source: 名词契约
+    status: passed
+
+  - item: "codis-rdb-export-rate-limit 只作用于 RDB export body streaming，不限制 HTTP header、403/404/400 错误响应"
+    source: 名词契约
+    status: passed
+
+  - item: "普通 Redis 命令解析、执行和普通 reply 写出不检查、不消耗 RDB export token bucket"
+    source: 线程与优先级契约
+    status: passed
+
+  - item: "限速和低优先级实现不改变 Redis 原始命令执行线程模型：普通命令仍由主线程执行，IO thread 仍只做既有网络读写/解析辅助和移交"
+    source: 线程与优先级契约
+    status: passed
+
+  - item: "RDB export 在 IO thread 命中时仍只标记 CLIENT_IO_PENDING_RDB_EXPORT 并交回主线程"
+    source: 线程与优先级契约
+    status: passed
+
+  - item: "RDB export auth、open、streaming state 安装、token bucket 状态变更都只在主线程执行"
+    source: 线程与优先级契约
+    status: passed
+
+  - item: "不修改 aeProcessEvents 的全局事件调度语义，不新增 Redis fd 硬优先级队列"
+    source: 范围守护
+    status: passed
+
+  - item: "token 不足时 RDB export 会移除自身 writable handler，并通过 ae time event 恢复"
+    source: 编排骨架
+    status: passed
+
+  - item: "resume time event 只恢复 write handler，不直接读取或写出 RDB body"
+    source: 编排骨架
+    status: passed
+
+  - item: "RDB export cleanup 会关闭 fd、释放 state，并删除 pending resume time event"
+    source: 流程级约束
+    status: passed
+
+  - item: "rate-limit 为 0 时成功响应 header、Content-Length 和 body 与 2026-06-01 基线一致"
+    source: 兼容性守护
+    status: passed
+
+  - item: "多个 RDB export 连接共享总预算；实现不承诺连接间严格公平"
+    source: 范围守护
+    status: passed
+
+  - item: "CONFIG SET codis-rdb-export-rate-limit 正数会影响后续 body 写出，设置为 0 恢复不限速"
+    source: 功能契约
+    status: passed
+
+  - item: "HTTP path、method、X-Codis-RDB-Auth、RDB candidate 校验和禁止 SAVE/BGSAVE 的规则不变"
+    source: 兼容性守护
+    status: passed
+
+  - item: "普通 RESP GET /codis/rdb/latest 仍按 Redis 命令处理，不进入 HTTP export"
+    source: 兼容性守护
+    status: passed
+
+  - item: "diff 不新增 Redis 命令、command JSON、proxy/dashboard/coordinator API 或 Go 侧协议"
+    source: 范围守护
+    status: passed
+
+  - item: "extern/redis-8.6.3/redis.conf 与 config/redis.conf 包含限速配置默认值和边界说明"
+    source: 挂载点
+    status: passed
+
+  - item: "cd extern/redis-8.6.3 && ./runtest --single unit/codis_rdb_export 通过"
+    source: 验收场景
+    status: passed
+
+  - item: "make codis-server 通过"
+    source: 验收场景
+    status: passed

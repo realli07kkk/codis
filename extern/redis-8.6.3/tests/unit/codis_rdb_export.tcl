@@ -3,9 +3,12 @@ proc codis_rdb_http_request {request} {
     fconfigure $s -translation binary -encoding binary -blocking 0
     puts -nonewline $s $request
     flush $s
+    return [codis_rdb_http_read_all $s]
+}
 
+proc codis_rdb_http_read_all {s {timeout 5000}} {
     set response ""
-    set deadline [expr {[clock milliseconds] + 5000}]
+    set deadline [expr {[clock milliseconds] + $timeout}]
     while {1} {
         append response [read $s]
         if {[eof $s]} {
@@ -18,6 +21,24 @@ proc codis_rdb_http_request {request} {
         }
         after 10
     }
+}
+
+proc codis_rdb_http_open {request} {
+    set s [socket [srv 0 host] [srv 0 port]]
+    fconfigure $s -translation binary -encoding binary -blocking 0
+    puts -nonewline $s $request
+    flush $s
+    return $s
+}
+
+proc codis_rdb_export_raw_request {{auth secret} {path /codis/rdb/latest}} {
+    set request "GET $path HTTP/1.1\r\n"
+    append request "Host: localhost\r\n"
+    if {$auth ne ""} {
+        append request "X-Codis-RDB-Auth: $auth\r\n"
+    }
+    append request "\r\n"
+    return $request
 }
 
 proc codis_rdb_http_status {response} {
@@ -60,13 +81,7 @@ proc codis_rdb_write_file {path data} {
 }
 
 proc codis_rdb_export_request {{auth secret} {path /codis/rdb/latest}} {
-    set request "GET $path HTTP/1.1\r\n"
-    append request "Host: localhost\r\n"
-    if {$auth ne ""} {
-        append request "X-Codis-RDB-Auth: $auth\r\n"
-    }
-    append request "\r\n"
-    return [codis_rdb_http_request $request]
+    return [codis_rdb_http_request [codis_rdb_export_raw_request $auth $path]]
 }
 
 test {codis-rdb-export-enabled requires non-empty auth} {
@@ -79,6 +94,7 @@ start_server {tags {"codis_rdb_export network external:skip tls:skip"} overrides
     test {Codis RDB export defaults to disabled and keeps Redis protocol intact} {
         assert_equal {codis-rdb-export-enabled no} [r config get codis-rdb-export-enabled]
         assert_equal {codis-rdb-export-auth {}} [r config get codis-rdb-export-auth]
+        assert_equal {codis-rdb-export-rate-limit 0} [r config get codis-rdb-export-rate-limit]
 
         set response [codis_rdb_export_request secret]
         assert_equal 404 [codis_rdb_http_status $response]
@@ -91,6 +107,18 @@ start_server {tags {"codis_rdb_export network external:skip tls:skip"} overrides
         r write "GET codis-rdb-export-key\r\n"
         r flush
         assert_equal value [r read]
+    }
+
+    test {Codis RDB export rate limit config is modifiable} {
+        assert_equal OK [r config set codis-rdb-export-rate-limit 1mb]
+        assert_equal {codis-rdb-export-rate-limit 1048576} [r config get codis-rdb-export-rate-limit]
+
+        assert_equal OK [r config set codis-rdb-export-rate-limit 0]
+        assert_equal {codis-rdb-export-rate-limit 0} [r config get codis-rdb-export-rate-limit]
+
+        assert_error {*argument must be a memory value*} {
+            r config set codis-rdb-export-rate-limit -1
+        }
     }
 }
 
@@ -169,6 +197,85 @@ start_server {tags {"codis_rdb_export network external:skip tls:skip"} overrides
         assert_equal $before $after
 
         assert_equal PONG [r ping]
+    }
+
+    test {Codis RDB export rate limiting does not block normal commands} {
+        set dir [file normalize [dict get [srv 0 config] dir]]
+        set dump [file join $dir dump.rdb]
+        set body "REDIS0001[string repeat X [expr {160*1024 - 9}]]"
+
+        codis_rdb_write_file $dump $body
+        assert_equal OK [r config set codis-rdb-export-rate-limit 64kb]
+        assert_equal {codis-rdb-export-rate-limit 65536} [r config get codis-rdb-export-rate-limit]
+
+        set start [clock milliseconds]
+        set s [codis_rdb_http_open [codis_rdb_export_raw_request secret]]
+        after 100
+
+        assert_equal PONG [r ping]
+        r set codis-rdb-export-rate-limit-key value
+        assert_equal value [r get codis-rdb-export-rate-limit-key]
+
+        set response [codis_rdb_http_read_all $s 6000]
+        set elapsed [expr {[clock milliseconds] - $start}]
+        assert_equal 200 [codis_rdb_http_status $response]
+        assert_equal [string length $body] [codis_rdb_http_header $response Content-Length]
+        assert_equal $body [codis_rdb_http_body $response]
+        assert_morethan_equal $elapsed 1200
+
+        assert_equal OK [r config set codis-rdb-export-rate-limit 0]
+    }
+
+    test {Codis RDB export rate limit budget is shared by concurrent downloads} {
+        set dir [file normalize [dict get [srv 0 config] dir]]
+        set dump [file join $dir dump.rdb]
+        set body "REDIS0001[string repeat Y [expr {96*1024 - 9}]]"
+
+        codis_rdb_write_file $dump $body
+        assert_equal OK [r config set codis-rdb-export-rate-limit 64kb]
+
+        set request [codis_rdb_export_raw_request secret]
+        set start [clock milliseconds]
+        set s1 [codis_rdb_http_open $request]
+        set s2 [codis_rdb_http_open $request]
+
+        set response1 [codis_rdb_http_read_all $s1 7000]
+        set response2 [codis_rdb_http_read_all $s2 7000]
+        set elapsed [expr {[clock milliseconds] - $start}]
+
+        assert_equal 200 [codis_rdb_http_status $response1]
+        assert_equal 200 [codis_rdb_http_status $response2]
+        assert_equal $body [codis_rdb_http_body $response1]
+        assert_equal $body [codis_rdb_http_body $response2]
+        assert_morethan_equal $elapsed 1500
+
+        assert_equal OK [r config set codis-rdb-export-rate-limit 0]
+    }
+
+    test {Codis RDB export CONFIG SET decrease clamps active token budget} {
+        set dir [file normalize [dict get [srv 0 config] dir]]
+        set dump [file join $dir dump.rdb]
+        set warmup "REDIS0001[string repeat W [expr {1024 - 9}]]"
+        set body "REDIS0001[string repeat Z [expr {48*1024 - 9}]]"
+
+        assert_equal OK [r config set codis-rdb-export-rate-limit 1mb]
+        codis_rdb_write_file $dump $warmup
+        set warmup_response [codis_rdb_export_request secret]
+        assert_equal 200 [codis_rdb_http_status $warmup_response]
+        assert_equal $warmup [codis_rdb_http_body $warmup_response]
+
+        assert_equal OK [r config set codis-rdb-export-rate-limit 16kb]
+        codis_rdb_write_file $dump $body
+
+        set start [clock milliseconds]
+        set response [codis_rdb_export_request secret]
+        set elapsed [expr {[clock milliseconds] - $start}]
+
+        assert_equal 200 [codis_rdb_http_status $response]
+        assert_equal $body [codis_rdb_http_body $response]
+        assert_morethan_equal $elapsed 1200
+
+        assert_equal OK [r config set codis-rdb-export-rate-limit 0]
     }
 }
 

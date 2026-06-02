@@ -2885,6 +2885,8 @@ void initServer(void) {
     server.in_fork_child = CHILD_TYPE_NONE;
     server.rdb_pipe_read = -1;
     server.rdb_child_exit_pipe = -1;
+    server.codis_rdb_export_rate_tokens = 0;
+    server.codis_rdb_export_rate_last_ms = 0;
     server.main_thread_id = pthread_self();
     server.current_client = NULL;
     server.errors = raxNew();
