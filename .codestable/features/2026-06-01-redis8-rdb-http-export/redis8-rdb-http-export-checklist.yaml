@@ -1,0 +1,136 @@
+feature: 2026-06-01-redis8-rdb-http-export
+created: 2026-06-01
+
+steps:
+  - action: "配置与骨架：加入 codis-rdb-export-enabled / codis-rdb-export-auth 两个重启生效配置字段、启动校验、新 helper stub 和 Makefile object"
+    exit_signal: "make codis-server 编译通过；CONFIG GET 能看到默认关闭配置；auth 配置被标记为 sensitive；enabled yes + empty auth 启动失败"
+    status: done
+
+  - action: "HTTP 精确拦截：在 Redis parser 前接入 GET /codis/rdb/latest 的完整 header 检测、错误响应和连接关闭"
+    exit_signal: "关闭时返回 404；错误或缺失 auth 返回 403；普通 Redis PING、RESP GET key 和 inline GET key 仍正常"
+    status: done
+
+  - action: "RDB candidate 选择：实现当前 dbfilename 的 snapshot、文件身份校验和 RDB magic 校验"
+    exit_signal: "只导出 basename 等于 server.rdb_filename 的普通 RDB 文件；不匹配 dbfilename、symlink、非 RDB 内容和非普通文件都不会被传输"
+    status: done
+
+  - action: "文件 streaming：实现 HTTP header + chunked fd streaming，传输结束或中断后清理状态"
+    exit_signal: "下载 body 与目标 RDB 文件 byte-for-byte 一致；大文件不会进入 Redis reply buffer；客户端中断释放 fd"
+    status: done
+
+  - action: "配置模板与文档收口：补 Redis config 注释和默认 config/redis.conf 生成检查"
+    exit_signal: "make codis-server 刷新的配置仍包含 codis-enabled yes，并包含两个新配置的默认关闭说明"
+    status: done
+
+  - action: "Redis Tcl 回归：新增或扩展 Codis Tcl 测试覆盖成功、错误、双重校验和不生成快照"
+    exit_signal: "cd extern/redis-8.6.3 && ./runtest --single unit/codis_rdb_export 通过；必要时 Codis 相关 Tcl suite 通过"
+    status: done
+
+checks:
+  - item: "默认配置下 HTTP RDB export 不可用，Redis 协议行为不变"
+    source: 范围守护
+    status: passed
+
+  - item: "接口只接受精确 GET /codis/rdb/latest HTTP/1.0 或 HTTP/1.1"
+    source: 名词契约
+    status: passed
+
+  - item: "认证只走 X-Codis-RDB-Auth header，不从 URL path 或 query string 读取密钥"
+    source: 名词契约
+    status: passed
+
+  - item: "codis-rdb-export-enabled 与 codis-rdb-export-auth 都是重启生效配置"
+    source: 名词契约
+    status: passed
+
+  - item: "enabled yes 且 auth 为空时 Redis 启动失败"
+    source: 验收场景
+    status: passed
+
+  - item: "错误或缺失 auth 返回 403，并且不扫描、不打开 RDB 文件"
+    source: 流程级约束
+    status: passed
+
+  - item: "导出目标限定为当前 server.rdb_filename 对应的 basename"
+    source: 名词契约
+    status: passed
+
+  - item: "其他 .rdb 文件即使 mtime 更新，也不会替代 dbfilename 成为导出目标"
+    source: 范围守护
+    status: passed
+
+  - item: "candidate 文件必须通过 lstat 普通文件校验，拒绝 symlink、目录、device 和其他文件类型"
+    source: 名词契约
+    status: passed
+
+  - item: "open 后 fstat 的 device、inode、mode 必须与 lstat 一致"
+    source: 名词契约
+    status: passed
+
+  - item: "candidate 文件头必须符合 RDB REDIS magic"
+    source: 名词契约
+    status: passed
+
+  - item: "无有效 dbfilename RDB 时返回 404，不执行 SAVE 或 BGSAVE"
+    source: 验收场景
+    status: passed
+
+  - item: "成功响应包含 Content-Length、Content-Disposition、X-Codis-RDB-Mtime 和 Connection: close"
+    source: 名词契约
+    status: passed
+
+  - item: "成功下载 body 与已打开的 dbfilename RDB 文件内容完全一致"
+    source: 验收场景
+    status: passed
+
+  - item: "文件传输按 fd chunk streaming，不把完整 RDB 放进 Redis reply buffer"
+    source: 流程级约束
+    status: passed
+
+  - item: "客户端中断、读错误或写错误会释放 fd 和 export state"
+    source: 流程级约束
+    status: passed
+
+  - item: "进入 HTTP export 的连接不再回到 RESP parser"
+    source: 编排骨架
+    status: passed
+
+  - item: "普通 RESP multibulk、Redis inline GET key、Codis slot/迁移命令不被 HTTP hook 误拦截"
+    source: 验收场景
+    status: passed
+
+  - item: "io-threads > 1 时 HTTP export 只在主线程鉴权、读取配置、打开文件和安装 streaming state"
+    source: 流程级约束
+    status: passed
+
+  - item: "非精确 GET /codis/rdb/latest HTTP/1.0|1.1 的 HTTP-like 请求保留 Redis 既有协议/安全处理"
+    source: 兼容性守护
+    status: passed
+
+  - item: "Diff 不新增 Redis 命令、command JSON、proxy allow-list、dashboard/FE 页面、coordinator schema 或 Go 侧 API"
+    source: 范围守护
+    status: passed
+
+  - item: "export helper 不调用 rdbSave、rdbSaveBackground、saveCommand 或 bgsaveCommand"
+    source: 范围守护
+    status: passed
+
+  - item: "一次下载不改变 lastsave、dirty、saveparams、AOF 或 replication 状态"
+    source: 流程级约束
+    status: passed
+
+  - item: "可审查的 Redis src/Makefile 将 codis_rdb_export.c 纳入 Redis Server object"
+    source: 挂载点
+    status: passed
+
+  - item: "config/redis.conf 与 extern/redis-8.6.3/redis.conf 包含默认关闭配置说明"
+    source: 挂载点
+    status: passed
+
+  - item: "cd extern/redis-8.6.3 && ./runtest --single unit/codis_rdb_export 通过"
+    source: 验收场景
+    status: passed
+
+  - item: "make codis-server 通过"
+    source: 验收场景
+    status: passed

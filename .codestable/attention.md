@@ -13,6 +13,7 @@
 - 多平台发布产物走显式 `make build-platforms` 或 `make release-platforms`；默认 `make` 仍是 host build，非 host full artifact 需要 C/cgo cross toolchain。
 - 不要顺手现代化 Go 依赖；依赖版本偏离必须有可复现的现代 Go 编译原因。
 - `cgo_jemalloc` 的 module mode 来源现在走 `go.mod` 的 `replace github.com/spinlock/jemalloc-go => ./third_party/jemalloc-go`；后续相关修改应改 `third_party/jemalloc-go`，不是旧 `vendor/github.com/spinlock/jemalloc-go`。
+- 涉及 Redis 8 源码 object 接入时，相关 Redis Makefile 必须是 tracked/unignored 构建输入；不要在构建时 patch ignored 本地 Makefile。
 
 ### 运行与本地起服务
 

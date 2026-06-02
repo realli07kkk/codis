@@ -455,6 +455,7 @@ extern int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT];
 #define CLIENT_IO_REUSABLE_QUERYBUFFER (1ULL<<3) /* The client is using the reusable query buffer. */
 #define CLIENT_IO_CLOSE_ASAP (1ULL<<4) /* Close this client ASAP in IO thread. */
 #define CLIENT_IO_PENDING_CRON (1ULL<<5)  /* The client is pending cron job, to be processed in main thread. */
+#define CLIENT_IO_PENDING_RDB_EXPORT (1ULL<<6) /* Codis RDB HTTP export must be processed in main thread. */
 
 /* Definitions for client read errors. These error codes are used to indicate
  * various issues that can occur while reading or parsing data from a client. */
@@ -1564,6 +1565,7 @@ typedef struct client {
     sds peerid;             /* Cached peer ID. */
     long slotsmgrt_flags;   /* Codis async migration client state flags. */
     list *slotsmgrt_fenceq; /* Commands fenced while async migration is active. */
+    void *codis_rdb_export_state; /* Codis RDB HTTP export state. */
     sds sockname;           /* Cached connection target address. */
     listNode *client_list_node; /* list node in client list */
     listNode *io_thread_client_list_node; /* list node in io thread client list */
@@ -2252,6 +2254,8 @@ struct redisServer {
     struct saveparam *saveparams;   /* Save points array for RDB */
     int saveparamslen;              /* Number of saving points */
     char *rdb_filename;             /* Name of RDB file */
+    int codis_rdb_export_enabled;   /* Is Codis RDB HTTP export enabled? */
+    char *codis_rdb_export_auth;    /* Auth token for Codis RDB HTTP export */
     int rdb_compression;            /* Use compression in RDB? */
     int rdb_checksum;               /* Use RDB checksum? */
     int rdb_del_sync_files;         /* Remove RDB files used only for SYNC if
@@ -3157,6 +3161,11 @@ int isClientReadErrorFatal(client *c);
 int processInputBuffer(client *c);
 void acceptCommonHandler(connection *conn, int flags, char *ip);
 void readQueryFromClient(connection *conn);
+#define CODIS_RDB_EXPORT_NOT_HTTP 0
+#define CODIS_RDB_EXPORT_WAIT_MORE 1
+#define CODIS_RDB_EXPORT_HANDLED 2
+int codisRdbExportTryHandle(client *c);
+void codisRdbExportCleanupClient(client *c);
 int prepareClientToWrite(client *c);
 void addReplyNull(client *c);
 void addReplyNullArray(client *c);

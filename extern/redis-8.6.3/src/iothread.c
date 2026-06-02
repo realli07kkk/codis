@@ -239,6 +239,12 @@ void fetchClientFromIOThread(client *c) {
  *   that may overlap with CLIENT_MASTER/SLAVE - CLOSE_ASAP, MONITOR,
  *   (UN)BLOCKED, TRACKING. */
 int isClientMustHandledByMainThread(client *c) {
+    if (c->codis_rdb_export_state != NULL ||
+        c->io_flags & CLIENT_IO_PENDING_RDB_EXPORT)
+    {
+        return 1;
+    }
+
     if (c->flags & (CLIENT_CLOSE_ASAP |
                     CLIENT_PUBSUB | CLIENT_MONITOR | CLIENT_BLOCKED |
                     CLIENT_UNBLOCKED | CLIENT_TRACKING | CLIENT_LUA_DEBUG |
@@ -603,6 +609,19 @@ int processClientsFromIOThread(IOThread *t) {
         /* Update some client's members while we are in main thread so we avoid
          * data races. */
         updateClientDataFromIOThread(c);
+
+        /* Codis RDB HTTP export reads mutable server config and owns a file
+         * streaming state, so it must run on the main thread. */
+        if (!isClientReadErrorFatal(c) && c->io_flags & CLIENT_IO_PENDING_RDB_EXPORT) {
+            c->io_flags &= ~CLIENT_IO_PENDING_RDB_EXPORT;
+            keepClientInMainThread(c);
+            if (codisRdbExportTryHandle(c) == CODIS_RDB_EXPORT_NOT_HTTP &&
+                processInputBuffer(c) == C_ERR)
+            {
+                continue;
+            }
+            continue;
+        }
 
         /* Check if we need to run a cron job for the client */
         if (runClientCronFromIOThread(c)) continue;

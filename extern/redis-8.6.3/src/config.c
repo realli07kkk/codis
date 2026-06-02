@@ -631,6 +631,14 @@ void loadServerConfigFromString(char *config) {
         goto loaderr;
     }
 
+    if (server.codis_rdb_export_enabled &&
+        (server.codis_rdb_export_auth == NULL ||
+         server.codis_rdb_export_auth[0] == '\0'))
+    {
+        err = "codis-rdb-export-auth must be set when codis-rdb-export-enabled is yes";
+        goto loaderr;
+    }
+
     /* in case cluster mode is enabled dbnum must be 1 */
     if (server.cluster_enabled && server.dbnum > 1) {
         serverLog(LL_WARNING, "WARNING: Changing databases number from %d to 1 since we are in cluster mode", server.dbnum);
@@ -3159,6 +3167,7 @@ standardConfig static_configs[] = {
     createBoolConfig("syslog-enabled", NULL, IMMUTABLE_CONFIG, server.syslog_enabled, 0, NULL, NULL),
     createBoolConfig("cluster-enabled", NULL, IMMUTABLE_CONFIG, server.cluster_enabled, 0, NULL, NULL),
     createBoolConfig("codis-enabled", NULL, IMMUTABLE_CONFIG, server.codis_enabled, 0, NULL, NULL),
+    createBoolConfig("codis-rdb-export-enabled", NULL, IMMUTABLE_CONFIG, server.codis_rdb_export_enabled, 0, NULL, NULL),
     createBoolConfig("appendonly", NULL, MODIFIABLE_CONFIG, server.aof_enabled, 0, NULL, updateAppendonly),
     createBoolConfig("cluster-allow-reads-when-down", NULL, MODIFIABLE_CONFIG, server.cluster_allow_reads_when_down, 0, NULL, NULL),
     createBoolConfig("cluster-allow-pubsubshard-when-down", NULL, MODIFIABLE_CONFIG, server.cluster_allow_pubsubshard_when_down, 1, NULL, NULL),
@@ -3189,6 +3198,7 @@ standardConfig static_configs[] = {
     createStringConfig("cluster-announce-human-nodename", NULL, MODIFIABLE_CONFIG, EMPTY_STRING_IS_NULL, server.cluster_announce_human_nodename, NULL, isValidAnnouncedNodename, updateClusterHumanNodename),
     createStringConfig("syslog-ident", NULL, IMMUTABLE_CONFIG, ALLOW_EMPTY_STRING, server.syslog_ident, "redis", NULL, NULL),
     createStringConfig("dbfilename", NULL, MODIFIABLE_CONFIG | PROTECTED_CONFIG, ALLOW_EMPTY_STRING, server.rdb_filename, "dump.rdb", isValidDBfilename, NULL),
+    createStringConfig("codis-rdb-export-auth", NULL, IMMUTABLE_CONFIG | SENSITIVE_CONFIG, EMPTY_STRING_IS_NULL, server.codis_rdb_export_auth, NULL, NULL, NULL),
     createStringConfig("appendfilename", NULL, IMMUTABLE_CONFIG, ALLOW_EMPTY_STRING, server.aof_filename, "appendonly.aof", isValidAOFfilename, NULL),
     createStringConfig("appenddirname", NULL, IMMUTABLE_CONFIG, ALLOW_EMPTY_STRING, server.aof_dirname, "appendonlydir", isValidAOFdirname, NULL),
     createStringConfig("server-cpulist", "server_cpulist", IMMUTABLE_CONFIG, EMPTY_STRING_IS_NULL, server.server_cpulist, NULL, NULL, NULL),

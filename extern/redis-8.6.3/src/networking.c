@@ -225,6 +225,7 @@ client *createClient(connection *conn) {
     c->peerid = NULL;
     c->slotsmgrt_flags = 0;
     c->slotsmgrt_fenceq = NULL;
+    c->codis_rdb_export_state = NULL;
     c->sockname = NULL;
     c->client_list_node = NULL;
     c->io_thread_client_list_node = NULL;
@@ -2100,6 +2101,7 @@ void freeClient(client *c) {
 
     asmCallbackOnFreeClient(c);
     slotsmgrtAsyncUnlinkClient(c);
+    codisRdbExportCleanupClient(c);
 
     /* Notify module system that this client auth status changed. */
     moduleNotifyUserChanged(c);
@@ -3851,6 +3853,10 @@ void readQueryFromClient(connection *conn) {
         atomicIncr(server.stat_client_qbuf_limit_disconnections, 1);
         goto done;
     }
+
+    int codis_rdb_export_status = codisRdbExportTryHandle(c);
+    if (codis_rdb_export_status != CODIS_RDB_EXPORT_NOT_HTTP)
+        goto done;
 
     /* There is more data in the client input buffer, continue parsing it
      * and check if there is a full command to execute. */

@@ -15,4 +15,6 @@
 /config/sentinel8.conf
 
 makefile
+!extern/redis-8.6.3/Makefile
+!extern/redis-8.6.3/src/Makefile
 redis-6.2.22/
