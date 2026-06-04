@@ -125,6 +125,75 @@ func TestClientRedis8SetMasterKeepsSlaveofAlias(t *testing.T) {
 	if !sawKillNormal {
 		t.Fatalf("CLIENT KILL TYPE normal not observed: %v", s.Commands())
 	}
+	if !redisCommandExists(s.Commands(), []string{"CONFIG", "SET", "masteruser", ""}) {
+		t.Fatalf("CONFIG SET masteruser clear not observed: %v", s.Commands())
+	}
+}
+
+func TestClientRedis8SetMasterWritesMasterUserForNamedAuth(t *testing.T) {
+	s := redistest.NewServer(t, func(args []string) *redistest.Resp {
+		switch strings.ToUpper(args[0]) {
+		case "AUTH":
+			if len(args) != 3 || args[1] != "svc" || args[2] != "secret" {
+				t.Fatalf("unexpected auth command: %v", args)
+			}
+			return redistest.OK()
+		case "MULTI":
+			return redistest.OK()
+		case "CONFIG", "SLAVEOF", "CLIENT":
+			return redistest.String("QUEUED")
+		case "EXEC":
+			return redistest.Array(redistest.OK(), redistest.OK(), redistest.OK(), redistest.OK(), redistest.OK())
+		}
+		t.Fatalf("unexpected command: %v", args)
+		return nil
+	})
+
+	c, err := NewClientWithAuthIdentity(s.Addr(), RedisAuthIdentity{Username: "svc", Password: "secret"}, time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+
+	if err := c.SetMaster("127.0.0.1:6380"); err != nil {
+		t.Fatal(err)
+	}
+	if !redisCommandExists(s.Commands(), []string{"CONFIG", "SET", "masteruser", "svc"}) {
+		t.Fatalf("CONFIG SET masteruser svc not observed: %v", s.Commands())
+	}
+	if !redisCommandExists(s.Commands(), []string{"CONFIG", "SET", "masterauth", "secret"}) {
+		t.Fatalf("CONFIG SET masterauth secret not observed: %v", s.Commands())
+	}
+}
+
+func TestClientSetMasterIgnoresUnsupportedMasterUserClear(t *testing.T) {
+	s := redistest.NewServer(t, func(args []string) *redistest.Resp {
+		switch strings.ToUpper(args[0]) {
+		case "CONFIG":
+			if len(args) == 4 && strings.ToUpper(args[1]) == "SET" && args[2] == "masteruser" {
+				return redistest.Error("ERR Unsupported CONFIG parameter: masteruser")
+			}
+			return redistest.String("QUEUED")
+		case "MULTI":
+			return redistest.OK()
+		case "SLAVEOF", "CLIENT":
+			return redistest.String("QUEUED")
+		case "EXEC":
+			return redistest.Array(redistest.OK(), redistest.OK(), redistest.OK(), redistest.OK())
+		}
+		t.Fatalf("unexpected command: %v", args)
+		return nil
+	})
+
+	c, err := NewClientNoAuth(s.Addr(), time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+
+	if err := c.SetMaster("127.0.0.1:6380"); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func TestClientRedis8SelectTracksDatabase(t *testing.T) {
@@ -153,6 +222,25 @@ func TestClientRedis8SelectTracksDatabase(t *testing.T) {
 	if n := len(s.Commands()); n != 1 {
 		t.Fatalf("SELECT should be sent once, got %d commands: %v", n, s.Commands())
 	}
+}
+
+func redisCommandExists(commands [][]string, want []string) bool {
+	for _, cmd := range commands {
+		if len(cmd) != len(want) {
+			continue
+		}
+		match := true
+		for i := range cmd {
+			if cmd[i] != want[i] {
+				match = false
+				break
+			}
+		}
+		if match {
+			return true
+		}
+	}
+	return false
 }
 
 func TestClientRedis8SlotsInfoStrictShape(t *testing.T) {
@@ -249,4 +337,28 @@ func TestClientRedis8AuthDefaultUserPath(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer c.Close()
+}
+
+func TestClientRedis8AuthNamedUserPath(t *testing.T) {
+	s := redistest.NewServer(t, func(args []string) *redistest.Resp {
+		if strings.ToUpper(args[0]) != "AUTH" || len(args) != 3 || args[1] != "svc" || args[2] != "secret" {
+			t.Fatalf("unexpected command: %v", args)
+		}
+		return redistest.OK()
+	})
+
+	c, err := NewClientWithAuthIdentity(s.Addr(), RedisAuthIdentity{
+		Username: "svc",
+		Password: "secret",
+	}, time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+}
+
+func TestClientRejectsAuthUsernameWithoutPassword(t *testing.T) {
+	if _, err := NewClientWithAuthIdentity("127.0.0.1:0", RedisAuthIdentity{Username: "svc"}, time.Second); err == nil {
+		t.Fatal("expected invalid redis auth identity")
+	}
 }

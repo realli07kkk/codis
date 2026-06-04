@@ -100,7 +100,7 @@ default-configs: codis-deps
 	@$(HOST_CONFIG_BIN)/codis-dashboard --default-config > config/dashboard.toml
 	go build -tags "cgo_jemalloc" $(VERSION_LDFLAGS) -o $(HOST_CONFIG_BIN)/codis-proxy ./cmd/proxy
 	@$(HOST_CONFIG_BIN)/codis-proxy --default-config > config/proxy.toml
-	@awk '1; /^[[:space:]]*databases[[:space:]]+[0-9]+([[:space:]]*#.*)?$$/ && !injected { print ""; print "# Enable Codis 1024-slot mode for the packaged Codis Server."; print "codis-enabled yes"; injected=1 }' $(REDIS8_DIR)/redis.conf | sed -e 's/[[:blank:]]*$$//' > config/redis.conf
+	@awk '1; /^[[:space:]]*databases[[:space:]]+[0-9]+([[:space:]]*#.*)?$$/ && !injected { print ""; print "# Enable Codis 1024-slot mode for the packaged Codis Server."; print "codis-enabled yes"; print ""; print "# Codis Redis 8 slot migration auth. Empty values keep using requirepass for"; print "# backward-compatible migration auth. Set both fields to use Redis ACL named user."; print "codis-migration-auth-user \"\""; print "codis-migration-auth-pass \"\""; injected=1 }' $(REDIS8_DIR)/redis.conf | sed -e 's/[[:blank:]]*$$//' > config/redis.conf
 	@grep -q '^codis-enabled yes$$' config/redis.conf
 	@sed -e "s/^sentinel/# sentinel/g" -e 's/[[:blank:]]*$$//' $(REDIS8_DIR)/sentinel.conf > config/sentinel.conf
 	@awk '1; /^protected-mode no$$/ { print ""; print "# Codis packaging note: Docker and Kubernetes examples rely on network-layer"; print "# isolation when Sentinel protected mode is disabled. Bare-metal deployments"; print "# should restrict exposure with firewall rules or override this setting." }' config/sentinel.conf > config/sentinel.conf.tmp
@@ -194,7 +194,7 @@ codis-server:
 	@cp -f $(REDIS8_DIR)/src/redis-benchmark bin/
 	@cp -f $(REDIS8_DIR)/src/redis-cli bin/
 	@cp -f $(REDIS8_DIR)/src/redis-sentinel bin/
-	@awk '1; /^[[:space:]]*databases[[:space:]]+[0-9]+([[:space:]]*#.*)?$$/ && !injected { print ""; print "# Enable Codis 1024-slot mode for the packaged Codis Server."; print "codis-enabled yes"; injected=1 }' $(REDIS8_DIR)/redis.conf | sed -e 's/[[:blank:]]*$$//' > config/redis.conf
+	@awk '1; /^[[:space:]]*databases[[:space:]]+[0-9]+([[:space:]]*#.*)?$$/ && !injected { print ""; print "# Enable Codis 1024-slot mode for the packaged Codis Server."; print "codis-enabled yes"; print ""; print "# Codis Redis 8 slot migration auth. Empty values keep using requirepass for"; print "# backward-compatible migration auth. Set both fields to use Redis ACL named user."; print "codis-migration-auth-user \"\""; print "codis-migration-auth-pass \"\""; injected=1 }' $(REDIS8_DIR)/redis.conf | sed -e 's/[[:blank:]]*$$//' > config/redis.conf
 	@grep -q '^codis-enabled yes$$' config/redis.conf
 	@sed -e "s/^sentinel/# sentinel/g" -e 's/[[:blank:]]*$$//' $(REDIS8_DIR)/sentinel.conf > config/sentinel.conf
 	@awk '1; /^protected-mode no$$/ { print ""; print "# Codis packaging note: Docker and Kubernetes examples rely on network-layer"; print "# isolation when Sentinel protected mode is disabled. Bare-metal deployments"; print "# should restrict exposure with firewall rules or override this setting." }' config/sentinel.conf > config/sentinel.conf.tmp

@@ -21,6 +21,13 @@ session_auth_bruteforce_enabled = false
 session_auth_bruteforce_max_failures = 5
 session_auth_bruteforce_lock_duration = "60s"
 
+# Enable Codis-managed Redis 8 ACL for client sessions. Disabled by default.
+codis_acl_enabled = false
+
+# Set backend service auth. Empty values keep using product_auth.
+backend_auth_username = ""
+backend_auth_password = ""
+
 # Set bind address for admin(rpc), tcp only.
 admin_addr = "0.0.0.0:11080"
 

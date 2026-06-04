@@ -58,6 +58,10 @@ func SentinelPath(product string) string {
 	return filepath.Join(CodisDir, product, "sentinel")
 }
 
+func ACLPath(product string) string {
+	return filepath.Join(CodisDir, product, "acl")
+}
+
 func LoadTopom(client Client, product string, must bool) (*Topom, error) {
 	b, err := client.Read(LockPath(product), must)
 	if err != nil || b == nil {
@@ -115,6 +119,10 @@ func (s *Store) SentinelPath() string {
 	return SentinelPath(s.product)
 }
 
+func (s *Store) ACLPath() string {
+	return ACLPath(s.product)
+}
+
 func (s *Store) Acquire(topom *Topom) error {
 	return s.client.Create(s.LockPath(), topom.Encode())
 }
@@ -125,6 +133,22 @@ func (s *Store) Release() error {
 
 func (s *Store) LoadTopom(must bool) (*Topom, error) {
 	return LoadTopom(s.client, s.product, must)
+}
+
+func (s *Store) LoadACL(must bool) (*ACL, error) {
+	b, err := s.client.Read(s.ACLPath(), must)
+	if err != nil || b == nil {
+		return nil, err
+	}
+	acl := &ACL{}
+	if err := jsonDecode(acl, b); err != nil {
+		return nil, err
+	}
+	return acl, nil
+}
+
+func (s *Store) UpdateACL(acl *ACL) error {
+	return s.client.Update(s.ACLPath(), acl.Encode())
 }
 
 func (s *Store) SlotMappings() ([]*SlotMapping, error) {

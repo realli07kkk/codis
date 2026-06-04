@@ -20,6 +20,10 @@ coordinator_addr = "/tmp/codis"
 product_name = "codis-demo"
 product_auth = ""
 
+# Set backend service auth. Empty values keep using product_auth.
+backend_auth_username = ""
+backend_auth_password = ""
+
 # Set bind address for admin(rpc), tcp only.
 admin_addr = "0.0.0.0:18080"
 

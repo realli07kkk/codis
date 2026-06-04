@@ -1,0 +1,165 @@
+feature: 2026-06-04-codis-acl
+created: 2026-06-04
+
+steps:
+  - action: "微重构：按 design 第 2.5 节拆出 proxy session auth、ACL runtime、topom ACL API 和 FE ACL controller 承载点"
+    exit_signal: "旧 session_auth 行为测试保持不变，index.html 加载 acl.js 后 FE 页面仍能正常加载"
+    status: done
+  - action: "名词骨架：加入 models.ACL、Store ACL 路径、ACL 配置字段和结构化 Redis auth identity"
+    exit_signal: "ACL 模型可 encode/decode，旧配置默认值和 product_auth/session_auth 行为不变"
+    status: done
+  - action: "控制面：实现 topom ACL API、codis-admin ACL 命令、FE ACL 页面和 Redis Server ACL SETUSER 同步编排"
+    exit_signal: "提交一份 ACL 后，所有 fake Redis 或 Redis 8 节点收到期望 ACL SETUSER，FE 能展示新 revision"
+    status: done
+  - action: "Proxy 认证：实现 AUTH [username] password、ACL snapshot 安装、revision stale 和 brute-force guard 接入"
+    exit_signal: "客户端能按多账号认证成功或失败，ACL 未启用时旧 AUTH 语义不变"
+    status: done
+  - action: "后端执行：拆分 service pool 与 user-bound pool，普通稳定命令走用户身份，内部命令走服务身份"
+    exit_signal: "允许用户的命令由 backend 返回成功，未授权命令返回 NOPERM，迁移包装不要求业务用户有内部权限"
+    status: done
+  - action: "Redis 8 migration auth：补齐 Redis 8 Codis Server 同步/异步迁移 username/password 认证配置"
+    exit_signal: "关闭 default user、只保留 backend service user 时，Redis 8 到 Redis 8 slot migration 成功"
+    status: done
+  - action: "验收覆盖：补齐正常、边界、失败、revision 切换和回滚场景"
+    exit_signal: "目标 proxy/topom package 测试和 Redis 8 ACL smoke 通过"
+    status: done
+
+checks:
+  - item: "ACL 默认关闭时，旧 session_auth 配置下 AUTH、错误密码、未认证命令返回与当前行为一致"
+    source: 验收场景
+    status: passed
+  - item: "topom/admin 提交 app_ro on #hash ~app:* +@read 后，所有 online Redis 8 server 收到等价 ACL SETUSER，所有 online proxy 安装同一 revision"
+    source: 验收场景
+    status: passed
+  - item: "FE 选中 product 后，ACL 面板展示当前 enabled、revision、sync status 和用户列表"
+    source: 验收场景
+    status: passed
+  - item: "FE 新增 app_ro、输入新密码和 rules 后提交，dashboard/topom 返回新 revision，页面刷新后显示用户、enabled、password count 和 rules"
+    source: 验收场景
+    status: passed
+  - item: "FE 禁用用户或修改 rules 后提交成功，页面显示新 revision，用户后续认证/访问行为按新 rules 生效"
+    source: 验收场景
+    status: passed
+  - item: "FE 提交非法用户名、空 rules 或覆盖服务用户时，展示 dashboard/topom 错误并保留可编辑表单"
+    source: 验收场景
+    status: passed
+  - item: "客户端 AUTH app_ro correct-password 后返回 OK，ACL WHOAMI 返回 app_ro"
+    source: 验收场景
+    status: passed
+  - item: "未知用户、禁用用户、错误密码返回 Redis authentication error，不写入 session identity"
+    source: 验收场景
+    status: passed
+  - item: "AUTH password 按 default 用户校验；default 未配置时返回认证失败"
+    source: 验收场景
+    status: passed
+  - item: "app_ro 对 GET app:k 成功，访问不同 slot 中符合 app:* 的 key 行为一致"
+    source: 验收场景
+    status: passed
+  - item: "app_ro 对 SET app:k v 返回 NOPERM 或同等权限错误"
+    source: 验收场景
+    status: passed
+  - item: "app_ro 对 GET other:k 返回 NOPERM，即使 key 所在 slot 后端不同也一致"
+    source: 验收场景
+    status: passed
+  - item: "Hot key cache 命中前仍做 ACL 判断，无权限用户不能从 proxy 本地 cache 读到 value"
+    source: 验收场景
+    status: passed
+  - item: "slot migrating 时，允许用户执行被 ACL 允许的原始命令成功，业务用户不需要 SLOTSMGRT-EXEC-WRAPPER 权限"
+    source: 验收场景
+    status: passed
+  - item: "关闭 default user、只保留 backend service user 时，Redis 8 到 Redis 8 同步和半异步迁移成功"
+    source: 验收场景
+    status: passed
+  - item: "允许 CLIENT LIST 的用户能拿到 proxy 本地 client list；未允许用户得到 NOPERM"
+    source: 验收场景
+    status: passed
+  - item: "提交新 ACL revision 后旧 user-bound backend connection 被关闭，旧已认证 session 下一条非 AUTH 命令返回 NOAUTH 并要求重新认证"
+    source: 验收场景
+    status: passed
+  - item: "任一 Redis Server ACL SETUSER 失败时，topom API 返回错误，proxy 继续使用旧 revision"
+    source: 验收场景
+    status: passed
+  - item: "新 proxy reinit 时先收到当前 ACL snapshot，再开始接收客户端 ACL 认证"
+    source: 验收场景
+    status: passed
+  - item: "ACL 模型包含 revision、enabled、users、updated_at；ACLUser 包含 name、enabled、password_hashes、rules"
+    source: 名词契约
+    status: passed
+  - item: "Store 提供 ACLPath、LoadACL、UpdateACL 契约，路径为 /codis3/{product}/acl"
+    source: 名词契约
+    status: passed
+  - item: "Proxy ACL snapshot 和 SessionACLIdentity 支持 username、credential_hash、password、revision、stale"
+    source: 名词契约
+    status: passed
+  - item: "RedisAuthIdentity 支持 username/password；backend_auth_username 只配置 username 时配置校验失败"
+    source: 名词契约
+    status: passed
+  - item: "后端连接池区分 service pool 与 user pool，user pool key 包含 addr、db、username、credential_hash、acl_revision"
+    source: 名词契约
+    status: passed
+  - item: "Redis 8 Codis Server 支持 codis-migration-auth-user 和 codis-migration-auth-pass"
+    source: 名词契约
+    status: passed
+  - item: "FE ACLView、ACLUserView、ACLUserEdit 与 coordinator 内部 ACL 模型分离，FE view 不包含明文密码"
+    source: 名词契约
+    status: passed
+  - item: "ACL 管理流程必须先同步所有 Redis Server 成功，再写 coordinator revision，再下发 proxy"
+    source: 编排骨架
+    status: passed
+  - item: "FE 只调用 dashboard/topom ACL API，提交成功后重新 GET ACL view，提交失败时展示 topom 错误"
+    source: 编排骨架
+    status: passed
+  - item: "ACL 启用后 AUTH password 映射 default，AUTH username password 映射指定用户"
+    source: 编排骨架
+    status: passed
+  - item: "稳定 slot 普通命令走 user-bound backend connection；迁移预处理、包装、本地命令和 topom 运维动作走 service pool"
+    source: 编排骨架
+    status: passed
+  - item: "proxy 本地命令和迁移包装命令在服务账号执行前对原始客户端命令做 ACL DRYRUN"
+    source: 流程级约束
+    status: passed
+  - item: "ACL revision 安装采用 copy-on-write；安装新 revision 时关闭旧 user pools，不阻塞已完成响应写回"
+    source: 流程级约束
+    status: passed
+  - item: "明文密码不进入 coordinator、日志、stats、API 响应；FE new_password 提交成功、取消编辑或切换 product 后清空"
+    source: 流程级约束
+    status: passed
+  - item: "Coordinator 元数据新增 /codis3/{product}/acl"
+    source: 挂载点
+    status: passed
+  - item: "Dashboard/topom API 新增 /api/topom/acl/:xauth"
+    source: 挂载点
+    status: passed
+  - item: "Codis FE 在 index.html 新增 ACL 配置面板并加载 cmd/fe/assets/acl.js"
+    source: 挂载点
+    status: passed
+  - item: "Proxy admin API 新增 /api/proxy/acl/:xauth"
+    source: 挂载点
+    status: passed
+  - item: "Proxy 配置新增 codis_acl_enabled、backend_auth_username、backend_auth_password"
+    source: 挂载点
+    status: passed
+  - item: "Redis 8 Codis Server 配置新增 codis-migration-auth-user、codis-migration-auth-pass"
+    source: 挂载点
+    status: passed
+  - item: "codis-admin CLI 新增 ACL 管理命令"
+    source: 挂载点
+    status: passed
+  - item: "普通客户端通过 proxy 执行 ACL SETUSER 不应成功"
+    source: 范围守护
+    status: passed
+  - item: "ACL 开启不应让 SUBSCRIBE、PSUBSCRIBE、MONITOR、CONFIG 等当前 proxy unsupported/dangerous 命令绕过原有拒绝边界"
+    source: 范围守护
+    status: passed
+  - item: "coordinator 中不应存储客户端明文密码"
+    source: 范围守护
+    status: passed
+  - item: "proxy stats/API/FE 响应不应包含客户端明文密码"
+    source: 范围守护
+    status: passed
+  - item: "FE 页面不应直接调用 proxy admin ACL API 或 Redis server ACL 命令"
+    source: 范围守护
+    status: passed
+  - item: "Redis 3 fallback 不应被要求通过 ACL smoke"
+    source: 范围守护
+    status: passed

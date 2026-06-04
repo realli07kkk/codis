@@ -2259,6 +2259,8 @@ struct redisServer {
     size_t codis_rdb_export_rate_limit;      /* RDB HTTP export body bytes/sec, 0 means unlimited. */
     long long codis_rdb_export_rate_tokens;  /* Available RDB HTTP export body bytes. */
     mstime_t codis_rdb_export_rate_last_ms;  /* Last RDB HTTP export token refill time. */
+    char *codis_migration_auth_user;         /* AUTH username used by Codis slot migration. */
+    char *codis_migration_auth_pass;         /* AUTH password used by Codis slot migration. */
     int rdb_compression;            /* Use compression in RDB? */
     int rdb_checksum;               /* Use RDB checksum? */
     int rdb_del_sync_files;         /* Remove RDB files used only for SYNC if

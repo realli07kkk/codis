@@ -23,11 +23,20 @@ type Router struct {
 		primary *sharedBackendConnPool
 		replica *sharedBackendConnPool
 	}
+	userPools struct {
+		mu      sync.Mutex
+		primary map[userBackendPoolKey]*sharedBackendConnPool
+		replica map[userBackendPoolKey]*sharedBackendConnPool
+	}
 	slots                [MaxSlotNum]Slot
 	slotVersions         [MaxSlotNum]atomic2.Int64
 	hotKeyCache          *HotKeyCache
 	hotKeyCacheBroadcast *hotKeyCacheBroadcastReporter
 	clusterNodes         *clusterNodesProvider
+	acl                  struct {
+		mu       sync.RWMutex
+		snapshot *ACLSnapshot
+	}
 
 	config *Config
 	online bool
@@ -36,12 +45,15 @@ type Router struct {
 
 func NewRouter(config *Config) *Router {
 	s := &Router{config: config}
-	s.pool.primary = newSharedBackendConnPool(config, config.BackendPrimaryParallel)
-	s.pool.replica = newSharedBackendConnPool(config, config.BackendReplicaParallel)
+	s.pool.primary = newSharedBackendConnPool(config, config.BackendPrimaryParallel, config.BackendAuthIdentity())
+	s.pool.replica = newSharedBackendConnPool(config, config.BackendReplicaParallel, config.BackendAuthIdentity())
+	s.userPools.primary = make(map[userBackendPoolKey]*sharedBackendConnPool)
+	s.userPools.replica = make(map[userBackendPoolKey]*sharedBackendConnPool)
 	s.hotKeyCache = newHotKeyCache(config)
 	s.hotKeyCacheBroadcast = newHotKeyCacheBroadcastReporter(config, s.hotKeyCache)
 	s.clusterNodes = newClusterNodesProvider(config, nil, nil)
 	for i := range s.slots {
+		s.slots[i].router = s
 		s.slots[i].id = i
 		s.slots[i].method = &forwardSync{}
 	}
@@ -110,11 +122,100 @@ func (s *Router) HasSwitched() bool {
 	return false
 }
 
+func (s *Router) SetACL(acl *models.ACL) error {
+	s.acl.mu.Lock()
+	old := s.acl.snapshot
+	s.acl.snapshot = NewACLSnapshot(acl)
+	next := s.acl.snapshot
+	s.acl.mu.Unlock()
+
+	if old == nil || old.Revision != next.Revision || old.Enabled != next.Enabled {
+		s.closeUserBackendPools()
+		clientSessions.markACLStale(s.config, next.Revision)
+	}
+	return nil
+}
+
+func (s *Router) ACLSnapshot() *ACLSnapshot {
+	s.acl.mu.RLock()
+	defer s.acl.mu.RUnlock()
+	return s.acl.snapshot
+}
+
+func (s *Router) aclAuthEnabled() bool {
+	if !s.config.CodisACLEnabled {
+		return false
+	}
+	snapshot := s.ACLSnapshot()
+	return snapshot != nil && snapshot.Enabled
+}
+
 var (
 	ErrClosedRouter  = errors.New("use of closed router")
 	ErrInvalidSlotId = errors.New("use of invalid slot id")
 	ErrInvalidMethod = errors.New("use of invalid forwarder method")
 )
+
+type userBackendPoolKey struct {
+	username       string
+	credentialHash string
+	revision       int64
+}
+
+func userBackendKey(identity *SessionACLIdentity) userBackendPoolKey {
+	if identity == nil {
+		return userBackendPoolKey{}
+	}
+	return userBackendPoolKey{
+		username:       identity.Username,
+		credentialHash: identity.CredentialHash,
+		revision:       identity.Revision,
+	}
+}
+
+func (s *Router) userBackendConn(addr string, database int32, seed uint, replica bool, identity *SessionACLIdentity, must bool) *BackendConn {
+	if identity == nil {
+		return nil
+	}
+	pool := s.userBackendPool(replica, identity)
+	return pool.GetOrCreate(addr).BackendConn(database, seed, must)
+}
+
+func (s *Router) userBackendPool(replica bool, identity *SessionACLIdentity) *sharedBackendConnPool {
+	key := userBackendKey(identity)
+	s.userPools.mu.Lock()
+	defer s.userPools.mu.Unlock()
+
+	pools := s.userPools.primary
+	parallel := s.config.BackendPrimaryParallel
+	if replica {
+		pools = s.userPools.replica
+		parallel = s.config.BackendReplicaParallel
+	}
+	if pool := pools[key]; pool != nil {
+		return pool
+	}
+	auth := RedisAuthIdentity{
+		Username: identity.Username,
+		Password: string(identity.Password),
+	}
+	pool := newSharedBackendConnPool(s.config, parallel, auth)
+	pools[key] = pool
+	return pool
+}
+
+func (s *Router) closeUserBackendPools() {
+	s.userPools.mu.Lock()
+	defer s.userPools.mu.Unlock()
+	for key, pool := range s.userPools.primary {
+		pool.Close()
+		delete(s.userPools.primary, key)
+	}
+	for key, pool := range s.userPools.replica {
+		pool.Close()
+		delete(s.userPools.replica, key)
+	}
+}
 
 func (s *Router) FillSlot(m *models.Slot) error {
 	s.mu.Lock()
@@ -175,13 +276,27 @@ func (s *Router) dispatchSlot(r *Request, id int) error {
 func (s *Router) dispatchAddr(r *Request, addr string) bool {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	if bc := s.pool.primary.Get(addr).BackendConn(r.Database, r.Seed16(), false); bc != nil {
-		bc.PushBack(r)
-		return true
+	if pool := s.pool.primary.Get(addr); pool != nil {
+		if r.ACLIdentity != nil {
+			if bc := s.userBackendConn(addr, r.Database, r.Seed16(), false, r.ACLIdentity, true); bc != nil {
+				bc.PushBack(r)
+				return true
+			}
+		} else if bc := pool.BackendConn(r.Database, r.Seed16(), false); bc != nil {
+			bc.PushBack(r)
+			return true
+		}
 	}
-	if bc := s.pool.replica.Get(addr).BackendConn(r.Database, r.Seed16(), false); bc != nil {
-		bc.PushBack(r)
-		return true
+	if pool := s.pool.replica.Get(addr); pool != nil {
+		if r.ACLIdentity != nil {
+			if bc := s.userBackendConn(addr, r.Database, r.Seed16(), true, r.ACLIdentity, true); bc != nil {
+				bc.PushBack(r)
+				return true
+			}
+		} else if bc := pool.BackendConn(r.Database, r.Seed16(), false); bc != nil {
+			bc.PushBack(r)
+			return true
+		}
 	}
 	return false
 }
@@ -261,7 +376,7 @@ func (s *Router) SwitchMasters(masters map[int]string) error {
 		return ErrClosedRouter
 	}
 	cache := &redis.InfoCache{
-		Auth: s.config.ProductAuth, Timeout: time.Millisecond * 100,
+		AuthIdentity: s.config.BackendAuthIdentity(), Timeout: time.Millisecond * 100,
 	}
 	for i := range s.slots {
 		s.trySwitchMaster(i, masters, cache)

@@ -240,7 +240,7 @@ func TestForwardHelperRedis8ExecWrapperResponses(t *testing.T) {
 
 	helper := &forwardHelper{}
 	multi := []*redis.Resp{redis.NewBulkBytes([]byte("PING"))}
-	resp, moved, err := helper.slotsmgrtExecWrapper(&router.slots[redis8TestSlotID], []byte("key"), 0, 0, multi)
+	resp, moved, err := helper.slotsmgrtExecWrapper(&router.slots[redis8TestSlotID], []byte("key"), 0, 0, multi, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -248,7 +248,7 @@ func TestForwardHelperRedis8ExecWrapperResponses(t *testing.T) {
 		t.Fatalf("code 0 => resp=%v moved=%v", resp, moved)
 	}
 
-	resp, moved, err = helper.slotsmgrtExecWrapper(&router.slots[redis8TestSlotID], []byte("key"), 0, 0, multi)
+	resp, moved, err = helper.slotsmgrtExecWrapper(&router.slots[redis8TestSlotID], []byte("key"), 0, 0, multi, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -256,11 +256,65 @@ func TestForwardHelperRedis8ExecWrapperResponses(t *testing.T) {
 		t.Fatalf("code 1 => resp=%v moved=%v", resp, moved)
 	}
 
-	resp, moved, err = helper.slotsmgrtExecWrapper(&router.slots[redis8TestSlotID], []byte("key"), 0, 0, multi)
+	resp, moved, err = helper.slotsmgrtExecWrapper(&router.slots[redis8TestSlotID], []byte("key"), 0, 0, multi, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if moved || resp == nil || string(resp.Value) != "PONG" {
 		t.Fatalf("code 2 => resp=%v moved=%v", resp, moved)
+	}
+}
+
+func TestForwardHelperExecWrapperDryRunsOriginalCommand(t *testing.T) {
+	source := redistest.NewServer(t, func(args []string) *redistest.Resp {
+		switch strings.ToUpper(args[0]) {
+		case "ACL":
+			if len(args) != 5 || strings.ToUpper(args[1]) != "DRYRUN" || args[2] != "app_ro" ||
+				strings.ToUpper(args[3]) != "GET" || args[4] != "key" {
+				t.Fatalf("unexpected dryrun command: %v", args)
+			}
+			return redistest.OK()
+		case "SLOTSMGRT-EXEC-WRAPPER":
+			return redistest.Array(redistest.Int("2"), redistest.Bulk("PONG"))
+		default:
+			t.Fatalf("unexpected command: %v", args)
+			return redistest.Error("ERR unexpected")
+		}
+	})
+	target := redistest.NewServer(t, func(args []string) *redistest.Resp {
+		t.Fatalf("target should not receive wrapper test commands: %v", args)
+		return nil
+	})
+
+	config := NewDefaultConfig()
+	config.BackendNumberDatabases = 1
+	router := NewRouter(config)
+	defer router.Close()
+	if err := router.FillSlot(&models.Slot{
+		Id:            redis8TestSlotID,
+		BackendAddr:   target.Addr(),
+		MigrateFrom:   source.Addr(),
+		ForwardMethod: models.ForwardSemiAsync,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	helper := &forwardHelper{}
+	multi := []*redis.Resp{
+		redis.NewBulkBytes([]byte("GET")),
+		redis.NewBulkBytes([]byte("key")),
+	}
+	resp, moved, err := helper.slotsmgrtExecWrapper(&router.slots[redis8TestSlotID], []byte("key"), 0, 0, multi, &SessionACLIdentity{
+		Username: "app_ro",
+		Revision: 1,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if moved || resp == nil || string(resp.Value) != "PONG" {
+		t.Fatalf("wrapper => resp=%v moved=%v", resp, moved)
+	}
+	if !commandExists(source.Commands(), []string{"ACL", "DRYRUN", "app_ro", "GET", "key"}) {
+		t.Fatalf("missing acl dryrun command: %v", source.Commands())
 	}
 }

@@ -37,13 +37,18 @@ type BackendConn struct {
 
 	closed atomic2.Bool
 	config *Config
+	auth   RedisAuthIdentity
 
 	database int
 }
 
 func NewBackendConn(addr string, database int, config *Config) *BackendConn {
+	return NewBackendConnWithAuth(addr, database, config, config.BackendAuthIdentity())
+}
+
+func NewBackendConnWithAuth(addr string, database int, config *Config, auth RedisAuthIdentity) *BackendConn {
 	bc := &BackendConn{
-		addr: addr, config: config, database: database,
+		addr: addr, config: config, auth: auth, database: database,
 	}
 	bc.input = make(chan *Request, 1024)
 	bc.retry.delay = &DelayExp2{
@@ -165,7 +170,7 @@ func (bc *BackendConn) newBackendReader(round int, config *Config) (*redis.Conn,
 	c.WriterTimeout = config.BackendSendTimeout.Duration()
 	c.SetKeepAlivePeriod(config.BackendKeepAlivePeriod.Duration())
 
-	if err := bc.verifyAuth(c, config.ProductAuth); err != nil {
+	if err := bc.verifyAuthIdentity(c, bc.auth); err != nil {
 		c.Close()
 		return nil, nil, err
 	}
@@ -181,13 +186,22 @@ func (bc *BackendConn) newBackendReader(round int, config *Config) (*redis.Conn,
 }
 
 func (bc *BackendConn) verifyAuth(c *redis.Conn, auth string) error {
-	if auth == "" {
+	return bc.verifyAuthIdentity(c, RedisAuthIdentity{Password: auth})
+}
+
+func (bc *BackendConn) verifyAuthIdentity(c *redis.Conn, auth RedisAuthIdentity) error {
+	if err := auth.Validate(); err != nil {
+		return err
+	}
+	if !auth.HasAuth() {
 		return nil
 	}
 
 	multi := []*redis.Resp{
 		redis.NewBulkBytes([]byte("AUTH")),
-		redis.NewBulkBytes([]byte(auth)),
+	}
+	for _, arg := range auth.AuthArgs() {
+		multi = append(multi, redis.NewBulkBytes([]byte(arg.(string))))
 	}
 
 	if err := c.EncodeMultiBulk(multi, true); err != nil {
@@ -373,6 +387,7 @@ type sharedBackendConn struct {
 	port []byte
 
 	owner *sharedBackendConnPool
+	auth  RedisAuthIdentity
 	conns [][]*BackendConn
 
 	single []*BackendConn
@@ -386,7 +401,7 @@ func newSharedBackendConn(addr string, pool *sharedBackendConnPool) *sharedBacke
 		log.ErrorErrorf(err, "split host-port failed, address = %s", addr)
 	}
 	s := &sharedBackendConn{
-		addr: addr,
+		addr: addr, auth: pool.auth,
 		host: []byte(host), port: []byte(port),
 	}
 	s.owner = pool
@@ -394,7 +409,7 @@ func newSharedBackendConn(addr string, pool *sharedBackendConnPool) *sharedBacke
 	for database := range s.conns {
 		parallel := make([]*BackendConn, pool.parallel)
 		for i := range parallel {
-			parallel[i] = NewBackendConn(addr, database, pool.config)
+			parallel[i] = NewBackendConnWithAuth(addr, database, pool.config, pool.auth)
 		}
 		s.conns[database] = parallel
 	}
@@ -489,16 +504,28 @@ func (s *sharedBackendConn) BackendConn(database int32, seed uint, must bool) *B
 type sharedBackendConnPool struct {
 	config   *Config
 	parallel int
+	auth     RedisAuthIdentity
 
 	pool map[string]*sharedBackendConn
 }
 
-func newSharedBackendConnPool(config *Config, parallel int) *sharedBackendConnPool {
+func newSharedBackendConnPool(config *Config, parallel int, auth RedisAuthIdentity) *sharedBackendConnPool {
 	p := &sharedBackendConnPool{
-		config: config, parallel: math2.MaxInt(1, parallel),
+		config: config, parallel: math2.MaxInt(1, parallel), auth: auth,
 	}
 	p.pool = make(map[string]*sharedBackendConn)
 	return p
+}
+
+func (p *sharedBackendConnPool) Close() {
+	for addr, bc := range p.pool {
+		for _, parallel := range bc.conns {
+			for _, conn := range parallel {
+				conn.Close()
+			}
+		}
+		delete(p.pool, addr)
+	}
 }
 
 func (p *sharedBackendConnPool) KeepAlive() {
@@ -519,4 +546,13 @@ func (p *sharedBackendConnPool) Retain(addr string) *sharedBackendConn {
 		p.pool[addr] = bc
 		return bc
 	}
+}
+
+func (p *sharedBackendConnPool) GetOrCreate(addr string) *sharedBackendConn {
+	if bc := p.pool[addr]; bc != nil {
+		return bc
+	}
+	bc := newSharedBackendConn(addr, p)
+	p.pool[addr] = bc
+	return bc
 }

@@ -24,6 +24,8 @@ type Request struct {
 	Database int32
 	UnixNano int64
 
+	ACLIdentity *SessionACLIdentity
+
 	*redis.Resp
 	Err error
 
@@ -44,6 +46,7 @@ func (r *Request) MakeSubRequest(n int) []Request {
 		x.Broken = r.Broken
 		x.Database = r.Database
 		x.UnixNano = r.UnixNano
+		x.ACLIdentity = r.ACLIdentity
 	}
 	return sub
 }

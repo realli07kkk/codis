@@ -52,6 +52,21 @@ func (r *clientSessionRegistry) count() int64 {
 	return int64(len(r.sessions))
 }
 
+func (r *clientSessionRegistry) markACLStale(config *Config, revision int64) {
+	r.RLock()
+	sessions := make([]*Session, 0, len(r.sessions))
+	for _, s := range r.sessions {
+		if s.config == config {
+			sessions = append(sessions, s)
+		}
+	}
+	r.RUnlock()
+
+	for _, s := range sessions {
+		s.markACLStale(revision)
+	}
+}
+
 // Caller must not hold any Session.mu while calling snapshot.
 // snapshot releases the registry lock before taking per-session read locks.
 func (r *clientSessionRegistry) snapshot(now time.Time) []clientListEntry {
@@ -131,7 +146,9 @@ func (s *Session) clientListEntry(now time.Time) clientListEntry {
 	}
 
 	user := ""
-	if authorized || s.config == nil || s.config.SessionAuth == "" {
+	if identity := s.getACLIdentity(); identity != nil {
+		user = identity.Username
+	} else if authorized || s.config == nil || s.config.SessionAuth == "" {
 		user = "default"
 	}
 

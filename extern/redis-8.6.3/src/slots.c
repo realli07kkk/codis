@@ -469,7 +469,7 @@ static slotsmgrt_sockfd *slotsmgrtGetSockfd(client *c, sds host, int port, int t
     pfd = zmalloc(sizeof(*pfd));
     pfd->fd = fd;
     pfd->db = -1;
-    pfd->authorized = (server.requirepass == NULL) ? 1 : 0;
+    pfd->authorized = (server.requirepass == NULL && server.codis_migration_auth_pass == NULL) ? 1 : 0;
     pfd->lasttime = server.unixtime;
     dictAdd(server.slotsmgrt_cached_sockets, name, pfd);
     return pfd;
@@ -515,12 +515,22 @@ static int slotsmgrt(client *c, sds host, int port, slotsmgrt_sockfd *pfd,
     rio cmd;
     rioInitWithBuffer(&cmd, sdsempty());
 
+    char *auth_user = server.codis_migration_auth_user;
+    char *auth_pass = server.codis_migration_auth_pass;
+    if (auth_pass == NULL) {
+        auth_user = NULL;
+        auth_pass = server.requirepass;
+    }
+
     int needauth = 0;
-    if (pfd->authorized == 0 && server.requirepass != NULL) {
+    if (pfd->authorized == 0 && auth_pass != NULL) {
         needauth = 1;
-        serverAssertWithInfo(c, NULL, rioWriteBulkCount(&cmd, '*', 2));
+        serverAssertWithInfo(c, NULL, rioWriteBulkCount(&cmd, '*', auth_user != NULL ? 3 : 2));
         serverAssertWithInfo(c, NULL, rioWriteBulkString(&cmd, "AUTH", 4));
-        serverAssertWithInfo(c, NULL, rioWriteBulkString(&cmd, server.requirepass, strlen(server.requirepass)));
+        if (auth_user != NULL) {
+            serverAssertWithInfo(c, NULL, rioWriteBulkString(&cmd, auth_user, strlen(auth_user)));
+        }
+        serverAssertWithInfo(c, NULL, rioWriteBulkString(&cmd, auth_pass, strlen(auth_pass)));
     }
 
     int selectdb = 0;

@@ -12,6 +12,7 @@ import (
 	"github.com/CodisLabs/codis/pkg/utils/bytesize"
 	"github.com/CodisLabs/codis/pkg/utils/errors"
 	"github.com/CodisLabs/codis/pkg/utils/log"
+	redisutils "github.com/CodisLabs/codis/pkg/utils/redis"
 	"github.com/CodisLabs/codis/pkg/utils/timesize"
 )
 
@@ -36,6 +37,10 @@ coordinator_addr = "/tmp/codis"
 # Set Codis Product Name/Auth.
 product_name = "codis-demo"
 product_auth = ""
+
+# Set backend service auth. Empty values keep using product_auth.
+backend_auth_username = ""
+backend_auth_password = ""
 
 # Set bind address for admin(rpc), tcp only.
 admin_addr = "0.0.0.0:18080"
@@ -80,6 +85,9 @@ type Config struct {
 
 	ProductName string `toml:"product_name" json:"product_name"`
 	ProductAuth string `toml:"product_auth" json:"-"`
+
+	BackendAuthUsername string `toml:"backend_auth_username" json:"backend_auth_username"`
+	BackendAuthPassword string `toml:"backend_auth_password" json:"-"`
 
 	RDBAnalysisWorkspace                string            `toml:"rdb_analysis_workspace" json:"rdb_analysis_workspace"`
 	RDBAnalysisMaxUploadSize            bytesize.Int64    `toml:"rdb_analysis_max_upload_size" json:"rdb_analysis_max_upload_size"`
@@ -134,6 +142,16 @@ func (c *Config) String() string {
 	return b.String()
 }
 
+func (c *Config) BackendAuthIdentity() redisutils.RedisAuthIdentity {
+	if c.BackendAuthUsername != "" || c.BackendAuthPassword != "" {
+		return redisutils.RedisAuthIdentity{
+			Username: c.BackendAuthUsername,
+			Password: c.BackendAuthPassword,
+		}
+	}
+	return redisutils.PasswordAuthIdentity(c.ProductAuth)
+}
+
 func (c *Config) Validate() error {
 	if c.CoordinatorName == "" {
 		return errors.New("invalid coordinator_name")
@@ -146,6 +164,9 @@ func (c *Config) Validate() error {
 	}
 	if c.ProductName == "" {
 		return errors.New("invalid product_name")
+	}
+	if c.BackendAuthUsername != "" && c.BackendAuthPassword == "" {
+		return errors.New("invalid backend_auth_password")
 	}
 	if c.RDBAnalysisMaxUploadSize < 0 {
 		return errors.New("invalid rdb_analysis_max_upload_size")

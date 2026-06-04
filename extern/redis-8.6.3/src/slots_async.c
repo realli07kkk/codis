@@ -415,10 +415,22 @@ static int slotsmgrtAsyncSendPrelude(slotsmgrtAsyncClient *ac) {
     client *c = ac->c;
     int msgs = 0;
     ac->used = 1;
-    if (server.requirepass != NULL) {
-        addReplyArrayLen(c, 2);
-        addReplyBulkCString(c, "SLOTSRESTORE-ASYNC-AUTH");
-        addReplyBulkCBuffer(c, server.requirepass, sdslen(server.requirepass));
+    char *auth_user = server.codis_migration_auth_user;
+    char *auth_pass = server.codis_migration_auth_pass;
+    if (auth_pass == NULL) {
+        auth_user = NULL;
+        auth_pass = server.requirepass;
+    }
+    if (auth_pass != NULL) {
+        if (auth_user != NULL) {
+            addReplyArrayLen(c, 3);
+            addReplyBulkCString(c, "SLOTSRESTORE-ASYNC-AUTH2");
+            addReplyBulkCString(c, auth_user);
+        } else {
+            addReplyArrayLen(c, 2);
+            addReplyBulkCString(c, "SLOTSRESTORE-ASYNC-AUTH");
+        }
+        addReplyBulkCString(c, auth_pass);
         msgs++;
     }
 

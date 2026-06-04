@@ -22,6 +22,8 @@ type Client struct {
 	Addr string
 	Auth string
 
+	AuthIdentity RedisAuthIdentity
+
 	Database int
 
 	LastUse time.Time
@@ -37,17 +39,30 @@ func NewClientNoAuth(addr string, timeout time.Duration) (*Client, error) {
 }
 
 func NewClient(addr string, auth string, timeout time.Duration) (*Client, error) {
+	return NewClientWithAuthIdentity(addr, PasswordAuthIdentity(auth), timeout)
+}
+
+func NewClientWithAuthIdentity(addr string, auth RedisAuthIdentity, timeout time.Duration) (*Client, error) {
+	if err := auth.Validate(); err != nil {
+		return nil, err
+	}
 	c, err := redigo.Dial("tcp", addr, []redigo.DialOption{
 		redigo.DialConnectTimeout(math2.MinDuration(time.Second, timeout)),
-		redigo.DialPassword(auth),
 		redigo.DialReadTimeout(timeout), redigo.DialWriteTimeout(timeout),
 	}...)
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
+	if auth.HasAuth() {
+		if _, err := c.Do("AUTH", auth.AuthArgs()...); err != nil {
+			c.Close()
+			return nil, errors.Trace(err)
+		}
+	}
 	return &Client{
-		conn: c, Addr: addr, Auth: auth,
-		LastUse: time.Now(), Timeout: timeout,
+		conn: c, Addr: addr, Auth: auth.Password,
+		AuthIdentity: auth,
+		LastUse:      time.Now(), Timeout: timeout,
 	}, nil
 }
 
@@ -207,8 +222,17 @@ func (c *Client) SetMaster(master string) error {
 	if err != nil {
 		return errors.Trace(err)
 	}
+	hasMasterUser := c.AuthIdentity.Username != ""
+	if !hasMasterUser {
+		if err := c.clearMasterUserIfSupported(); err != nil {
+			return err
+		}
+	}
 	c.Send("MULTI")
-	c.Send("CONFIG", "SET", "masterauth", c.Auth)
+	if hasMasterUser {
+		c.Send("CONFIG", "SET", "masteruser", c.AuthIdentity.Username)
+	}
+	c.Send("CONFIG", "SET", "masterauth", c.AuthIdentity.Password)
 	c.Send("SLAVEOF", host, port)
 	c.Send("CONFIG", "REWRITE")
 	c.Send("CLIENT", "KILL", "TYPE", "normal")
@@ -222,6 +246,31 @@ func (c *Client) SetMaster(master string) error {
 		}
 	}
 	return nil
+}
+
+func (c *Client) clearMasterUserIfSupported() error {
+	r, err := c.conn.Do("CONFIG", "SET", "masteruser", "")
+	if err != nil {
+		if isUnsupportedMasterUserConfigError(err.Error()) {
+			return nil
+		}
+		c.Close()
+		return errors.Trace(err)
+	}
+	c.LastUse = time.Now()
+	if e, ok := r.(redigo.Error); ok {
+		if isUnsupportedMasterUserConfigError(string(e)) {
+			return nil
+		}
+		c.Close()
+		return errors.Trace(e)
+	}
+	return nil
+}
+
+func isUnsupportedMasterUserConfigError(msg string) bool {
+	msg = strings.ToLower(msg)
+	return strings.Contains(msg, "unsupported") || strings.Contains(msg, "unknown")
 }
 
 func (c *Client) MigrateSlot(slot int, target string) (int, error) {
@@ -309,7 +358,7 @@ var ErrClosedPool = errors.New("use of closed redis pool")
 type Pool struct {
 	mu sync.Mutex
 
-	auth string
+	auth RedisAuthIdentity
 	pool map[string]*list.List
 
 	timeout time.Duration
@@ -322,6 +371,10 @@ type Pool struct {
 }
 
 func NewPool(auth string, timeout time.Duration) *Pool {
+	return NewPoolWithAuthIdentity(PasswordAuthIdentity(auth), timeout)
+}
+
+func NewPoolWithAuthIdentity(auth RedisAuthIdentity, timeout time.Duration) *Pool {
 	p := &Pool{
 		auth: auth, timeout: timeout,
 		pool: make(map[string]*list.List),
@@ -393,7 +446,7 @@ func (p *Pool) GetClient(addr string) (*Client, error) {
 	if err != nil || c != nil {
 		return c, err
 	}
-	return NewClient(addr, p.auth, p.timeout)
+	return NewClientWithAuthIdentity(addr, p.auth, p.timeout)
 }
 
 func (p *Pool) getClientFromCache(addr string) (*Client, error) {
@@ -451,8 +504,9 @@ func (p *Pool) InfoFull(addr string) (_ map[string]string, err error) {
 type InfoCache struct {
 	mu sync.Mutex
 
-	Auth string
-	data map[string]map[string]string
+	Auth         string
+	AuthIdentity RedisAuthIdentity
+	data         map[string]map[string]string
 
 	Timeout time.Duration
 }
@@ -494,7 +548,11 @@ func (s *InfoCache) GetRunId(addr string) string {
 }
 
 func (s *InfoCache) getSlow(addr string) (map[string]string, error) {
-	c, err := NewClient(addr, s.Auth, s.Timeout)
+	auth := s.AuthIdentity
+	if !auth.HasAuth() && s.Auth != "" {
+		auth = PasswordAuthIdentity(s.Auth)
+	}
+	c, err := NewClientWithAuthIdentity(addr, auth, s.Timeout)
 	if err != nil {
 		return nil, err
 	}

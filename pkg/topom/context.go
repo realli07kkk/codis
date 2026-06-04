@@ -23,6 +23,7 @@ type context struct {
 	proxy map[string]*models.Proxy
 
 	sentinel *models.Sentinel
+	acl      *models.ACL
 
 	hosts struct {
 		sync.Mutex

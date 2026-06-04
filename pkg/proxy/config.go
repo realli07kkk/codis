@@ -11,6 +11,7 @@ import (
 	"github.com/CodisLabs/codis/pkg/utils/bytesize"
 	"github.com/CodisLabs/codis/pkg/utils/errors"
 	"github.com/CodisLabs/codis/pkg/utils/log"
+	redisutils "github.com/CodisLabs/codis/pkg/utils/redis"
 	"github.com/CodisLabs/codis/pkg/utils/timesize"
 )
 
@@ -36,6 +37,13 @@ session_auth = ""
 session_auth_bruteforce_enabled = false
 session_auth_bruteforce_max_failures = 5
 session_auth_bruteforce_lock_duration = "60s"
+
+# Enable Codis-managed Redis 8 ACL for client sessions. Disabled by default.
+codis_acl_enabled = false
+
+# Set backend service auth. Empty values keep using product_auth.
+backend_auth_username = ""
+backend_auth_password = ""
 
 # Set bind address for admin(rpc), tcp only.
 admin_addr = "0.0.0.0:11080"
@@ -177,6 +185,10 @@ type Config struct {
 	SessionAuthBruteforceMaxFailures  int               `toml:"session_auth_bruteforce_max_failures" json:"session_auth_bruteforce_max_failures"`
 	SessionAuthBruteforceLockDuration timesize.Duration `toml:"session_auth_bruteforce_lock_duration" json:"session_auth_bruteforce_lock_duration"`
 
+	CodisACLEnabled     bool   `toml:"codis_acl_enabled" json:"codis_acl_enabled"`
+	BackendAuthUsername string `toml:"backend_auth_username" json:"backend_auth_username"`
+	BackendAuthPassword string `toml:"backend_auth_password" json:"-"`
+
 	ProxyDataCenter      string         `toml:"proxy_datacenter" json:"proxy_datacenter"`
 	ProxyMaxClients      int            `toml:"proxy_max_clients" json:"proxy_max_clients"`
 	ProxyMaxOffheapBytes bytesize.Int64 `toml:"proxy_max_offheap_size" json:"proxy_max_offheap_size"`
@@ -250,6 +262,16 @@ func (c *Config) String() string {
 	return b.String()
 }
 
+func (c *Config) BackendAuthIdentity() redisutils.RedisAuthIdentity {
+	if c.BackendAuthUsername != "" || c.BackendAuthPassword != "" {
+		return redisutils.RedisAuthIdentity{
+			Username: c.BackendAuthUsername,
+			Password: c.BackendAuthPassword,
+		}
+	}
+	return redisutils.PasswordAuthIdentity(c.ProductAuth)
+}
+
 func (c *Config) Validate() error {
 	if c.ProtoType == "" {
 		return errors.New("invalid proto_type")
@@ -289,6 +311,9 @@ func (c *Config) Validate() error {
 	}
 	if c.ProductName == "" {
 		return errors.New("invalid product_name")
+	}
+	if c.BackendAuthUsername != "" && c.BackendAuthPassword == "" {
+		return errors.New("invalid backend_auth_password")
 	}
 	if c.SessionAuthBruteforceEnabled {
 		if c.SessionAuthBruteforceMaxFailures <= 0 {

@@ -39,12 +39,19 @@ func (s *Topom) dirtySentinelCache() {
 	})
 }
 
+func (s *Topom) dirtyACLCache() {
+	s.cache.hooks.PushBack(func() {
+		s.cache.acl = nil
+	})
+}
+
 func (s *Topom) dirtyCacheAll() {
 	s.cache.hooks.PushBack(func() {
 		s.cache.slots = nil
 		s.cache.group = nil
 		s.cache.proxy = nil
 		s.cache.sentinel = nil
+		s.cache.acl = nil
 	})
 }
 
@@ -76,6 +83,12 @@ func (s *Topom) refillCache() error {
 		return errors.Errorf("store: load sentinel failed")
 	} else {
 		s.cache.sentinel = sentinel
+	}
+	if acl, err := s.refillCacheACL(s.cache.acl); err != nil {
+		log.ErrorErrorf(err, "store: load acl failed")
+		return errors.Errorf("store: load acl failed")
+	} else {
+		s.cache.acl = acl
 	}
 	return nil
 }
@@ -157,6 +170,20 @@ func (s *Topom) refillCacheSentinel(sentinel *models.Sentinel) (*models.Sentinel
 	return &models.Sentinel{}, nil
 }
 
+func (s *Topom) refillCacheACL(acl *models.ACL) (*models.ACL, error) {
+	if acl != nil {
+		return acl, nil
+	}
+	p, err := s.store.LoadACL(false)
+	if err != nil {
+		return nil, err
+	}
+	if p != nil {
+		return p, nil
+	}
+	return &models.ACL{}, nil
+}
+
 func (s *Topom) storeUpdateSlotMapping(m *models.SlotMapping) error {
 	log.Warnf("update slot-[%d]:\n%s", m.Id, m.Encode())
 	if err := s.store.UpdateSlotMapping(m); err != nil {
@@ -225,6 +252,15 @@ func (s *Topom) storeUpdateSentinel(p *models.Sentinel) error {
 	if err := s.store.UpdateSentinel(p); err != nil {
 		log.ErrorErrorf(err, "store: update sentinel failed")
 		return errors.Errorf("store: update sentinel failed")
+	}
+	return nil
+}
+
+func (s *Topom) storeUpdateACL(acl *models.ACL) error {
+	log.Warnf("update acl revision-[%d]", acl.Revision)
+	if err := s.store.UpdateACL(acl); err != nil {
+		log.ErrorErrorf(err, "store: update acl failed")
+		return errors.Errorf("store: update acl failed")
 	}
 	return nil
 }

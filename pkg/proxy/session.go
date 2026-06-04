@@ -50,7 +50,8 @@ type Session struct {
 	config         *Config
 	authBruteforce *AuthBruteforceGuard
 
-	authorized bool
+	authorized  bool
+	aclIdentity *SessionACLIdentity
 }
 
 func (s *Session) String() string {
@@ -115,6 +116,7 @@ func (s *Session) CloseWithError(err error) error {
 			log.Infof("session [%p] closed: %s, quit", s, s)
 		}
 	})
+	s.clearACLIdentity()
 	s.broken.Set(true)
 	return s.Conn.Close()
 }
@@ -291,10 +293,16 @@ func (s *Session) handleRequest(r *Request, d *Router) error {
 	case "QUIT":
 		return s.handleQuit(r)
 	case "AUTH":
-		return s.handleAuth(r)
+		return s.handleAuth(r, d)
 	}
 
-	if !s.isAuthorized() {
+	if d.aclAuthEnabled() {
+		if !s.isACLAuthorized(d) {
+			r.Resp = redis.NewErrorf("NOAUTH Authentication required")
+			return nil
+		}
+		r.ACLIdentity = s.getACLIdentity()
+	} else if !s.isAuthorized() {
 		if s.config.SessionAuth != "" {
 			r.Resp = redis.NewErrorf("NOAUTH Authentication required")
 			return nil
@@ -302,16 +310,29 @@ func (s *Session) handleRequest(r *Request, d *Router) error {
 		s.setAuthorized(true)
 	}
 
+	if opstr == "ACL" {
+		return s.handleRequestACL(r, d)
+	}
+
 	switch opstr {
 	case "SELECT":
+		if err := d.aclDryRunLocal(r); err != nil || r.Resp != nil {
+			return err
+		}
 		return s.handleSelect(r)
 	case "PING":
 		return s.handleRequestPing(r, d)
 	case "INFO":
 		return s.handleRequestInfo(r, d)
 	case "CLIENT":
+		if err := d.aclDryRunLocal(r); err != nil || r.Resp != nil {
+			return err
+		}
 		return clientSessions.handleRequestClient(s, r)
 	case "CLUSTER":
+		if err := d.aclDryRunLocal(r); err != nil || r.Resp != nil {
+			return err
+		}
 		return d.handleRequestCluster(r)
 	case "GET":
 		return d.handleRequestGet(r)
@@ -332,6 +353,9 @@ func (s *Session) handleRequest(r *Request, d *Router) error {
 	case "SLOTSSCAN":
 		return s.handleRequestSlotsScan(r, d)
 	case "SLOTSMAPPING":
+		if err := d.aclDryRunLocal(r); err != nil || r.Resp != nil {
+			return err
+		}
 		return s.handleRequestSlotsMapping(r, d)
 	default:
 		if isStreamCommand(opstr) {
@@ -347,46 +371,6 @@ func (s *Session) handleQuit(r *Request) error {
 	s.quit = true
 	r.Resp = RespOK
 	return nil
-}
-
-func (s *Session) handleAuth(r *Request) error {
-	if len(r.Multi) != 2 {
-		r.Resp = redis.NewErrorf("ERR wrong number of arguments for 'AUTH' command")
-		return nil
-	}
-	if s.config.SessionAuth == "" {
-		r.Resp = redis.NewErrorf("ERR Client sent AUTH, but no password is set")
-		return nil
-	}
-
-	wasAuthorized := s.isAuthorized()
-	now := time.Now()
-	remoteAddr := s.remoteAddr()
-	if s.authBruteforce.BeforeAuth(remoteAddr, wasAuthorized, now) {
-		r.Resp = redis.NewErrorf(authBruteforceLockedMessage)
-		return nil
-	}
-
-	switch {
-	case s.config.SessionAuth != string(r.Multi[1].Value):
-		s.setAuthorized(false)
-		if !wasAuthorized {
-			s.authBruteforce.RecordAuthFailure(remoteAddr, wasAuthorized, now)
-		}
-		r.Resp = redis.NewErrorf("ERR invalid password")
-	default:
-		s.setAuthorized(true)
-		s.authBruteforce.RecordAuthSuccess(remoteAddr)
-		r.Resp = RespOK
-	}
-	return nil
-}
-
-func (s *Session) remoteAddr() string {
-	if s.Conn == nil {
-		return ""
-	}
-	return s.Conn.RemoteAddr()
 }
 
 func (s *Session) handleSelect(r *Request) error {

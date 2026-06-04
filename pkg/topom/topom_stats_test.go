@@ -233,6 +233,8 @@ func (s *fakeServer) defaultResponse(r *redis.Resp, multi *int) (*redis.Resp, bo
 				redis.NewBulkBytes([]byte("maxmemory")),
 				redis.NewInt([]byte("0")),
 			}), true
+		case sub == "SET" && (key == "masteruser" || key == "masterauth"):
+			return redis.NewString([]byte("OK")), true
 		default:
 			log.Panicf("unknown subcommand of <%s>", cmd)
 		}

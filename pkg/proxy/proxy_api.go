@@ -82,6 +82,7 @@ func newApiServer(p *Proxy) http.Handler {
 		r.Put("/fillslots/:xauth", binding.Json([]*models.Slot{}), api.FillSlots)
 		r.Put("/sentinels/:xauth", binding.Json(models.Sentinel{}), api.SetSentinels)
 		r.Put("/sentinels/:xauth/rewatch", api.RewatchSentinels)
+		r.Put("/acl/:xauth", binding.Json(models.ACL{}), api.SetACL)
 		r.Put("/hot-key-cache/invalidate/:xauth", binding.Json(HotKeyCacheInvalidationRequest{}), api.HotKeyCacheInvalidate)
 	})
 
@@ -246,6 +247,16 @@ func (s *apiServer) RewatchSentinels(params martini.Params) (int, string) {
 	return rpc.ApiResponseJson("OK")
 }
 
+func (s *apiServer) SetACL(acl models.ACL, params martini.Params) (int, string) {
+	if err := s.verifyXAuth(params); err != nil {
+		return rpc.ApiResponseError(err)
+	}
+	if err := s.proxy.SetACL(&acl); err != nil {
+		return rpc.ApiResponseError(err)
+	}
+	return rpc.ApiResponseJson("OK")
+}
+
 func (s *apiServer) HotKeyCacheInvalidate(req HotKeyCacheInvalidationRequest, params martini.Params) (int, string) {
 	if err := s.verifyXAuth(params); err != nil {
 		return rpc.ApiResponseError(err)
@@ -373,6 +384,11 @@ func (c *ApiClient) SetSentinels(sentinel *models.Sentinel) error {
 func (c *ApiClient) RewatchSentinels() error {
 	url := c.encodeURL("/api/proxy/sentinels/%s/rewatch", c.xauth)
 	return rpc.ApiPutJson(url, nil, nil)
+}
+
+func (c *ApiClient) SetACL(acl *models.ACL) error {
+	url := c.encodeURL("/api/proxy/acl/%s", c.xauth)
+	return rpc.ApiPutJson(url, acl, nil)
 }
 
 func (c *ApiClient) InvalidateHotKeyCache(req *HotKeyCacheInvalidationRequest) (*HotKeyCacheInvalidationResult, error) {

@@ -10,8 +10,9 @@ import (
 )
 
 type Slot struct {
-	id   int
-	lock struct {
+	router *Router
+	id     int
+	lock   struct {
 		hold bool
 		sync.RWMutex
 	}

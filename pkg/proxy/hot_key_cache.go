@@ -370,6 +370,9 @@ func (s *Router) handleRequestGet(r *Request) error {
 		return s.dispatch(r)
 	}
 	if resp, _, ok := s.hotKeyCacheLookup(r.Database, r.Multi[1].Value); ok {
+		if err := s.aclDryRunKey(r, r.Multi[1].Value); err != nil || r.Resp != nil {
+			return err
+		}
 		r.Resp = resp
 		return nil
 	}
@@ -408,11 +411,13 @@ func (s *Session) handleRequestMGetWithHotKeyCache(r *Request, d *Router) error 
 	values := make([]*redis.Resp, nkeys)
 	misses := make([]miss, 0, nkeys)
 	sub := r.MakeSubRequest(nkeys)
+	hasHit := false
 
 	for i := 0; i < nkeys; i++ {
 		key := r.Multi[i+1].Value
 		if resp, _, ok := d.hotKeyCacheLookup(r.Database, key); ok {
 			values[i] = resp
+			hasHit = true
 			continue
 		}
 		token := d.hotKeyCacheToken(r.Database, key)
@@ -421,10 +426,18 @@ func (s *Session) handleRequestMGetWithHotKeyCache(r *Request, d *Router) error 
 			r.Multi[0],
 			r.Multi[i+1],
 		}
-		if err := d.dispatch(x); err != nil {
+		misses = append(misses, miss{index: i, token: token, req: x})
+	}
+
+	if hasHit {
+		if err := d.aclDryRunKey(r, r.Multi[1].Value); err != nil || r.Resp != nil {
 			return err
 		}
-		misses = append(misses, miss{index: i, token: token, req: x})
+	}
+	for _, m := range misses {
+		if err := d.dispatch(m.req); err != nil {
+			return err
+		}
 	}
 
 	r.Coalesce = func() error {

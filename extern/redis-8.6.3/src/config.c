@@ -3205,6 +3205,8 @@ standardConfig static_configs[] = {
     createStringConfig("syslog-ident", NULL, IMMUTABLE_CONFIG, ALLOW_EMPTY_STRING, server.syslog_ident, "redis", NULL, NULL),
     createStringConfig("dbfilename", NULL, MODIFIABLE_CONFIG | PROTECTED_CONFIG, ALLOW_EMPTY_STRING, server.rdb_filename, "dump.rdb", isValidDBfilename, NULL),
     createStringConfig("codis-rdb-export-auth", NULL, IMMUTABLE_CONFIG | SENSITIVE_CONFIG, EMPTY_STRING_IS_NULL, server.codis_rdb_export_auth, NULL, NULL, NULL),
+    createStringConfig("codis-migration-auth-user", NULL, MODIFIABLE_CONFIG | SENSITIVE_CONFIG, EMPTY_STRING_IS_NULL, server.codis_migration_auth_user, NULL, NULL, NULL),
+    createStringConfig("codis-migration-auth-pass", NULL, MODIFIABLE_CONFIG | SENSITIVE_CONFIG, EMPTY_STRING_IS_NULL, server.codis_migration_auth_pass, NULL, NULL, NULL),
     createStringConfig("appendfilename", NULL, IMMUTABLE_CONFIG, ALLOW_EMPTY_STRING, server.aof_filename, "appendonly.aof", isValidAOFfilename, NULL),
     createStringConfig("appenddirname", NULL, IMMUTABLE_CONFIG, ALLOW_EMPTY_STRING, server.aof_dirname, "appendonlydir", isValidAOFdirname, NULL),
     createStringConfig("server-cpulist", "server_cpulist", IMMUTABLE_CONFIG, EMPTY_STRING_IS_NULL, server.server_cpulist, NULL, NULL, NULL),

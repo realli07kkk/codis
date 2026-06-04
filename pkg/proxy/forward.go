@@ -111,7 +111,7 @@ func (d *forwardSemiAsync) process(s *Slot, r *Request, hkey []byte) (_ *Backend
 		return nil, false, ErrSlotIsNotReady
 	}
 	if s.migrate.bc != nil && len(hkey) != 0 {
-		resp, moved, err := d.slotsmgrtExecWrapper(s, hkey, r.Database, r.Seed16(), r.Multi)
+		resp, moved, err := d.slotsmgrtExecWrapper(s, hkey, r.Database, r.Seed16(), r.Multi, r.ACLIdentity)
 		switch {
 		case err != nil:
 			log.Debugf("slot-%04d migrate from = %s to %s failed: hash key = '%s', error = %s",
@@ -166,7 +166,13 @@ func (d *forwardHelper) slotsmgrt(s *Slot, hkey []byte, database int32, seed uin
 	}
 }
 
-func (d *forwardHelper) slotsmgrtExecWrapper(s *Slot, hkey []byte, database int32, seed uint, multi []*redis.Resp) (_ *redis.Resp, moved bool, _ error) {
+func (d *forwardHelper) slotsmgrtExecWrapper(s *Slot, hkey []byte, database int32, seed uint, multi []*redis.Resp, identity *SessionACLIdentity) (_ *redis.Resp, moved bool, _ error) {
+	if identity != nil {
+		resp, err := aclDryRunOnBackend(s.migrate.bc, database, seed, identity.Username, multi)
+		if err != nil || resp != nil {
+			return resp, false, err
+		}
+	}
 	m := &Request{}
 	m.Multi = make([]*redis.Resp, 0, 2+len(multi))
 	m.Multi = append(m.Multi,
@@ -220,11 +226,52 @@ func (d *forwardHelper) forward2(s *Slot, r *Request) *BackendConn {
 			var i = seed
 			for range group {
 				i = (i + 1) % uint(len(group))
+				if r.ACLIdentity != nil && s.router != nil {
+					if bc := s.router.userBackendConn(group[i].Addr(), database, seed, true, r.ACLIdentity, false); bc != nil {
+						return bc
+					}
+					continue
+				}
 				if bc := group[i].BackendConn(database, seed, false); bc != nil {
 					return bc
 				}
 			}
 		}
 	}
+	if r.ACLIdentity != nil && s.router != nil {
+		return s.router.userBackendConn(s.backend.bc.Addr(), database, seed, false, r.ACLIdentity, true)
+	}
 	return s.backend.bc.BackendConn(database, seed, true)
+}
+
+func (d *forwardHelper) aclDryRunOnBackend(bc *sharedBackendConn, database int32, seed uint, username string, multi []*redis.Resp) (*redis.Resp, error) {
+	if bc == nil {
+		return nil, ErrSlotIsNotReady
+	}
+	m := &Request{}
+	m.Multi = make([]*redis.Resp, 0, 3+len(multi))
+	m.Multi = append(m.Multi,
+		redis.NewBulkBytes([]byte("ACL")),
+		redis.NewBulkBytes([]byte("DRYRUN")),
+		redis.NewBulkBytes([]byte(username)),
+	)
+	m.Multi = append(m.Multi, multi...)
+	m.Batch = &sync.WaitGroup{}
+
+	bc.BackendConn(database, seed, true).PushBack(m)
+	m.Batch.Wait()
+
+	if err := m.Err; err != nil {
+		return nil, err
+	}
+	switch resp := m.Resp; {
+	case resp == nil:
+		return nil, ErrRespIsRequired
+	case resp.IsError():
+		return resp, nil
+	case resp.IsString():
+		return nil, nil
+	default:
+		return nil, fmt.Errorf("bad acl dryrun resp: should be string, but got %s", resp.Type)
+	}
 }

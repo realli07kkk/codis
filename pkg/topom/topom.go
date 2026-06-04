@@ -38,6 +38,11 @@ type Topom struct {
 		proxy map[string]*models.Proxy
 
 		sentinel *models.Sentinel
+		acl      *models.ACL
+	}
+	aclSync struct {
+		revision int64
+		failed   []string
 	}
 
 	exit struct {
@@ -91,7 +96,7 @@ func New(client models.Client, config *Config) (*Topom, error) {
 	s := &Topom{}
 	s.config = config
 	s.exit.C = make(chan struct{})
-	s.action.redisp = redis.NewPool(config.ProductAuth, config.MigrationTimeout.Duration())
+	s.action.redisp = redis.NewPoolWithAuthIdentity(config.BackendAuthIdentity(), config.MigrationTimeout.Duration())
 	s.action.progress.status.Store("")
 
 	s.ha.redisp = redis.NewPool("", time.Second*5)
@@ -109,7 +114,7 @@ func New(client models.Client, config *Config) (*Topom, error) {
 	}
 	s.store = models.NewStore(client, config.ProductName)
 
-	s.stats.redisp = redis.NewPool(config.ProductAuth, time.Second*5)
+	s.stats.redisp = redis.NewPoolWithAuthIdentity(config.BackendAuthIdentity(), time.Second*5)
 	s.stats.servers = make(map[string]*RedisStats)
 	s.stats.proxies = make(map[string]*ProxyStats)
 	s.rdbAnalysis = NewRDBAnalysisManager(config)
@@ -281,6 +286,7 @@ func (s *Topom) newContext() (*context, error) {
 			ctx.group = s.cache.group
 			ctx.proxy = s.cache.proxy
 			ctx.sentinel = s.cache.sentinel
+			ctx.acl = s.cache.acl
 			ctx.hosts.m = make(map[string]net.IP)
 			ctx.method, _ = models.ParseForwardMethod(s.config.MigrationMethod)
 			return ctx, nil

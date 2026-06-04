@@ -6,6 +6,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"io/ioutil"
 	"sort"
 	"strconv"
 
@@ -83,6 +84,11 @@ func (t *cmdDashboard) Main(d map[string]interface{}) {
 
 	case d["--rebalance"].(bool):
 		t.handleSlotRebalance(d)
+
+	case d["--acl"].(bool):
+		fallthrough
+	case d["--acl-set"] != nil:
+		t.handleACLCommand(d)
 
 	case d["--rdb-analysis-remote-fetch"].(bool):
 		t.handleRDBAnalysisRemoteFetch(d)
@@ -280,6 +286,80 @@ func (t *cmdDashboard) handleSlotsCommand(d map[string]interface{}) {
 		log.Debugf("call rpc slots-assign OK")
 
 	}
+}
+
+func (t *cmdDashboard) handleACLCommand(d map[string]interface{}) {
+	c := t.newTopomClient()
+
+	switch {
+	case d["--acl"].(bool):
+		log.Debugf("call rpc acl get to dashboard %s", t.addr)
+		view, err := c.GetACL()
+		if err != nil {
+			log.PanicErrorf(err, "call rpc acl get to dashboard %s failed", t.addr)
+		}
+		b, err := json.MarshalIndent(view, "", "    ")
+		if err != nil {
+			log.PanicErrorf(err, "json marshal failed")
+		}
+		fmt.Println(string(b))
+
+	case d["--acl-set"] != nil:
+		path := utils.ArgumentMust(d, "--acl-set")
+		b, err := ioutil.ReadFile(path)
+		if err != nil {
+			log.PanicErrorf(err, "read acl file failed")
+		}
+		req := &topom.ACLUpdateRequest{}
+		if err := json.Unmarshal(b, req); err != nil {
+			log.PanicErrorf(err, "decode acl file failed")
+		}
+		if !d["--confirm"].(bool) {
+			pretty, err := json.MarshalIndent(redactACLUpdateRequest(req), "", "    ")
+			if err != nil {
+				log.PanicErrorf(err, "json marshal failed")
+			}
+			fmt.Println(string(pretty))
+			return
+		}
+		log.Debugf("call rpc acl set to dashboard %s", t.addr)
+		view, err := c.SetACL(req)
+		if err != nil {
+			log.PanicErrorf(err, "call rpc acl set to dashboard %s failed", t.addr)
+		}
+		pretty, err := json.MarshalIndent(view, "", "    ")
+		if err != nil {
+			log.PanicErrorf(err, "json marshal failed")
+		}
+		fmt.Println(string(pretty))
+	}
+}
+
+func redactACLUpdateRequest(req *topom.ACLUpdateRequest) *topom.ACLUpdateRequest {
+	if req == nil {
+		return nil
+	}
+	redacted := &topom.ACLUpdateRequest{
+		Enabled: req.Enabled,
+		Users:   make([]*topom.ACLUserUpdate, 0, len(req.Users)),
+	}
+	for _, user := range req.Users {
+		if user == nil {
+			redacted.Users = append(redacted.Users, nil)
+			continue
+		}
+		dup := &topom.ACLUserUpdate{
+			Name:           user.Name,
+			Enabled:        user.Enabled,
+			PasswordHashes: append([]string(nil), user.PasswordHashes...),
+			Rules:          append([]string(nil), user.Rules...),
+		}
+		if user.NewPassword != "" {
+			dup.NewPassword = "<redacted>"
+		}
+		redacted.Users = append(redacted.Users, dup)
+	}
+	return redacted
 }
 
 func (t *cmdDashboard) parseProxyTokens(d map[string]interface{}) []string {

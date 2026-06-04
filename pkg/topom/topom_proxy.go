@@ -129,6 +129,10 @@ func (s *Topom) reinitProxy(ctx *context, p *models.Proxy, c *proxy.ApiClient) e
 		log.ErrorErrorf(err, "proxy-[%s] fillslots failed", p.Token)
 		return errors.Errorf("proxy-[%s] fillslots failed", p.Token)
 	}
+	if err := c.SetACL(ctx.acl); err != nil {
+		log.ErrorErrorf(err, "proxy-[%s] set acl failed", p.Token)
+		return errors.Errorf("proxy-[%s] set acl failed", p.Token)
+	}
 	if err := c.Start(); err != nil {
 		log.ErrorErrorf(err, "proxy-[%s] start failed", p.Token)
 		return errors.Errorf("proxy-[%s] start failed", p.Token)
