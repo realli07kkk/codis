@@ -227,8 +227,8 @@ go build -tags cgo_jemalloc ./cmd/proxy
    - 所属模块：service-integration-stacks
    - 覆盖 module：`github.com/go-martini/martini`, `github.com/martini-contrib/binding`, `github.com/martini-contrib/gzip`, `github.com/martini-contrib/render`, `github.com/codegangsta/inject`
    - 依赖：无
-   - 状态：planned
-   - 对应 feature：未启动
+   - 状态：done
+   - 对应 feature：`2026-06-04-dep-dashboard-martini-stack`
 
 5. **dep-coordinator-etcd-stack** — 确认旧 etcd client 栈保留或做同路径可行升级，明确现代 etcd module path 迁移不纳入本条。
    - 所属模块：service-integration-stacks
@@ -291,3 +291,4 @@ go build -tags cgo_jemalloc ./cmd/proxy
 - 2026-06-04：将 47 个子 feature 合并为 10 个按风险域、父依赖链和验证方式划分的子 feature；版本矩阵保留全部 47 个 module。
 - 2026-06-04：完成 `dep-network-core-stack`，将 `golang.org/x/net` 升级到 `v0.55.0`、`golang.org/x/sys` 升级到 `v0.45.0`，并通过默认 cmd/pkg 测试与 `cgo_jemalloc` proxy 构建。
 - 2026-06-04：完成 `dep-redis-client-stack`，将 `github.com/garyburd/redigo` 升级到 `v1.6.4`，并通过 Redis client、topom 和默认 cmd/pkg 测试。
+- 2026-06-04：完成 `dep-dashboard-martini-stack`，将 `github.com/go-martini/martini` 升级到 `v0.0.0-20170121215854-22fa46961aab`，确认 `binding`、`gzip`、`render` 和 `inject` 已是当前 `@latest`，并通过 proxy/topom/FE 目标测试与默认 cmd/pkg 测试。

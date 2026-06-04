@@ -26,8 +26,8 @@ items:
   - slug: dep-dashboard-martini-stack
     description: "升级或确认 Martini web stack，验证 dashboard/FE middleware、binding、gzip 和 render 行为"
     depends_on: []
-    status: planned
-    feature: null
+    status: done
+    feature: 2026-06-04-dep-dashboard-martini-stack
     minimal_loop: false
     notes: "覆盖 module: github.com/go-martini/martini, github.com/martini-contrib/binding, github.com/martini-contrib/gzip, github.com/martini-contrib/render, github.com/codegangsta/inject。"
   - slug: dep-coordinator-etcd-stack
