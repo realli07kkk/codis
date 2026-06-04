@@ -1,0 +1,141 @@
+feature: 2026-06-04-dep-redis-client-stack
+created: 2026-06-04
+
+steps:
+  - action: "版本调查复核：重新执行 go list 查询 github.com/garyburd/redigo 的 current、latest、versions，并记录 deprecated path metadata"
+    exit_signal: "旧路径目标仍是 tagged v1.6.4；deprecated note 被记录；如变化则记录实际结果并暂停确认"
+    status: done
+  - action: "依赖触达和迁移边界确认：执行 go mod why、go list -deps 并复核 direct import surface"
+    exit_signal: "默认 cmd/pkg 仍触达 redigo；直接 import 仅在 pkg/utils/redis 和 extern/deprecated/redis-test；本条继续保留旧 import path，不迁移 gomodule/redigo"
+    status: done
+  - action: "module manifest 定点升级：执行 GOPROXY=https://proxy.golang.org,direct go get github.com/garyburd/redigo@v1.6.4"
+    exit_signal: "go.mod 只把 github.com/garyburd/redigo 改到 v1.6.4；go 1.26.1 和 jemalloc-go replace 保留"
+    status: done
+  - action: "checksum 与依赖图收口：核对 go.sum、module graph 和导入路径"
+    exit_signal: "go.sum 只新增 redigo v1.6.4 的 content/go.mod checksum；没有无关 module churn；import path 未迁移"
+    status: done
+  - action: "Redis client target 测试：运行 go test ./pkg/utils/redis"
+    exit_signal: "连接、AUTH、SELECT、INFO/CONFIG、SetMaster、SLOTSINFO、sync/async migration 和 auth identity 相关测试通过"
+    status: done
+  - action: "Topom 集成路径测试：运行 go test ./pkg/topom"
+    exit_signal: "topom stats、slot action、ACL/Sentinel script 配置相关 Redis client 调用路径通过"
+    status: done
+  - action: "默认构建测试闭环：运行 go test ./cmd/... ./pkg/..."
+    exit_signal: "默认 cmd/pkg 测试通过，不报 module version、vendor mode 或 API 不兼容错误"
+    status: done
+  - action: "范围守护与临时产物清理：核对最终 diff 和仓库状态"
+    exit_signal: "diff 仅包含 go.mod、go.sum、本 feature spec 和 roadmap item 状态；不出现 extern、vendor/Godeps、配置模板、部署脚本、前端资源或仓库内临时构建产物"
+    status: done
+
+checks:
+  - item: "module_set 只覆盖 github.com/garyburd/redigo"
+    source: "名词契约"
+    status: passed
+  - item: "github.com/garyburd/redigo 从 v1.0.1-0.20170208211623-48545177e92a 升级到 v1.6.4，scope 保持 direct"
+    source: "名词契约"
+    status: passed
+  - item: "旧 module path deprecated note 被记录，但本 feature 不迁移到 github.com/gomodule/redigo"
+    source: "名词契约"
+    status: passed
+  - item: "go.sum 新增 redigo v1.6.4 的 content/go.mod checksum，不做无关 module churn"
+    source: "名词契约"
+    status: passed
+  - item: "本仓库 import surface 不变，继续使用 github.com/garyburd/redigo/redis"
+    source: "名词契约"
+    status: passed
+  - item: "pkg/utils/redis 对上层暴露的 Client、Pool、InfoCache、Sentinel API 不变"
+    source: "名词契约"
+    status: passed
+  - item: "本 feature 只验证 Sentinel notification-script/client-reconfig-script 配置透传，不把 proxy EVAL/EVALSHA 当成 redigo script 调用路径"
+    source: "名词契约"
+    status: passed
+  - item: "实施顺序为版本查询、deprecated path 记录、定点升级、diff 守护、target 测试、默认测试，不先迁移 module path 或全量整理依赖图"
+    source: "编排骨架"
+    status: passed
+  - item: "测试失败时不通过全量 go mod tidy、import path 迁移或业务代码重写掩盖问题"
+    source: "流程级约束"
+    status: passed
+  - item: "重复执行定点 go get 和验收命令不生成 vendor、Godeps 或 vendor/modules.txt"
+    source: "流程级约束"
+    status: passed
+  - item: "Redis 管理命令、ACL/migration/auth 语义、proxy RESP codec、coordinator 和运行配置保持不变"
+    source: "流程级约束"
+    status: passed
+  - item: "go.mod 中 github.com/garyburd/redigo direct require 是本 feature 的版本升级挂载点"
+    source: "挂载点"
+    status: passed
+  - item: "go.sum 中 redigo v1.6.4 checksum 是 clean checkout 解析目标版本的锁定挂载点"
+    source: "挂载点"
+    status: passed
+  - item: "pkg/utils/redis target test gate 保留，用于证明 Codis redigo 封装仍可工作"
+    source: "挂载点"
+    status: passed
+  - item: "pkg/topom target test gate 保留，用于证明 topom Redis client 和 Sentinel script 配置集成路径仍可工作"
+    source: "挂载点"
+    status: passed
+  - item: "默认 cmd/pkg 测试 gate 保留，用于证明升级后构建测试闭环"
+    source: "挂载点"
+    status: passed
+  - item: "go.mod 保留 go 1.26.1 module directive"
+    source: "范围守护"
+    status: passed
+  - item: "go.mod 保留 replace github.com/spinlock/jemalloc-go => ./third_party/jemalloc-go"
+    source: "范围守护"
+    status: passed
+  - item: "Diff 不包含 pkg/utils/redis、RedisAuthIdentity 或上层 topom/proxy Redis 运行逻辑改动"
+    source: "范围守护"
+    status: passed
+  - item: "Diff 不把 import path 改为 github.com/gomodule/redigo/redis"
+    source: "范围守护"
+    status: passed
+  - item: "Diff 不修改 pkg/proxy/redis RESP codec、proxy session AUTH/SELECT、Stream、hot key cache 或 ACL 路由"
+    source: "范围守护"
+    status: passed
+  - item: "Diff 不把 proxy EVAL/EVALSHA 路由或 hot key cache script invalidation 逻辑纳入 redigo 升级范围"
+    source: "范围守护"
+    status: passed
+  - item: "Diff 不修改 slot migration 编排、SLOTSMGRT* 参数、返回解析或 Redis 8 adapter 行为"
+    source: "范围守护"
+    status: passed
+  - item: "Diff 不修改 extern/deprecated/redis-test，也不把该目录既有失败引入本 feature gate"
+    source: "范围守护"
+    status: passed
+  - item: "Diff 不升级 Martini、coordinator、RDB parser、metrics、jemalloc 或其他 roadmap 子 feature 覆盖的 module"
+    source: "范围守护"
+    status: passed
+  - item: "Diff 不修改 third_party/jemalloc-go、extern/redis-8.6.3、Docker、部署脚本、前端资源或配置模板"
+    source: "范围守护"
+    status: passed
+  - item: "go list -m -json github.com/garyburd/redigo@latest 返回 tagged v1.6.4"
+    source: "验收场景"
+    status: passed
+  - item: "go list -m -u -json github.com/garyburd/redigo 返回当前旧版本、update v1.6.4，并记录 deprecated path note"
+    source: "验收场景"
+    status: passed
+  - item: "go list -m -versions -json github.com/garyburd/redigo 的版本列表包含 v1.6.4，且本条不选择 deprecated marker tag v1.6.1-Deprecated-please-use-github-dot-com-gomodule-redigo"
+    source: "验收场景"
+    status: passed
+  - item: "go list -m -json github.com/gomodule/redigo@latest 只作为观察记录，不作为本 feature 目标"
+    source: "验收场景"
+    status: passed
+  - item: "go mod why -m github.com/garyburd/redigo 仍可追溯到旧 import path，extern/deprecated/redis-test 仅作为触点观察"
+    source: "验收场景"
+    status: passed
+  - item: "go list -deps ./cmd/... ./pkg/... 仍触达 github.com/garyburd/redigo/internal 和 github.com/garyburd/redigo/redis"
+    source: "验收场景"
+    status: passed
+  - item: "go test ./pkg/utils/redis 通过"
+    source: "验收场景"
+    status: passed
+  - item: "go test ./pkg/topom 通过"
+    source: "验收场景"
+    status: passed
+  - item: "搜索 redigo.Script、NewScript、EVAL、EVALSHA 与 Sentinel script 配置调用面，确认本 feature 只覆盖 Sentinel script 配置透传"
+    source: "验收场景"
+    status: passed
+  - item: "go test ./cmd/... ./pkg/... 通过"
+    source: "验收场景"
+    status: passed
+  - item: "重复执行验收命令后 git status 不出现 vendor、Godeps、vendor/modules.txt 或仓库内临时构建产物"
+    source: "验收场景"
+    status: passed

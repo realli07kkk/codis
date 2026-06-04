@@ -7,7 +7,7 @@ require (
 	github.com/coreos/etcd v3.3.27+incompatible
 	github.com/docopt/docopt-go v0.0.0-20180111231733-ee0de3bc6815
 	github.com/emirpasic/gods v1.18.1
-	github.com/garyburd/redigo v1.0.1-0.20170208211623-48545177e92a
+	github.com/garyburd/redigo v1.6.4
 	github.com/go-martini/martini v0.0.0-20160908070901-fe605b5cd210
 	github.com/google/uuid v1.6.0
 	github.com/hashicorp/consul/api v1.34.2

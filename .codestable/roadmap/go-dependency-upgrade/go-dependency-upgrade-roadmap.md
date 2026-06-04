@@ -220,8 +220,8 @@ go build -tags cgo_jemalloc ./cmd/proxy
    - 所属模块：low-risk-runtime-stacks
    - 覆盖 module：`github.com/garyburd/redigo`
    - 依赖：无
-   - 状态：planned
-   - 对应 feature：未启动
+   - 状态：done
+   - 对应 feature：`2026-06-04-dep-redis-client-stack`
 
 4. **dep-dashboard-martini-stack** — 升级或确认 Martini web stack，验证 dashboard/FE middleware、binding、gzip 和 render 行为。
    - 所属模块：service-integration-stacks
@@ -290,3 +290,4 @@ go build -tags cgo_jemalloc ./cmd/proxy
 - 2026-06-04：创建 roadmap；按 `go.mod` 47 个外部 module 建立一包一子 feature，并记录 2026-06-04 的 `@latest` 查询结果。
 - 2026-06-04：将 47 个子 feature 合并为 10 个按风险域、父依赖链和验证方式划分的子 feature；版本矩阵保留全部 47 个 module。
 - 2026-06-04：完成 `dep-network-core-stack`，将 `golang.org/x/net` 升级到 `v0.55.0`、`golang.org/x/sys` 升级到 `v0.45.0`，并通过默认 cmd/pkg 测试与 `cgo_jemalloc` proxy 构建。
+- 2026-06-04：完成 `dep-redis-client-stack`，将 `github.com/garyburd/redigo` 升级到 `v1.6.4`，并通过 Redis client、topom 和默认 cmd/pkg 测试。
