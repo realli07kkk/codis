@@ -103,7 +103,9 @@ func (s *Server) serveConn(c net.Conn) {
 		s.mu.Unlock()
 
 		var resp *Resp
-		if s.handler != nil {
+		if strings.EqualFold(args[0], "HELLO") {
+			resp = Error("ERR unknown command 'HELLO'")
+		} else if s.handler != nil {
 			resp = s.handler(args)
 		}
 		if resp == nil {

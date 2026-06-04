@@ -187,7 +187,12 @@ func (s *fakeServer) Serve(c net.Conn) {
 }
 
 func (s *fakeServer) defaultResponse(r *redis.Resp, multi *int) (*redis.Resp, bool) {
-	switch cmd := string(r.Array[0].Value); cmd {
+	cmd := strings.ToUpper(string(r.Array[0].Value))
+	switch cmd {
+	case "HELLO":
+		return redis.NewError([]byte("ERR unknown command 'HELLO'")), true
+	case "PING":
+		return redis.NewString([]byte("PONG")), true
 	case "SLOTSINFO":
 		return redis.NewArray([]*redis.Resp{}), true
 	case "AUTH":

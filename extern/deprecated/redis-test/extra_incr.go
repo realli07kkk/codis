@@ -7,8 +7,6 @@ import (
 	"flag"
 	"fmt"
 	"time"
-
-	"github.com/garyburd/redigo/redis"
 )
 
 type ExtraIncrTestCase struct {
@@ -92,7 +90,7 @@ func (tc *ExtraIncrTestCase) player(gid int, tg *TestGroup, tags *ZeroTags) {
 	}
 }
 
-func (tc *ExtraIncrTestCase) groupfetch(c1, c2 redis.Conn, key string) int {
+func (tc *ExtraIncrTestCase) groupfetch(c1, c2 *Conn, key string) int {
 	r1, e1 := c1.Do("get", key)
 	r2, e2 := c2.Do("get", key)
 	if e1 != nil || e2 != nil {
@@ -105,18 +103,10 @@ func (tc *ExtraIncrTestCase) groupfetch(c1, c2 redis.Conn, key string) int {
 		Panic("groupfetch key = %s, r1 != nil && r2 != nil, %v %v", key, r1, r2)
 	}
 	if r1 != nil {
-		if v, err := redis.Int(r1, nil); err != nil {
-			Panic("groupfetch key = %s, error = %s", key, err)
-		} else {
-			return v
-		}
+		return c1.Int(r1)
 	}
 	if r2 != nil {
-		if v, err := redis.Int(r2, nil); err != nil {
-			Panic("groupfetch key = %s, error = %s", key, err)
-		} else {
-			return v
-		}
+		return c2.Int(r2)
 	}
 	return -1
 }

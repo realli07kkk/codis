@@ -5,6 +5,8 @@ package redis
 
 import (
 	"container/list"
+	"context"
+	stderrors "errors"
 	"net"
 	"strconv"
 	"strings"
@@ -14,11 +16,19 @@ import (
 	"github.com/CodisLabs/codis/pkg/utils/errors"
 	"github.com/CodisLabs/codis/pkg/utils/math2"
 
-	redigo "github.com/garyburd/redigo/redis"
+	goredis "github.com/redis/go-redis/v9"
 )
 
 type Client struct {
-	conn redigo.Conn
+	client *goredis.Client
+	conn   *goredis.Conn
+
+	pipe     goredis.Pipeliner
+	pipeCmds []goredis.Cmder
+	pipeRecv int
+	flushed  bool
+	broken   bool
+
 	Addr string
 	Auth string
 
@@ -46,33 +56,52 @@ func NewClientWithAuthIdentity(addr string, auth RedisAuthIdentity, timeout time
 	if err := auth.Validate(); err != nil {
 		return nil, err
 	}
-	c, err := redigo.Dial("tcp", addr, []redigo.DialOption{
-		redigo.DialConnectTimeout(math2.MinDuration(time.Second, timeout)),
-		redigo.DialReadTimeout(timeout), redigo.DialWriteTimeout(timeout),
-	}...)
-	if err != nil {
-		return nil, errors.Trace(err)
-	}
-	if auth.HasAuth() {
-		if _, err := c.Do("AUTH", auth.AuthArgs()...); err != nil {
-			c.Close()
-			return nil, errors.Trace(err)
-		}
-	}
-	return &Client{
-		conn: c, Addr: addr, Auth: auth.Password,
+	c := &Client{
+		Addr: addr, Auth: auth.Password,
 		AuthIdentity: auth,
 		LastUse:      time.Now(), Timeout: timeout,
-	}, nil
+	}
+	c.client = goredis.NewClient(&goredis.Options{
+		Addr:            addr,
+		Username:        auth.Username,
+		Password:        auth.Password,
+		Protocol:        2,
+		DisableIdentity: true,
+		MaxRetries:      -1,
+		DialerRetries:   1,
+		DialTimeout:     math2.MinDuration(time.Second, timeout),
+		ReadTimeout:     timeout,
+		WriteTimeout:    timeout,
+		PoolSize:        1,
+		MaxActiveConns:  1,
+	})
+	c.conn = c.client.Conn()
+	if _, err := c.Do("PING"); err != nil {
+		c.Close()
+		return nil, errors.Trace(err)
+	}
+	return c, nil
 }
 
 func (c *Client) Close() error {
-	return c.conn.Close()
+	c.broken = true
+	var err error
+	if c.conn != nil {
+		err = c.conn.Close()
+		c.conn = nil
+	}
+	if c.client != nil {
+		if e := c.client.Close(); err == nil {
+			err = e
+		}
+		c.client = nil
+	}
+	return err
 }
 
 func (c *Client) isRecyclable() bool {
 	switch {
-	case c.conn.Err() != nil:
+	case c.broken || c.conn == nil || c.client == nil:
 		return false
 	case c.Pipeline.Send != c.Pipeline.Recv:
 		return false
@@ -82,51 +111,135 @@ func (c *Client) isRecyclable() bool {
 	return true
 }
 
+func (c *Client) context() (context.Context, context.CancelFunc) {
+	if c.Timeout == 0 {
+		return context.Background(), func() {}
+	}
+	return context.WithTimeout(context.Background(), c.Timeout)
+}
+
+func isRedisCommandError(err error) bool {
+	var redisErr goredis.Error
+	return stderrors.As(err, &redisErr)
+}
+
+func isRedisNil(err error) bool {
+	return err == goredis.Nil || stderrors.Is(err, goredis.Nil)
+}
+
+func (c *Client) handleCommandError(err error) error {
+	c.LastUse = time.Now()
+	if isRedisCommandError(err) {
+		return errors.Trace(err)
+	}
+	c.Close()
+	return errors.Trace(err)
+}
+
 func (c *Client) Do(cmd string, args ...interface{}) (interface{}, error) {
-	r, err := c.conn.Do(cmd, args...)
+	if c.pipe != nil {
+		if c.flushed && c.pipeRecv != len(c.pipeCmds) {
+			return nil, errors.Errorf("redis pipeline has pending replies")
+		}
+		if err := c.Send(cmd, args...); err != nil {
+			return nil, err
+		}
+		if err := c.Flush(); err != nil {
+			return nil, err
+		}
+		var reply interface{}
+		for c.pipe != nil {
+			r, err := c.Receive()
+			if err != nil {
+				return nil, err
+			}
+			reply = r
+		}
+		return reply, nil
+	}
+
+	ctx, cancel := c.context()
+	defer cancel()
+
+	r, err := c.conn.Do(ctx, append([]interface{}{cmd}, args...)...).Result()
 	if err != nil {
-		c.Close()
-		return nil, errors.Trace(err)
+		if isRedisNil(err) {
+			c.LastUse = time.Now()
+			return nil, nil
+		}
+		return nil, c.handleCommandError(err)
 	}
 	c.LastUse = time.Now()
-
-	if err, ok := r.(redigo.Error); ok {
-		return nil, errors.Trace(err)
-	}
 	return r, nil
 }
 
 func (c *Client) Send(cmd string, args ...interface{}) error {
-	if err := c.conn.Send(cmd, args...); err != nil {
-		c.Close()
-		return errors.Trace(err)
+	if c.pipe != nil && c.flushed && c.pipeRecv != len(c.pipeCmds) {
+		return errors.Errorf("redis pipeline has pending replies")
 	}
+	if c.pipe == nil {
+		c.pipe = c.conn.Pipeline()
+		c.pipeCmds = nil
+		c.pipeRecv = 0
+		c.flushed = false
+	}
+	ctx, cancel := c.context()
+	defer cancel()
+	c.pipeCmds = append(c.pipeCmds, c.pipe.Do(ctx, append([]interface{}{cmd}, args...)...))
 	c.Pipeline.Send++
 	return nil
 }
 
 func (c *Client) Flush() error {
-	if err := c.conn.Flush(); err != nil {
-		c.Close()
-		return errors.Trace(err)
+	if c.pipe == nil || c.flushed {
+		return nil
 	}
+	ctx, cancel := c.context()
+	defer cancel()
+	if _, err := c.pipe.Exec(ctx); err != nil && !isRedisCommandError(err) {
+		return c.handleCommandError(err)
+	}
+	c.flushed = true
 	return nil
 }
 
 func (c *Client) Receive() (interface{}, error) {
-	r, err := c.conn.Receive()
-	if err != nil {
-		c.Close()
-		return nil, errors.Trace(err)
+	if c.pipe == nil || c.pipeRecv == len(c.pipeCmds) {
+		return nil, errors.New("redis pipeline has no pending replies")
 	}
+	if !c.flushed {
+		if err := c.Flush(); err != nil {
+			return nil, err
+		}
+	}
+	cmd := c.pipeCmds[c.pipeRecv]
+	c.pipeRecv++
 	c.Pipeline.Recv++
-
 	c.LastUse = time.Now()
 
-	if err, ok := r.(redigo.Error); ok {
-		return nil, errors.Trace(err)
+	if err := cmd.Err(); err != nil {
+		if c.pipeRecv == len(c.pipeCmds) {
+			c.resetPipeline()
+		}
+		if isRedisNil(err) {
+			return nil, nil
+		}
+		return nil, c.handleCommandError(err)
 	}
-	return r, nil
+	if c.pipeRecv == len(c.pipeCmds) {
+		c.resetPipeline()
+	}
+	if cmd, ok := cmd.(*goredis.Cmd); ok {
+		return cmd.Val(), nil
+	}
+	return nil, errors.Errorf("invalid response = %v", cmd)
+}
+
+func (c *Client) resetPipeline() {
+	c.pipe = nil
+	c.pipeCmds = nil
+	c.pipeRecv = 0
+	c.flushed = false
 }
 
 func (c *Client) Select(database int) error {
@@ -152,7 +265,7 @@ func (c *Client) Shutdown() error {
 }
 
 func (c *Client) Info() (map[string]string, error) {
-	text, err := redigo.String(c.Do("INFO"))
+	text, err := replyString(c.Do("INFO"))
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
@@ -170,7 +283,7 @@ func (c *Client) Info() (map[string]string, error) {
 }
 
 func (c *Client) InfoKeySpace() (map[int]string, error) {
-	text, err := redigo.String(c.Do("INFO", "keyspace"))
+	text, err := replyString(c.Do("INFO", "keyspace"))
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
@@ -204,11 +317,11 @@ func (c *Client) InfoFull() (map[string]string, error) {
 		if err != nil {
 			return nil, errors.Trace(err)
 		}
-		p, err := redigo.Values(r, nil)
+		p, err := replyValues(r)
 		if err != nil || len(p) != 2 {
 			return nil, errors.Errorf("invalid response = %v", r)
 		}
-		v, err := redigo.Int(p[1], nil)
+		v, err := replyInt(p[1])
 		if err != nil {
 			return nil, errors.Errorf("invalid response = %v", r)
 		}
@@ -236,12 +349,12 @@ func (c *Client) SetMaster(master string) error {
 	c.Send("SLAVEOF", host, port)
 	c.Send("CONFIG", "REWRITE")
 	c.Send("CLIENT", "KILL", "TYPE", "normal")
-	values, err := redigo.Values(c.Do("EXEC"))
+	values, err := replyValues(c.Do("EXEC"))
 	if err != nil {
 		return errors.Trace(err)
 	}
 	for _, r := range values {
-		if err, ok := r.(redigo.Error); ok {
+		if err := replyError(r); err != nil {
 			return errors.Trace(err)
 		}
 	}
@@ -249,21 +362,12 @@ func (c *Client) SetMaster(master string) error {
 }
 
 func (c *Client) clearMasterUserIfSupported() error {
-	r, err := c.conn.Do("CONFIG", "SET", "masteruser", "")
+	_, err := c.Do("CONFIG", "SET", "masteruser", "")
 	if err != nil {
 		if isUnsupportedMasterUserConfigError(err.Error()) {
 			return nil
 		}
-		c.Close()
 		return errors.Trace(err)
-	}
-	c.LastUse = time.Now()
-	if e, ok := r.(redigo.Error); ok {
-		if isUnsupportedMasterUserConfigError(string(e)) {
-			return nil
-		}
-		c.Close()
-		return errors.Trace(e)
 	}
 	return nil
 }
@@ -282,7 +386,7 @@ func (c *Client) MigrateSlot(slot int, target string) (int, error) {
 	if reply, err := c.Do("SLOTSMGRTTAGSLOT", host, port, mseconds, slot); err != nil {
 		return 0, errors.Trace(err)
 	} else {
-		p, err := redigo.Ints(redigo.Values(reply, nil))
+		p, err := replyInts(reply)
 		if err != nil || len(p) != 2 {
 			return 0, errors.Errorf("invalid response = %v", reply)
 		}
@@ -306,7 +410,7 @@ func (c *Client) MigrateSlotAsync(slot int, target string, option *MigrateSlotAs
 		option.MaxBulks, option.MaxBytes, slot, option.NumKeys); err != nil {
 		return 0, errors.Trace(err)
 	} else {
-		p, err := redigo.Ints(redigo.Values(reply, nil))
+		p, err := replyInts(reply)
 		if err != nil || len(p) != 2 {
 			return 0, errors.Errorf("invalid response = %v", reply)
 		}
@@ -318,13 +422,13 @@ func (c *Client) SlotsInfo() (map[int]int, error) {
 	if reply, err := c.Do("SLOTSINFO"); err != nil {
 		return nil, errors.Trace(err)
 	} else {
-		infos, err := redigo.Values(reply, nil)
+		infos, err := replyValues(reply)
 		if err != nil {
 			return nil, errors.Trace(err)
 		}
 		slots := make(map[int]int)
 		for i, info := range infos {
-			p, err := redigo.Ints(info, nil)
+			p, err := replyInts(info)
 			if err != nil || len(p) != 2 {
 				return nil, errors.Errorf("invalid response[%d] = %v", i, info)
 			}
@@ -338,14 +442,14 @@ func (c *Client) Role() (string, error) {
 	if reply, err := c.Do("ROLE"); err != nil {
 		return "", err
 	} else {
-		values, err := redigo.Values(reply, nil)
+		values, err := replyValues(reply)
 		if err != nil {
 			return "", errors.Trace(err)
 		}
 		if len(values) == 0 {
 			return "", errors.Errorf("invalid response = %v", reply)
 		}
-		role, err := redigo.String(values[0], nil)
+		role, err := replyString(values[0])
 		if err != nil {
 			return "", errors.Errorf("invalid response[0] = %v", values[0])
 		}

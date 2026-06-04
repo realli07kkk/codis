@@ -160,7 +160,17 @@ func TestUpdateACLProxySyncFailureRecordsAllFailedTokens(x *testing.T) {
 
 func commandExists(commands [][]string, want []string) bool {
 	for _, cmd := range commands {
-		if reflect.DeepEqual(cmd, want) {
+		if len(cmd) != len(want) {
+			continue
+		}
+		match := true
+		for i := range cmd {
+			if !strings.EqualFold(cmd[i], want[i]) {
+				match = false
+				break
+			}
+		}
+		if match {
 			return true
 		}
 	}

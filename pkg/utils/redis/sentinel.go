@@ -15,7 +15,7 @@ import (
 	"github.com/CodisLabs/codis/pkg/utils/errors"
 	"github.com/CodisLabs/codis/pkg/utils/sync2/atomic2"
 
-	redigo "github.com/garyburd/redigo/redis"
+	goredis "github.com/redis/go-redis/v9"
 )
 
 type Sentinel struct {
@@ -111,43 +111,33 @@ func (s *Sentinel) subscribeCommand(client *Client, sentinel string,
 	defer func() {
 		client.Close()
 	}()
-	var channels = []interface{}{"+switch-master"}
-	go func() {
-		client.Send("SUBSCRIBE", channels...)
-		client.Flush()
-	}()
-	for _, sub := range channels {
-		values, err := redigo.Values(client.Receive())
-		if err != nil {
-			return errors.Trace(err)
-		} else if len(values) != 3 {
-			return errors.Errorf("invalid response = %v", values)
-		}
-		s, err := redigo.Strings(values[:2], nil)
-		if err != nil || s[0] != "subscribe" || s[1] != sub.(string) {
-			return errors.Errorf("invalid response = %v", values)
-		}
+	ctx, cancel := client.context()
+	defer cancel()
+
+	const channel = "+switch-master"
+	pubsub := client.client.Subscribe(ctx, channel)
+	defer pubsub.Close()
+
+	reply, err := pubsub.Receive(ctx)
+	if err != nil {
+		return errors.Trace(err)
+	}
+	sub, ok := reply.(*goredis.Subscription)
+	if !ok || sub.Kind != "subscribe" || sub.Channel != channel {
+		return errors.Errorf("invalid response = %v", reply)
 	}
 	onSubscribed()
 	for {
-		values, err := redigo.Values(client.Receive())
+		message, err := pubsub.ReceiveMessage(ctx)
 		if err != nil {
 			return errors.Trace(err)
-		} else if len(values) < 2 {
-			return errors.Errorf("invalid response = %v", values)
 		}
-		message, err := redigo.Strings(values, nil)
-		if err != nil || message[0] != "message" {
-			return errors.Errorf("invalid response = %v", values)
-		}
-		s.printf("sentinel-[%s] subscribe event %v", sentinel, message)
+		values := []string{"message", message.Channel, message.Payload}
+		s.printf("sentinel-[%s] subscribe event %v", sentinel, values)
 
-		switch message[1] {
+		switch message.Channel {
 		case "+switch-master":
-			if len(message) != 3 {
-				return errors.Errorf("invalid response = %v", values)
-			}
-			var params = strings.SplitN(message[2], " ", 2)
+			var params = strings.SplitN(message.Payload, " ", 2)
 			if len(params) != 2 {
 				return errors.Errorf("invalid response = %v", values)
 			}
@@ -227,14 +217,16 @@ func (s *Sentinel) existsCommand(client *Client, names []string) (map[string]boo
 			client.Close()
 		}
 	}()
-	go func() {
-		for _, name := range names {
-			client.Send("SENTINEL", "get-master-addr-by-name", name)
+	for _, name := range names {
+		if err := client.Send("SENTINEL", "get-master-addr-by-name", name); err != nil {
+			return nil, errors.Trace(err)
 		}
-		if len(names) != 0 {
-			client.Flush()
+	}
+	if len(names) != 0 {
+		if err := client.Flush(); err != nil {
+			return nil, errors.Trace(err)
 		}
-	}()
+	}
 	exists := make(map[string]bool, len(names))
 	for _, name := range names {
 		r, err := client.Receive()
@@ -256,31 +248,33 @@ func (s *Sentinel) slavesCommand(client *Client, names []string) (map[string][]m
 	if err != nil {
 		return nil, err
 	}
-	go func() {
-		var pending int
-		for _, name := range names {
-			if !exists[name] {
-				continue
-			}
-			pending++
-			client.Send("SENTINEL", "slaves", name)
+	var pending int
+	for _, name := range names {
+		if !exists[name] {
+			continue
 		}
-		if pending != 0 {
-			client.Flush()
+		pending++
+		if err := client.Send("SENTINEL", "slaves", name); err != nil {
+			return nil, errors.Trace(err)
 		}
-	}()
+	}
+	if pending != 0 {
+		if err := client.Flush(); err != nil {
+			return nil, errors.Trace(err)
+		}
+	}
 	results := make(map[string][]map[string]string, len(names))
 	for _, name := range names {
 		if !exists[name] {
 			continue
 		}
-		values, err := redigo.Values(client.Receive())
+		values, err := replyValues(client.Receive())
 		if err != nil {
 			return nil, errors.Trace(err)
 		}
 		var slaves []map[string]string
 		for i := range values {
-			m, err := redigo.StringMap(values[i], nil)
+			m, err := replyStringMap(values[i])
 			if err != nil {
 				return nil, errors.Trace(err)
 			}
@@ -297,13 +291,13 @@ func (s *Sentinel) mastersCommand(client *Client) (map[int]map[string]string, er
 			client.Close()
 		}
 	}()
-	values, err := redigo.Values(client.Do("SENTINEL", "masters"))
+	values, err := replyValues(client.Do("SENTINEL", "masters"))
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
 	var masters = make(map[int]map[string]string)
 	for i := range values {
-		p, err := redigo.StringMap(values[i], nil)
+		p, err := replyStringMap(values[i])
 		if err != nil {
 			return nil, errors.Trace(err)
 		}
@@ -447,48 +441,52 @@ func (s *Sentinel) monitorGroupsCommand(client *Client, sentniel string, config 
 	if err := s.removeCommand(client, names); err != nil {
 		return err
 	}
-	go func() {
-		for gid, tcpAddr := range groups {
-			var ip, port = tcpAddr.IP.String(), tcpAddr.Port
-			client.Send("SENTINEL", "monitor", s.NodeName(gid), ip, port, config.Quorum)
+	for gid, tcpAddr := range groups {
+		var ip, port = tcpAddr.IP.String(), tcpAddr.Port
+		if err := client.Send("SENTINEL", "monitor", s.NodeName(gid), ip, port, config.Quorum); err != nil {
+			return errors.Trace(err)
 		}
-		if len(groups) != 0 {
-			client.Flush()
+	}
+	if len(groups) != 0 {
+		if err := client.Flush(); err != nil {
+			return errors.Trace(err)
 		}
-	}()
+	}
 	for range groups {
 		_, err := client.Receive()
 		if err != nil {
 			return errors.Trace(err)
 		}
 	}
-	go func() {
-		for gid := range groups {
-			var args = []interface{}{"set", s.NodeName(gid)}
-			if config.ParallelSyncs != 0 {
-				args = append(args, "parallel-syncs", config.ParallelSyncs)
-			}
-			if config.DownAfter != 0 {
-				args = append(args, "down-after-milliseconds", int(config.DownAfter/time.Millisecond))
-			}
-			if config.FailoverTimeout != 0 {
-				args = append(args, "failover-timeout", int(config.FailoverTimeout/time.Millisecond))
-			}
-			if s.Auth != "" {
-				args = append(args, "auth-pass", s.Auth)
-			}
-			if config.NotificationScript != "" {
-				args = append(args, "notification-script", config.NotificationScript)
-			}
-			if config.ClientReconfigScript != "" {
-				args = append(args, "client-reconfig-script", config.ClientReconfigScript)
-			}
-			client.Send("SENTINEL", args...)
+	for gid := range groups {
+		var args = []interface{}{"set", s.NodeName(gid)}
+		if config.ParallelSyncs != 0 {
+			args = append(args, "parallel-syncs", config.ParallelSyncs)
 		}
-		if len(groups) != 0 {
-			client.Flush()
+		if config.DownAfter != 0 {
+			args = append(args, "down-after-milliseconds", int(config.DownAfter/time.Millisecond))
 		}
-	}()
+		if config.FailoverTimeout != 0 {
+			args = append(args, "failover-timeout", int(config.FailoverTimeout/time.Millisecond))
+		}
+		if s.Auth != "" {
+			args = append(args, "auth-pass", s.Auth)
+		}
+		if config.NotificationScript != "" {
+			args = append(args, "notification-script", config.NotificationScript)
+		}
+		if config.ClientReconfigScript != "" {
+			args = append(args, "client-reconfig-script", config.ClientReconfigScript)
+		}
+		if err := client.Send("SENTINEL", args...); err != nil {
+			return errors.Trace(err)
+		}
+	}
+	if len(groups) != 0 {
+		if err := client.Flush(); err != nil {
+			return errors.Trace(err)
+		}
+	}
 	for range groups {
 		_, err := client.Receive()
 		if err != nil {
@@ -594,19 +592,21 @@ func (s *Sentinel) removeCommand(client *Client, names []string) error {
 	if err != nil {
 		return err
 	}
-	go func() {
-		var pending int
-		for _, name := range names {
-			if !exists[name] {
-				continue
-			}
-			pending++
-			client.Send("SENTINEL", "remove", name)
+	var pending int
+	for _, name := range names {
+		if !exists[name] {
+			continue
 		}
-		if pending != 0 {
-			client.Flush()
+		pending++
+		if err := client.Send("SENTINEL", "remove", name); err != nil {
+			return errors.Trace(err)
 		}
-	}()
+	}
+	if pending != 0 {
+		if err := client.Flush(); err != nil {
+			return errors.Trace(err)
+		}
+	}
 	for _, name := range names {
 		if !exists[name] {
 			continue

@@ -6,6 +6,7 @@ package main
 import (
 	"bytes"
 	"container/list"
+	"context"
 	"flag"
 	"fmt"
 	"hash/crc32"
@@ -18,10 +19,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
-)
 
-import (
-	"github.com/garyburd/redigo/redis"
+	goredis "github.com/redis/go-redis/v9"
 )
 
 const (
@@ -29,20 +28,44 @@ const (
 )
 
 type Conn struct {
-	redis.Conn
-	Host string
-	Port int
+	client *goredis.Client
+	Host   string
+	Port   int
 }
 
 func NewConn(addr string) *Conn {
 	if t, err := net.ResolveTCPAddr("tcp", addr); err != nil {
 		Panic("parse tcp addr = %s, error = '%s'", addr, err)
-	} else if conn, err := redis.Dial("tcp", addr); err != nil {
-		Panic("connect to '%s' error = '%s'", addr, err)
 	} else {
-		return &Conn{conn, t.IP.String(), t.Port}
+		client := goredis.NewClient(&goredis.Options{
+			Addr:            addr,
+			Protocol:        2,
+			DisableIdentity: true,
+			MaxRetries:      -1,
+			DialerRetries:   1,
+			DialTimeout:     time.Duration(Timeout) * time.Millisecond,
+			ReadTimeout:     time.Duration(Timeout) * time.Millisecond,
+			WriteTimeout:    time.Duration(Timeout) * time.Millisecond,
+		})
+		if err := client.Ping(context.Background()).Err(); err != nil {
+			client.Close()
+			Panic("connect to '%s' error = '%s'", addr, err)
+		}
+		return &Conn{client, t.IP.String(), t.Port}
 	}
 	return nil
+}
+
+func (c *Conn) Close() error {
+	return c.client.Close()
+}
+
+func (c *Conn) Do(cmd string, args ...interface{}) (interface{}, error) {
+	r, err := c.client.Do(context.Background(), append([]interface{}{cmd}, args...)...).Result()
+	if err == goredis.Nil {
+		return nil, nil
+	}
+	return r, err
 }
 
 func (c *Conn) Addr() string {
@@ -50,7 +73,7 @@ func (c *Conn) Addr() string {
 }
 
 func (c *Conn) Int(rsp interface{}) int {
-	if v, err := redis.Int(rsp, nil); err != nil {
+	if v, err := replyInt(rsp); err != nil {
 		panic(err.Error())
 	} else {
 		return v
@@ -67,7 +90,7 @@ func (c *Conn) Ints(rsp interface{}, size int) []int {
 }
 
 func (c *Conn) String(rsp interface{}) string {
-	if s, err := redis.String(rsp, nil); err != nil {
+	if s, err := replyString(rsp); err != nil {
 		panic(err)
 	} else {
 		return s
@@ -75,12 +98,47 @@ func (c *Conn) String(rsp interface{}) string {
 }
 
 func (c *Conn) Values(rsp interface{}, size int) []interface{} {
-	if a, err := redis.Values(rsp, nil); err != nil {
+	if a, err := replyValues(rsp); err != nil {
 		panic(err)
 	} else if size > 0 && len(a) != size {
 		panic(fmt.Sprintf("values.len != %d", size))
 	} else {
 		return a
+	}
+}
+
+func replyInt(rsp interface{}) (int, error) {
+	switch v := rsp.(type) {
+	case int:
+		return v, nil
+	case int64:
+		return int(v), nil
+	case string:
+		return strconv.Atoi(v)
+	case []byte:
+		return strconv.Atoi(string(v))
+	default:
+		return 0, fmt.Errorf("invalid response = %v", rsp)
+	}
+}
+
+func replyString(rsp interface{}) (string, error) {
+	switch v := rsp.(type) {
+	case string:
+		return v, nil
+	case []byte:
+		return string(v), nil
+	default:
+		return "", fmt.Errorf("invalid response = %v", rsp)
+	}
+}
+
+func replyValues(rsp interface{}) ([]interface{}, error) {
+	switch v := rsp.(type) {
+	case []interface{}:
+		return v, nil
+	default:
+		return nil, fmt.Errorf("invalid response = %v", rsp)
 	}
 }
 

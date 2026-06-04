@@ -4,6 +4,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"math/rand"
@@ -14,16 +15,45 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
-)
 
-import (
-	"github.com/garyburd/redigo/redis"
+	goredis "github.com/redis/go-redis/v9"
 )
 
 var args struct {
 	time     int
 	keys     []string
-	connlist []redis.Conn
+	connlist []*benchConn
+}
+
+type benchConn struct {
+	client *goredis.Client
+}
+
+func newBenchConn(addr string) (*benchConn, error) {
+	client := goredis.NewClient(&goredis.Options{
+		Addr:            addr,
+		Protocol:        2,
+		DisableIdentity: true,
+		MaxRetries:      -1,
+		DialerRetries:   1,
+	})
+	if err := client.Ping(context.Background()).Err(); err != nil {
+		client.Close()
+		return nil, err
+	}
+	return &benchConn{client: client}, nil
+}
+
+func (c *benchConn) Close() error {
+	return c.client.Close()
+}
+
+func (c *benchConn) Do(cmd string, cmdArgs ...interface{}) (interface{}, error) {
+	r, err := c.client.Do(context.Background(), append([]interface{}{cmd}, cmdArgs...)...).Result()
+	if err == goredis.Nil {
+		return nil, nil
+	}
+	return r, err
 }
 
 func main() {
@@ -71,7 +101,7 @@ func main() {
 			continue
 		}
 		for i := 0; i < ncpu*8; i++ {
-			conn, err := redis.Dial("tcp", addr)
+			conn, err := newBenchConn(addr)
 			if err != nil {
 				panic(fmt.Sprintf("connect to '%s', error = %s", addr, err))
 			}
@@ -103,9 +133,9 @@ type BenchCtrl struct {
 	running int64
 	count   int64
 	keys    []string
-	prepare func(b *BenchCtrl, r *Rand, c redis.Conn, i int)
-	cleanup func(b *BenchCtrl, r *Rand, c redis.Conn, i int)
-	testing func(b *BenchCtrl, r *Rand, c redis.Conn)
+	prepare func(b *BenchCtrl, r *Rand, c *benchConn, i int)
+	cleanup func(b *BenchCtrl, r *Rand, c *benchConn, i int)
+	testing func(b *BenchCtrl, r *Rand, c *benchConn)
 }
 
 func NewBenchCtrl(prefix string) *BenchCtrl {
@@ -128,7 +158,7 @@ func (b *BenchCtrl) Run() {
 		for j, conn := range args.connlist {
 			wg.Add(1)
 			r := NewRand()
-			go func(c redis.Conn, j int) {
+			go func(c *benchConn, j int) {
 				for i := j; i < len(b.keys); i += len(args.connlist) {
 					b.prepare(b, r, c, i)
 				}
@@ -163,7 +193,7 @@ func (b *BenchCtrl) Run() {
 		for j, conn := range args.connlist {
 			wg.Add(1)
 			r := NewRand()
-			go func(c redis.Conn, j int) {
+			go func(c *benchConn, j int) {
 				for i := j; i < len(b.keys); i += len(args.connlist) {
 					b.cleanup(b, r, c, i)
 				}
@@ -192,7 +222,7 @@ func (r *Rand) Int() int {
 
 func benchSet() {
 	b := NewBenchCtrl("set")
-	b.testing = func(b *BenchCtrl, r *Rand, c redis.Conn) {
+	b.testing = func(b *BenchCtrl, r *Rand, c *benchConn) {
 		<-b.sig
 		for atomic.LoadInt64(&b.running) != 0 {
 			key := r.NextKey(b.keys)
@@ -204,7 +234,7 @@ func benchSet() {
 		}
 		b.players.Done()
 	}
-	b.cleanup = func(b *BenchCtrl, r *Rand, c redis.Conn, i int) {
+	b.cleanup = func(b *BenchCtrl, r *Rand, c *benchConn, i int) {
 		key := b.keys[i]
 		_, err := c.Do("del", key)
 		if err != nil {
@@ -216,7 +246,7 @@ func benchSet() {
 
 func benchLpush() {
 	b := NewBenchCtrl("lpush")
-	b.testing = func(b *BenchCtrl, r *Rand, c redis.Conn) {
+	b.testing = func(b *BenchCtrl, r *Rand, c *benchConn) {
 		<-b.sig
 		for atomic.LoadInt64(&b.running) != 0 {
 			key := r.NextKey(b.keys)
@@ -228,7 +258,7 @@ func benchLpush() {
 		}
 		b.players.Done()
 	}
-	b.cleanup = func(b *BenchCtrl, r *Rand, c redis.Conn, i int) {
+	b.cleanup = func(b *BenchCtrl, r *Rand, c *benchConn, i int) {
 		key := b.keys[i]
 		_, err := c.Do("del", key)
 		if err != nil {
@@ -240,7 +270,7 @@ func benchLpush() {
 
 func benchMget() {
 	b := NewBenchCtrl("mget")
-	b.testing = func(b *BenchCtrl, r *Rand, c redis.Conn) {
+	b.testing = func(b *BenchCtrl, r *Rand, c *benchConn) {
 		<-b.sig
 		keys := make([]interface{}, 16)
 		for atomic.LoadInt64(&b.running) != 0 {
@@ -255,14 +285,14 @@ func benchMget() {
 		}
 		b.players.Done()
 	}
-	b.prepare = func(b *BenchCtrl, r *Rand, c redis.Conn, i int) {
+	b.prepare = func(b *BenchCtrl, r *Rand, c *benchConn, i int) {
 		key := b.keys[i]
 		_, err := c.Do("set", key, strconv.Itoa(r.Int()))
 		if err != nil {
 			panic(fmt.Sprintf("set '%s' error = %s", key, err))
 		}
 	}
-	b.cleanup = func(b *BenchCtrl, r *Rand, c redis.Conn, i int) {
+	b.cleanup = func(b *BenchCtrl, r *Rand, c *benchConn, i int) {
 		key := b.keys[i]
 		_, err := c.Do("del", key)
 		if err != nil {

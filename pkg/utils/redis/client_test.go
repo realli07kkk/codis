@@ -20,7 +20,7 @@ func TestClientRedis8InfoFullFields(t *testing.T) {
 		"master_port:6380\r\n" +
 		"master_link_status:up\r\n" +
 		"loading:0\r\n"
-	s := redistest.NewServer(t, func(args []string) *redistest.Resp {
+	s := newRedisClientTestServer(t, func(args []string) *redistest.Resp {
 		switch strings.ToUpper(args[0]) {
 		case "INFO":
 			return redistest.Bulk(info)
@@ -55,7 +55,7 @@ func TestClientRedis8InfoFullFields(t *testing.T) {
 }
 
 func TestClientRedis8InfoFullStandaloneDoesNotInventMasterAddr(t *testing.T) {
-	s := redistest.NewServer(t, func(args []string) *redistest.Resp {
+	s := newRedisClientTestServer(t, func(args []string) *redistest.Resp {
 		switch strings.ToUpper(args[0]) {
 		case "INFO":
 			return redistest.Bulk("# Replication\r\nrole:master\r\nloading:0\r\n")
@@ -82,7 +82,7 @@ func TestClientRedis8InfoFullStandaloneDoesNotInventMasterAddr(t *testing.T) {
 }
 
 func TestClientRedis8SetMasterKeepsSlaveofAlias(t *testing.T) {
-	s := redistest.NewServer(t, func(args []string) *redistest.Resp {
+	s := newRedisClientTestServer(t, func(args []string) *redistest.Resp {
 		switch strings.ToUpper(args[0]) {
 		case "MULTI":
 			return redistest.OK()
@@ -131,7 +131,7 @@ func TestClientRedis8SetMasterKeepsSlaveofAlias(t *testing.T) {
 }
 
 func TestClientRedis8SetMasterWritesMasterUserForNamedAuth(t *testing.T) {
-	s := redistest.NewServer(t, func(args []string) *redistest.Resp {
+	s := newRedisClientTestServer(t, func(args []string) *redistest.Resp {
 		switch strings.ToUpper(args[0]) {
 		case "AUTH":
 			if len(args) != 3 || args[1] != "svc" || args[2] != "secret" {
@@ -167,7 +167,7 @@ func TestClientRedis8SetMasterWritesMasterUserForNamedAuth(t *testing.T) {
 }
 
 func TestClientSetMasterIgnoresUnsupportedMasterUserClear(t *testing.T) {
-	s := redistest.NewServer(t, func(args []string) *redistest.Resp {
+	s := newRedisClientTestServer(t, func(args []string) *redistest.Resp {
 		switch strings.ToUpper(args[0]) {
 		case "CONFIG":
 			if len(args) == 4 && strings.ToUpper(args[1]) == "SET" && args[2] == "masteruser" {
@@ -197,7 +197,7 @@ func TestClientSetMasterIgnoresUnsupportedMasterUserClear(t *testing.T) {
 }
 
 func TestClientRedis8SelectTracksDatabase(t *testing.T) {
-	s := redistest.NewServer(t, func(args []string) *redistest.Resp {
+	s := newRedisClientTestServer(t, func(args []string) *redistest.Resp {
 		if strings.ToUpper(args[0]) != "SELECT" {
 			t.Fatalf("unexpected command: %v", args)
 		}
@@ -219,9 +219,61 @@ func TestClientRedis8SelectTracksDatabase(t *testing.T) {
 	if c.Database != 2 {
 		t.Fatalf("database = %d", c.Database)
 	}
-	if n := len(s.Commands()); n != 1 {
-		t.Fatalf("SELECT should be sent once, got %d commands: %v", n, s.Commands())
+	commands := redisUserCommands(s.Commands())
+	if n := len(commands); n != 1 {
+		t.Fatalf("SELECT should be sent once, got %d commands: %v", n, commands)
 	}
+}
+
+func TestClientGoRedisHandshakeUsesResp2AndDisablesIdentity(t *testing.T) {
+	s := newRedisClientTestServer(t, func(args []string) *redistest.Resp {
+		t.Fatalf("unexpected command: %v", args)
+		return nil
+	})
+
+	c, err := NewClientNoAuth(s.Addr(), time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+
+	var sawHello2 bool
+	for _, cmd := range s.Commands() {
+		if strings.ToUpper(cmd[0]) == "HELLO" && len(cmd) >= 2 && cmd[1] == "2" {
+			sawHello2 = true
+		}
+		if len(cmd) >= 2 && strings.ToUpper(cmd[0]) == "CLIENT" && strings.ToUpper(cmd[1]) == "SETINFO" {
+			t.Fatalf("CLIENT SETINFO should be disabled: %v", s.Commands())
+		}
+	}
+	if !sawHello2 {
+		t.Fatalf("HELLO 2 not observed: %v", s.Commands())
+	}
+}
+
+func newRedisClientTestServer(t testing.TB, handler redistest.Handler) *redistest.Server {
+	t.Helper()
+	return redistest.NewServer(t, func(args []string) *redistest.Resp {
+		switch strings.ToUpper(args[0]) {
+		case "HELLO":
+			return redistest.Error("ERR unknown command 'HELLO'")
+		case "PING":
+			return redistest.String("PONG")
+		}
+		return handler(args)
+	})
+}
+
+func redisUserCommands(commands [][]string) [][]string {
+	var filtered [][]string
+	for _, cmd := range commands {
+		switch strings.ToUpper(cmd[0]) {
+		case "HELLO", "PING":
+			continue
+		}
+		filtered = append(filtered, cmd)
+	}
+	return filtered
 }
 
 func redisCommandExists(commands [][]string, want []string) bool {
@@ -244,7 +296,7 @@ func redisCommandExists(commands [][]string, want []string) bool {
 }
 
 func TestClientRedis8SlotsInfoStrictShape(t *testing.T) {
-	s := redistest.NewServer(t, func(args []string) *redistest.Resp {
+	s := newRedisClientTestServer(t, func(args []string) *redistest.Resp {
 		if strings.ToUpper(args[0]) != "SLOTSINFO" {
 			t.Fatalf("unexpected command: %v", args)
 		}
@@ -270,7 +322,7 @@ func TestClientRedis8SlotsInfoStrictShape(t *testing.T) {
 }
 
 func TestClientRedis8SlotsInfoRejectsMalformedShape(t *testing.T) {
-	s := redistest.NewServer(t, func(args []string) *redistest.Resp {
+	s := newRedisClientTestServer(t, func(args []string) *redistest.Resp {
 		return redistest.Array(redistest.Array(redistest.Int("3")))
 	})
 
@@ -286,7 +338,7 @@ func TestClientRedis8SlotsInfoRejectsMalformedShape(t *testing.T) {
 }
 
 func TestClientRedis8MigrationResponsesReturnRemainingCount(t *testing.T) {
-	s := redistest.NewServer(t, func(args []string) *redistest.Resp {
+	s := newRedisClientTestServer(t, func(args []string) *redistest.Resp {
 		switch strings.ToUpper(args[0]) {
 		case "SLOTSMGRTTAGSLOT":
 			return redistest.Array(redistest.Int("4"), redistest.Int("7"))
@@ -324,8 +376,74 @@ func TestClientRedis8MigrationResponsesReturnRemainingCount(t *testing.T) {
 	}
 }
 
+func TestClientRedis8RoleUppercasesArrayShape(t *testing.T) {
+	s := newRedisClientTestServer(t, func(args []string) *redistest.Resp {
+		if strings.ToUpper(args[0]) != "ROLE" {
+			t.Fatalf("unexpected command: %v", args)
+		}
+		return redistest.Array(redistest.Bulk("slave"))
+	})
+
+	c, err := NewClientNoAuth(s.Addr(), time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+
+	role, err := c.Role()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if role != "SLAVE" {
+		t.Fatalf("role = %q", role)
+	}
+}
+
+func TestClientPipelineCountsDriveRecycle(t *testing.T) {
+	s := newRedisClientTestServer(t, func(args []string) *redistest.Resp {
+		if strings.ToUpper(args[0]) != "PING" {
+			t.Fatalf("unexpected command: %v", args)
+		}
+		return redistest.String("PONG")
+	})
+
+	c, err := NewClientNoAuth(s.Addr(), time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+
+	if err := c.Send("PING"); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.Send("PING"); err != nil {
+		t.Fatal(err)
+	}
+	if c.isRecyclable() {
+		t.Fatal("client with pending pipeline replies should not be recyclable")
+	}
+	if err := c.Flush(); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 2; i++ {
+		reply, err := c.Receive()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if reply != "PONG" {
+			t.Fatalf("reply[%d] = %v", i, reply)
+		}
+	}
+	if c.Pipeline.Send != c.Pipeline.Recv {
+		t.Fatalf("pipeline counts = %d/%d", c.Pipeline.Send, c.Pipeline.Recv)
+	}
+	if !c.isRecyclable() {
+		t.Fatal("client should be recyclable after all pipeline replies are received")
+	}
+}
+
 func TestClientRedis8AuthDefaultUserPath(t *testing.T) {
-	s := redistest.NewServer(t, func(args []string) *redistest.Resp {
+	s := newRedisClientTestServer(t, func(args []string) *redistest.Resp {
 		if strings.ToUpper(args[0]) != "AUTH" || len(args) != 2 || args[1] != "secret" {
 			t.Fatalf("unexpected command: %v", args)
 		}
@@ -340,7 +458,7 @@ func TestClientRedis8AuthDefaultUserPath(t *testing.T) {
 }
 
 func TestClientRedis8AuthNamedUserPath(t *testing.T) {
-	s := redistest.NewServer(t, func(args []string) *redistest.Resp {
+	s := newRedisClientTestServer(t, func(args []string) *redistest.Resp {
 		if strings.ToUpper(args[0]) != "AUTH" || len(args) != 3 || args[1] != "svc" || args[2] != "secret" {
 			t.Fatalf("unexpected command: %v", args)
 		}
