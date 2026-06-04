@@ -241,8 +241,8 @@ go build -tags cgo_jemalloc ./cmd/proxy
    - 所属模块：service-integration-stacks
    - 覆盖 module：`github.com/samuel/go-zookeeper`
    - 依赖：无
-   - 状态：planned
-   - 对应 feature：未启动
+   - 状态：done
+   - 对应 feature：`2026-06-04-dep-coordinator-zookeeper-stack`
 
 7. **dep-coordinator-consul-stack** — 升级 Consul API 与 HashiCorp 依赖链，验证 Consul coordinator/Jodis 后端和 Session/KV watch 语义。
    - 所属模块：service-integration-stacks
@@ -293,3 +293,4 @@ go build -tags cgo_jemalloc ./cmd/proxy
 - 2026-06-04：完成 `dep-redis-client-stack`，将 `github.com/garyburd/redigo` 升级到 `v1.6.4`，并通过 Redis client、topom 和默认 cmd/pkg 测试。
 - 2026-06-04：完成 `dep-dashboard-martini-stack`，将 `github.com/go-martini/martini` 升级到 `v0.0.0-20170121215854-22fa46961aab`，确认 `binding`、`gzip`、`render` 和 `inject` 已是当前 `@latest`，并通过 proxy/topom/FE 目标测试与默认 cmd/pkg 测试。
 - 2026-06-04：完成 `dep-coordinator-etcd-stack`，确认 `github.com/coreos/etcd`、`github.com/coreos/go-semver`、`github.com/json-iterator/go`、`github.com/modern-go/concurrent` 和 `github.com/modern-go/reflect2` 均已是旧 module path 当前 `@latest`，保留旧 `github.com/coreos/etcd/client` 栈且不迁移现代 etcd module path，并通过 coordinator 目标测试与默认 cmd/pkg 测试。
+- 2026-06-04：完成 `dep-coordinator-zookeeper-stack`，将 `github.com/samuel/go-zookeeper` 升级到 `v0.0.0-20201211165307-7117e9ea2414`，并通过 Zookeeper coordinator 目标测试与默认 cmd/pkg 测试。

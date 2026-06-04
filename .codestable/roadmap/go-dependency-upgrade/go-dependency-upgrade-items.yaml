@@ -40,8 +40,8 @@ items:
   - slug: dep-coordinator-zookeeper-stack
     description: "升级 github.com/samuel/go-zookeeper 到最新 pseudo version，验证 Zookeeper coordinator/Jodis 后端"
     depends_on: []
-    status: planned
-    feature: null
+    status: done
+    feature: 2026-06-04-dep-coordinator-zookeeper-stack
     minimal_loop: false
     notes: "覆盖 module: github.com/samuel/go-zookeeper。"
   - slug: dep-coordinator-consul-stack
