@@ -54,8 +54,8 @@ items:
   - slug: dep-rdb-analysis-stack
     description: "升级或确认 RDB parser 与 sonic/bytedance 依赖链，验证 dashboard RDB Analysis 和 remote fetch analysis"
     depends_on: [dep-network-core-stack]
-    status: planned
-    feature: null
+    status: done
+    feature: 2026-06-04-dep-rdb-analysis-stack
     minimal_loop: false
     notes: "覆盖 module: github.com/hdt3213/rdb, github.com/bytedance/gopkg, github.com/bytedance/sonic, github.com/bytedance/sonic/loader, github.com/cloudwego/base64x, github.com/klauspost/cpuid/v2, github.com/twitchyliquid64/golang-asm, golang.org/x/arch。"
   - slug: dep-metrics-stack

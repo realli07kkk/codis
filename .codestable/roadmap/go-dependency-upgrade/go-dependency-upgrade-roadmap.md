@@ -255,8 +255,8 @@ go build -tags cgo_jemalloc ./cmd/proxy
    - 所属模块：service-integration-stacks
    - 覆盖 module：`github.com/hdt3213/rdb`, `github.com/bytedance/gopkg`, `github.com/bytedance/sonic`, `github.com/bytedance/sonic/loader`, `github.com/cloudwego/base64x`, `github.com/klauspost/cpuid/v2`, `github.com/twitchyliquid64/golang-asm`, `golang.org/x/arch`
    - 依赖：`dep-network-core-stack`
-   - 状态：planned
-   - 对应 feature：未启动
+   - 状态：done
+   - 对应 feature：`2026-06-04-dep-rdb-analysis-stack`
 
 9. **dep-metrics-stack** — 升级或确认 InfluxDB/statsd metrics module，验证 proxy/topom metrics 上报路径。
    - 所属模块：service-integration-stacks
@@ -295,3 +295,4 @@ go build -tags cgo_jemalloc ./cmd/proxy
 - 2026-06-04：完成 `dep-coordinator-etcd-stack`，确认 `github.com/coreos/etcd`、`github.com/coreos/go-semver`、`github.com/json-iterator/go`、`github.com/modern-go/concurrent` 和 `github.com/modern-go/reflect2` 均已是旧 module path 当前 `@latest`，保留旧 `github.com/coreos/etcd/client` 栈且不迁移现代 etcd module path，并通过 coordinator 目标测试与默认 cmd/pkg 测试。
 - 2026-06-04：完成 `dep-coordinator-zookeeper-stack`，将 `github.com/samuel/go-zookeeper` 升级到 `v0.0.0-20201211165307-7117e9ea2414`，并通过 Zookeeper coordinator 目标测试与默认 cmd/pkg 测试。
 - 2026-06-04：完成 `dep-coordinator-consul-stack`，将 `github.com/hashicorp/consul/api` 升级到 `v1.34.3`，确认 HashiCorp/Consul indirect 依赖链按 parent-driven 策略保留当前版本，并通过 Consul coordinator 目标测试与默认 cmd/pkg 测试。
+- 2026-06-04：完成 `dep-rdb-analysis-stack`，确认 `github.com/hdt3213/rdb` 已是当前 `@latest v1.3.2`，sonic/bytedance 依赖链按 parent-driven 策略保留当前版本且不产生 manifest diff，并通过 RDB Analysis 目标测试与默认 cmd/pkg 测试。

@@ -1,0 +1,129 @@
+feature: 2026-06-04-dep-rdb-analysis-stack
+created: 2026-06-04
+
+steps:
+  - action: "版本调查复核：重新执行 go list 查询 RDB stack 的 current/latest 和 direct/indirect 边界"
+    exit_signal: "github.com/hdt3213/rdb 仍是 v1.3.2 且无 Update；indirect latest 与 design 表一致"
+    status: done
+  - action: "父依赖复核：读取 github.com/hdt3213/rdb@v1.3.2.mod 并执行 go mod graph"
+    exit_signal: "rdb@v1.3.2 仍要求当前 sonic/bytedance 版本；main module graph 与 design 一致"
+    status: done
+  - action: "依赖触达分类：执行 go mod why 与 go list -deps 并复核 pkg/topom RDB Analysis import surface"
+    exit_signal: "默认包图只直接触达 hdt3213/rdb parser/model/core 等包；sonic/bytedance 链不在实际 import graph"
+    status: done
+  - action: "manifest no-op 守护：确认无需执行升级并核对 go.mod/go.sum"
+    exit_signal: "go.mod/go.sum 无 diff；go 1.26.1 和 jemalloc replace 保留"
+    status: done
+  - action: "RDB Analysis target 测试：运行 go test ./pkg/topom ./cmd/dashboard ./cmd/admin ./cmd/fe"
+    exit_signal: "RDB Analysis manager、API、remote fetch、admin 和 FE 编译测试通过"
+    status: done
+  - action: "默认构建测试闭环：运行 go test ./cmd/... ./pkg/..."
+    exit_signal: "默认 cmd/pkg 测试通过，不报 module version、vendor mode 或 RDB parser API 不兼容错误"
+    status: done
+  - action: "范围守护与临时产物清理：核对最终 diff、vendor/Godeps 和 roadmap 文档状态"
+    exit_signal: "diff 仅包含本 feature spec 和 roadmap 状态；无 Go 源码、配置、部署、extern、vendor/Godeps 或 module churn"
+    status: done
+
+checks:
+  - item: "module_set 覆盖 roadmap 中 RDB parser 与 sonic/bytedance 依赖链"
+    source: "名词契约"
+    status: passed
+  - item: "github.com/hdt3213/rdb 当前 v1.3.2 等于 @latest v1.3.2"
+    source: "名词契约"
+    status: passed
+  - item: "github.com/bytedance/gopkg 保留 v0.1.3，独立 @latest v0.1.4 不单独升级"
+    source: "名词契约"
+    status: passed
+  - item: "github.com/bytedance/sonic 保留 v1.15.0，独立 @latest v1.15.1 不单独升级"
+    source: "名词契约"
+    status: passed
+  - item: "github.com/bytedance/sonic/loader 保留 v0.5.0，独立 @latest v0.5.1 不单独升级"
+    source: "名词契约"
+    status: passed
+  - item: "github.com/cloudwego/base64x 保留 v0.1.6，独立 @latest v0.1.7 不单独升级"
+    source: "名词契约"
+    status: passed
+  - item: "github.com/klauspost/cpuid/v2 保留 v2.2.9，独立 @latest v2.3.0 不单独升级"
+    source: "名词契约"
+    status: passed
+  - item: "github.com/twitchyliquid64/golang-asm 当前 v0.15.1 等于 @latest v0.15.1"
+    source: "名词契约"
+    status: passed
+  - item: "golang.org/x/arch 保留 v0.9.0，独立 @latest v0.27.0 不单独升级"
+    source: "名词契约"
+    status: passed
+  - item: "go.mod/go.sum 不发生 manifest diff"
+    source: "名词契约"
+    status: passed
+  - item: "RDB Analysis import surface 仍只通过 pkg/topom 使用 github.com/hdt3213/rdb/model 和 parser"
+    source: "名词契约"
+    status: passed
+  - item: "实施顺序为版本查询、父依赖复核、触达分类、manifest no-op 守护、target 测试、默认测试"
+    source: "编排骨架"
+    status: passed
+  - item: "测试失败时不通过全量 go mod tidy、独立升级 sonic/bytedance 或改写 RDB Analysis 语义掩盖问题"
+    source: "流程级约束"
+    status: passed
+  - item: "重复执行验收命令不生成 vendor、Godeps 或 vendor/modules.txt"
+    source: "流程级约束"
+    status: passed
+  - item: "go.mod 中 github.com/hdt3213/rdb v1.3.2 direct require 是 RDB parser 版本确认挂载点"
+    source: "挂载点"
+    status: passed
+  - item: "go.mod 中 sonic/bytedance indirect require 是本 feature 的保留边界挂载点"
+    source: "挂载点"
+    status: passed
+  - item: "pkg/topom/topom_rdb_analysis.go 的 hdt3213/rdb import 是 RDB parser 使用面挂载点"
+    source: "挂载点"
+    status: passed
+  - item: "RDB Analysis target test gate 保留，用于证明 dashboard/topom RDB 使用面仍可通过"
+    source: "挂载点"
+    status: passed
+  - item: "默认 cmd/pkg test gate 保留，用于证明依赖确认后的构建测试闭环"
+    source: "挂载点"
+    status: passed
+  - item: "go list -m -u -json github.com/hdt3213/rdb 返回当前版本且无 Update"
+    source: "验收场景"
+    status: passed
+  - item: "go list -m -json github.com/hdt3213/rdb@latest 确认 @latest 等于 v1.3.2"
+    source: "验收场景"
+    status: passed
+  - item: "indirect module 的 go list latest 与 design 表一致，sonic/loader 不默认升 dev pre-release"
+    source: "验收场景"
+    status: passed
+  - item: "github.com/hdt3213/rdb@v1.3.2.mod 仍要求当前 sonic/bytedance 版本"
+    source: "验收场景"
+    status: passed
+  - item: "go mod graph 中 main module 和 rdb@v1.3.2 的 RDB stack 边界与 design 一致"
+    source: "验收场景"
+    status: passed
+  - item: "go mod why -m 覆盖 RDB stack，确认 main module 只需要 github.com/hdt3213/rdb"
+    source: "验收场景"
+    status: passed
+  - item: "go list -deps ./cmd/... ./pkg/... 触达 hdt3213/rdb parser/model/core/lzf/memprofiler，不触达 sonic/bytedance 包"
+    source: "验收场景"
+    status: passed
+  - item: "git diff -- go.mod go.sum 无输出"
+    source: "验收场景"
+    status: passed
+  - item: "go test ./pkg/topom ./cmd/dashboard ./cmd/admin ./cmd/fe 通过"
+    source: "验收场景"
+    status: passed
+  - item: "go test ./cmd/... ./pkg/... 通过"
+    source: "验收场景"
+    status: passed
+  - item: "重复验收后 git status 不出现 vendor、Godeps、vendor/modules.txt 或仓库内临时构建产物"
+    source: "验收场景"
+    status: passed
+  - item: "Diff 不修改 go.mod/go.sum"
+    source: "范围守护"
+    status: passed
+  - item: "Diff 不修改 RDB Analysis manager、API、remote fetch、admin CLI、FE 或文档中的行为语义"
+    source: "范围守护"
+    status: passed
+  - item: "Diff 不修改 proxy、coordinator、Redis 8 export、metrics、jemalloc、Docker、部署脚本或配置模板"
+    source: "范围守护"
+    status: passed
+  - item: "Diff 不升级其他 roadmap 子 feature 覆盖的 module"
+    source: "范围守护"
+    status: passed
