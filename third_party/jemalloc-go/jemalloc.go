@@ -4,7 +4,7 @@ package jemalloc
 // #cgo       CPPFLAGS: -D_REENTRANT
 // #cgo linux CPPFLAGS: -D_GNU_SOURCE
 // #cgo        LDFLAGS: -lm
-// #cgo linux  LDFLAGS: -lrt
+// #cgo linux  LDFLAGS: -lrt -ldl
 // #include <jemalloc/jemalloc.h>
 import "C"
 

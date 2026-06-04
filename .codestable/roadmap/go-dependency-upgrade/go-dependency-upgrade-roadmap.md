@@ -269,8 +269,8 @@ go build -tags cgo_jemalloc ./cmd/proxy
     - 所属模块：native-build-stack
     - 覆盖 module：`github.com/spinlock/jemalloc-go`
     - 依赖：`dep-network-core-stack`
-    - 状态：planned
-    - 对应 feature：未启动
+    - 状态：done
+    - 对应 feature：`2026-06-04-dep-jemalloc-stack`
 
 **最小闭环**：第 1 条 `dep-network-core-stack` 做完后，项目能完成一次合并依赖升级、`go.mod/go.sum` 最小变更、`go test ./cmd/... ./pkg/...` 和 `go build -tags cgo_jemalloc ./cmd/proxy` 验证闭环。
 
@@ -297,3 +297,4 @@ go build -tags cgo_jemalloc ./cmd/proxy
 - 2026-06-04：完成 `dep-coordinator-consul-stack`，将 `github.com/hashicorp/consul/api` 升级到 `v1.34.3`，确认 HashiCorp/Consul indirect 依赖链按 parent-driven 策略保留当前版本，并通过 Consul coordinator 目标测试与默认 cmd/pkg 测试。
 - 2026-06-04：完成 `dep-rdb-analysis-stack`，确认 `github.com/hdt3213/rdb` 已是当前 `@latest v1.3.2`，sonic/bytedance 依赖链按 parent-driven 策略保留当前版本且不产生 manifest diff，并通过 RDB Analysis 目标测试与默认 cmd/pkg 测试。
 - 2026-06-04：完成 `dep-metrics-stack`，将 `github.com/influxdata/influxdb` 升级到 `v1.12.4`，确认 `gopkg.in/alexcesaro/statsd.v2` 已是当前 `@latest v2.0.0`，并通过 metrics 目标测试与默认 cmd/pkg 测试。
+- 2026-06-04：完成 `dep-jemalloc-stack`，将 `github.com/spinlock/jemalloc-go` 升级到 `v0.0.0-20201010032256-e81523fb8524`，同步 `third_party/jemalloc-go` local replace 到 upstream latest `jemalloc-5.2.1` 布局，并通过 `cgo_jemalloc` proxy 构建与默认 cmd/pkg 测试。

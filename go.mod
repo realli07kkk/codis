@@ -18,7 +18,7 @@ require (
 	github.com/martini-contrib/render v0.0.0-20150707142108-ec18f8345a11
 	github.com/oxtoacart/bpool v0.0.0-20190530202638-03653db5a59c
 	github.com/samuel/go-zookeeper v0.0.0-20201211165307-7117e9ea2414
-	github.com/spinlock/jemalloc-go v0.0.0-20161230074307-26719b2ee618
+	github.com/spinlock/jemalloc-go v0.0.0-20201010032256-e81523fb8524
 	github.com/ugorji/go v1.2.14
 	golang.org/x/net v0.55.0
 	gopkg.in/alexcesaro/statsd.v2 v2.0.0

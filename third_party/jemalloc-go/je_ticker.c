@@ -1,2 +1,1 @@
-#define	JEMALLOC_TICKER_C_
-#include "jemalloc/internal/jemalloc_internal.h"
+jemalloc-5.2.1/src/ticker.c

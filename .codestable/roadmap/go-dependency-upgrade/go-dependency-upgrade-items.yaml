@@ -68,7 +68,7 @@ items:
   - slug: dep-jemalloc-stack
     description: "评估 github.com/spinlock/jemalloc-go 最新 pseudo version，并同步处理 third_party/jemalloc-go local replace"
     depends_on: [dep-network-core-stack]
-    status: planned
-    feature: null
+    status: done
+    feature: 2026-06-04-dep-jemalloc-stack
     minimal_loop: false
     notes: "覆盖 module: github.com/spinlock/jemalloc-go。当前 replace 到 ./third_party/jemalloc-go。"
