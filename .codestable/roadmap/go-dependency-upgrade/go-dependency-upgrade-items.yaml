@@ -1,0 +1,74 @@
+roadmap: go-dependency-upgrade
+created: 2026-06-04
+
+items:
+  - slug: dep-network-core-stack
+    description: "升级 golang.org/x/net v0.51.0 -> v0.55.0 与 golang.org/x/sys v0.41.0 -> v0.45.0，完成依赖升级最小闭环并验证 cgo 相关链路"
+    depends_on: []
+    status: planned
+    feature: null
+    minimal_loop: true
+    notes: "覆盖 module: golang.org/x/net, golang.org/x/sys。"
+  - slug: dep-config-cli-utility-stack
+    description: "升级或确认配置、CLI、UUID、通用数据结构和 codec 相关 Go module"
+    depends_on: []
+    status: planned
+    feature: null
+    minimal_loop: false
+    notes: "覆盖 module: github.com/BurntSushi/toml, github.com/docopt/docopt-go, github.com/google/uuid, github.com/emirpasic/gods, github.com/oxtoacart/bpool, github.com/ugorji/go。"
+  - slug: dep-redis-client-stack
+    description: "升级 github.com/garyburd/redigo 到 v1.6.4，验证 Redis 连接、AUTH、SELECT、迁移和脚本调用路径"
+    depends_on: []
+    status: planned
+    feature: null
+    minimal_loop: false
+    notes: "覆盖 module: github.com/garyburd/redigo。"
+  - slug: dep-dashboard-martini-stack
+    description: "升级或确认 Martini web stack，验证 dashboard/FE middleware、binding、gzip 和 render 行为"
+    depends_on: []
+    status: planned
+    feature: null
+    minimal_loop: false
+    notes: "覆盖 module: github.com/go-martini/martini, github.com/martini-contrib/binding, github.com/martini-contrib/gzip, github.com/martini-contrib/render, github.com/codegangsta/inject。"
+  - slug: dep-coordinator-etcd-stack
+    description: "确认旧 etcd client 栈保留或做同路径可行升级，现代 etcd module path 迁移不纳入本条"
+    depends_on: []
+    status: planned
+    feature: null
+    minimal_loop: false
+    notes: "覆盖 module: github.com/coreos/etcd, github.com/coreos/go-semver, github.com/json-iterator/go, github.com/modern-go/concurrent, github.com/modern-go/reflect2。"
+  - slug: dep-coordinator-zookeeper-stack
+    description: "升级 github.com/samuel/go-zookeeper 到最新 pseudo version，验证 Zookeeper coordinator/Jodis 后端"
+    depends_on: []
+    status: planned
+    feature: null
+    minimal_loop: false
+    notes: "覆盖 module: github.com/samuel/go-zookeeper。"
+  - slug: dep-coordinator-consul-stack
+    description: "升级 Consul API 与 HashiCorp 依赖链，验证 Consul coordinator/Jodis 后端和 Session/KV watch 语义"
+    depends_on: [dep-network-core-stack]
+    status: planned
+    feature: null
+    minimal_loop: false
+    notes: "覆盖 module: github.com/hashicorp/consul/api, github.com/armon/go-metrics, github.com/fatih/color, github.com/go-viper/mapstructure/v2, github.com/hashicorp/errwrap, github.com/hashicorp/go-cleanhttp, github.com/hashicorp/go-hclog, github.com/hashicorp/go-immutable-radix, github.com/hashicorp/go-multierror, github.com/hashicorp/go-rootcerts, github.com/hashicorp/golang-lru, github.com/hashicorp/serf, github.com/mattn/go-colorable, github.com/mattn/go-isatty, github.com/mitchellh/go-homedir, golang.org/x/exp。"
+  - slug: dep-rdb-analysis-stack
+    description: "升级或确认 RDB parser 与 sonic/bytedance 依赖链，验证 dashboard RDB Analysis 和 remote fetch analysis"
+    depends_on: [dep-network-core-stack]
+    status: planned
+    feature: null
+    minimal_loop: false
+    notes: "覆盖 module: github.com/hdt3213/rdb, github.com/bytedance/gopkg, github.com/bytedance/sonic, github.com/bytedance/sonic/loader, github.com/cloudwego/base64x, github.com/klauspost/cpuid/v2, github.com/twitchyliquid64/golang-asm, golang.org/x/arch。"
+  - slug: dep-metrics-stack
+    description: "升级或确认 InfluxDB/statsd metrics module，验证 proxy/topom metrics 上报路径"
+    depends_on: []
+    status: planned
+    feature: null
+    minimal_loop: false
+    notes: "覆盖 module: github.com/influxdata/influxdb, gopkg.in/alexcesaro/statsd.v2。"
+  - slug: dep-jemalloc-stack
+    description: "评估 github.com/spinlock/jemalloc-go 最新 pseudo version，并同步处理 third_party/jemalloc-go local replace"
+    depends_on: [dep-network-core-stack]
+    status: planned
+    feature: null
+    minimal_loop: false
+    notes: "覆盖 module: github.com/spinlock/jemalloc-go。当前 replace 到 ./third_party/jemalloc-go。"
