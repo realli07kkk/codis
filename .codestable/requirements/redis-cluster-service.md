@@ -5,7 +5,7 @@ pitch: 让业务像使用单机 Redis 一样使用可扩缩容的 Redis 集群
 status: current
 last_reviewed: 2026-06-04
 implemented_by: [system-overview]
-tags: [redis, cluster, operations, acl, security]
+tags: [redis, cluster, operations, acl, security, rate-limit]
 ---
 
 # 像使用单机 Redis 一样使用可扩缩容集群
@@ -14,6 +14,7 @@ tags: [redis, cluster, operations, acl, security]
 
 - 作为业务开发者，我希望继续使用普通 Redis 客户端连接服务，而不是为了分片、迁移和主从切换改造业务代码。
 - 作为平台维护者，我希望在 Redis 8 backend 上统一管理 ACL 用户，并让业务客户端通过 `AUTH [username] password` 连接 Codis Proxy，而不是绕过 Codis 分别登录每台 Redis Server 配置权限。
+- 作为平台维护者，我希望能在 dashboard/FE 中给 Codis Proxy 配置保护性的 QPS 上限，并可动态下发到 online proxy，而不是只能通过重启 proxy 或外部流量入口临时止血。
 - 作为平台维护者，我希望 Codis Proxy 能对客户端 `session_auth` 的连续错误认证做临时锁定，而不是让暴露在 Redis 协议面的密码被同一来源 IP 高频尝试。
 - 作为使用 cluster-mode Redis SDK 的业务开发者，我希望 SDK 只依赖 `CLUSTER NODES` bootstrap 时也能接入 Codis Proxy，而不是为了接入 Codis 额外维护一套客户端适配层。
 - 作为使用 Redis 8 backend 的业务开发者，我希望常见 Redis Stream 单 key 命令和安全的非阻塞同 hash tag Stream 读能经 Codis Proxy 正确路由，而不是因为 proxy 还按旧 Redis 3 命令表把 Stream 命令错路由。
@@ -32,6 +33,8 @@ tags: [redis, cluster, operations, acl, security]
 ## 怎么解决
 
 业务流量先进 proxy，proxy 根据 key 所在 slot 转发到后端 Redis；dashboard 维护集群拓扑、slot 归属、迁移动作和可选 ACL revision，并把状态同步给各个 proxy；FE、admin 和 HA 工具围绕 dashboard 提供可视化、命令行和巡检维护入口。proxy 还在 Redis 协议面提供有限的本地观测、安全和兼容能力：`CLIENT LIST` 返回当前 proxy 实例的活动客户端连接快照；显式启用的 Codis-managed Redis ACL 让 dashboard/topom 统一提交 Redis 8 ACL 用户、password hashes 和 rules 到当前 product 的 Redis Server，再把同一 revision snapshot 下发给 online proxy。启用后，客户端可用 `AUTH password` 访问 `default` 用户，或用 `AUTH username password` 访问指定用户；稳定 slot 普通命令走 user-bound backend connection，本地命令、迁移包装和内部运维命令走 backend service identity，并在返回用户可见结果前对原始客户端命令做 ACL 校验。普通客户端不能通过 proxy 执行 ACL 管理命令。显式启用的 `session_auth` 防暴力破解 guard 会按客户端 remote IP 记录错误 `AUTH` 次数并临时锁定未认证 session 的后续认证尝试，锁定到期自动解除，已有已认证 session 不受影响；显式启用的 `CLUSTER NODES` 返回伪 Redis Cluster 节点清单用于 cluster-mode SDK bootstrap。`CLUSTER NODES` 的 `self` 模式只返回当前 proxy，`all` 模式从 Jodis/coordinator 注册信息轮询所有 online proxy 并均分 Redis Cluster 逻辑 slot `0-16383`，但真实请求路由仍按 Codis 1024 slot 执行。Redis 8 Stream 命令以受控子集进入 proxy 命令边界：单 key Stream 命令按 stream key 路由，`XGROUP` / `XINFO` 容器命令按子命令后的 stream key 路由，非阻塞 `XREAD` / `XREADGROUP` 只有在所有 stream key 共享同一 hash tag/key 时整条转发；阻塞读、跨 hash tag multi-stream 和无 key/未知 Stream subcommand 由 proxy 拒绝。对运维显式配置的 string hot key，proxy 可启用进程内短 TTL Hot key cache，让 `GET` / `MGET` 在本 proxy 本地命中时直接返回 copied bulk value，减少后端读放大；启用写后广播时，source proxy 会把可枚举的 DB+key 失效事件上报 dashboard/topom，由 dashboard/topom 通知其他 online proxy 删除本地缓存条目，缩短跨 proxy 旧值窗口。dashboard/topom 还提供进程内 RDB Analysis 任务能力，允许 FE 通过 `xauth` 上传 RDB 文件、选择 dashboard 受控 workspace 内的 RDB 文件，或指定当前 product 内 Redis 8 Codis Server 的 `server_addr` 后由 dashboard 拉取 `GET /codis/rdb/latest` 并进入同一分析 job 生命周期；remote fetch 的 Redis export auth 来自 dashboard 本地持久化配置，不从 FE/API/CLI 请求体传入。RDB Analysis 只保留摘要和 top N，不把完整 key/value 列表常驻前端。后端 Codis Server 承载 slot keyspace、slot 查询/删除和迁移命令；默认构建产物已切到 Redis 8 Codis Server，具备 Redis 8 ↔ Redis 8 同步迁移、异步迁移与 `SLOTSRESTORE` / `SLOTSRESTORE-ASYNC` RDB fragment restore 能力，Redis 3 通过显式 fallback 构建目标保留。底层元数据放在 filesystem、Zookeeper、Etcd 或 Consul 这类 coordinator 中；Consul 后端只使用 KV 和 Session 语义。
+
+平台维护者还可以通过 dashboard/FE 管理默认关闭的 Proxy QPS limit。dashboard/topom 把当前 product 的目标 revision 和 limit 写入 coordinator，并 fan-out 到所有 online proxy；proxy 在普通请求入口使用单进程 token bucket 拒绝超限请求，返回 `ERR proxy qps limit exceeded`，但不访问后端 Redis。该能力用于运维保护和快速降载，默认 0 不限制，不改变普通 Redis 客户端的兼容路径。
 
 Redis 8 Codis Server 还可以显式开启固定路径的本机 RDB HTTP export：在现有 Redis 端口上用 header secret 认证 `GET /codis/rdb/latest`，只返回当前 `server.rdb_filename` 对应且已经存在的 RDB 文件。运维可用 `codis-rdb-export-rate-limit` 对所有 export 连接共享的 body 写出做 server 级 bytes/sec 限速，默认 0 不限速；该限速不作用于普通 Redis 命令执行或普通 reply 写出。该能力服务备份/取证自动化，不经过 proxy/dashboard/coordinator，也不触发新的持久化生成。
 
@@ -54,6 +57,7 @@ dashboard 可以作为当前 product 内 Redis 8 RDB HTTP export 的受控调用
 - 2026-06-02：Redis 8 RDB HTTP export 新增 `codis-rdb-export-rate-limit`。0 保持不限速，正数表示单 Redis Server 进程内所有 RDB export 连接共享的 body bytes/sec；token 不足时 export 只暂停自身 writable handler 并由 ae time event 恢复，不改变普通 Redis 命令执行线程模型，不修改 `aeProcessEvents`，不把普通命令或普通 reply 接入该 token bucket。
 - 2026-06-02：Dashboard / FE / codis-admin 新增 Remote RDB fetch analysis。运维可在 dashboard 配置中启用 `rdb_analysis_remote_fetch_enabled` 并持久化一个 `rdb_analysis_remote_fetch_auth`，再从 FE 或 `codis-admin --rdb-analysis-remote-fetch --server=ADDR` 指定当前 product 内 Redis 8 server，由 dashboard 拉取 Redis RDB HTTP export、落本地临时文件并创建 UUID v7 RDB Analysis job。该进展不新增 tus/断点续传，不允许任意 URL，不触发 `SAVE` / `BGSAVE`，不把 export auth 写入请求体、FE 状态、job source、coordinator 或日志。
 - 2026-06-04：Codis 新增默认关闭的 Redis 8 ACL 统一管理和 proxy 多账号认证能力。dashboard/topom、codis-admin 和 FE 可读取/提交 ACL revision；topom 先同步 Redis Server `ACL SETUSER`，再写 coordinator `/codis3/{product}/acl`，并把 snapshot 下发给 proxy。proxy 启用 `codis_acl_enabled` 后支持客户端 `AUTH [username] password`、`ACL WHOAMI`、user-bound backend connection、service identity + ACL DRYRUN、本地 hot key cache ACL gate 和 revision stale 重新认证；backend named auth 同时覆盖复制 `masteruser/masterauth` 与 Redis 8 同步/异步 migration auth。该进展保持默认关闭和旧 password-only 行为兼容，不允许普通客户端经 proxy 管理 ACL。
+- 2026-06-04：Codis Proxy 新增默认关闭的进程级 QPS limit。平台维护者可在 dashboard/FE 读取和提交当前 product 的 `proxy_qps_limit`，topom 将 revision/limit 写入 coordinator `/codis3/{product}/proxy_qps_limit` 并下发到 online proxy，proxy reinit 时重放当前目标配置。普通请求超过本 proxy token bucket 时返回 `ERR proxy qps limit exceeded`，不访问后端 Redis；`AUTH` 和 `QUIT` 不被 QPS limit 阻断。该进展保持默认 0 不限制，不开放 Redis protocol `CONFIG SET proxy_qps_limit`，不实现跨 proxy 分布式限流。
 
 ## 边界
 
@@ -64,6 +68,7 @@ dashboard 可以作为当前 product 内 Redis 8 RDB HTTP export 的受控调用
 - `CLIENT` 命令族只支持 `CLIENT LIST`；该命令只返回当前 proxy 实例接入的客户端连接，不聚合多个 proxy，不下探后端 Redis，也不承诺 Redis 8.x 的所有字段。
 - `session_auth` 防暴力破解默认关闭，只是单 proxy、单 remote IP 维度的客户端 `AUTH` 保护；它不是分布式撞库防护，不解析 Proxy Protocol / `X-Forwarded-For`，不持久化到 coordinator，不跨 proxy 同步，也不提供 dashboard 管理页、手动解锁 API、allowlist/denylist/CIDR 或 Redis ACL username 维度。NAT 或四层代理场景下，多个真实客户端可能共享同一个锁定维度。
 - Codis-managed Redis ACL 默认关闭，只面向 Redis 8 backend 的 ACL 用户、命令和 key pattern 管理；Redis 3 fallback 不要求通过 ACL smoke。它不实现完整 Redis Cluster ACL、RESP3/HELLO parity、Pub/Sub channel ACL、Redis Stack/module key-spec 语义、跨 dashboard 原子事务或跨 proxy 强一致瞬时切换。明文 `new_password` 只作为提交时短期输入，不写 coordinator、stats、API 响应或 FE view；backend service password 和 session user password 仍属于运行期凭据，必须按配置和进程内存风险管理。
+- Proxy QPS limit 默认关闭，只表示单个 proxy 进程内所有 session 共享的普通请求 QPS 上限。它不是全局分布式限流，不提供 per-client、per-IP、per-user、per-command、per-DB、per-slot、per-key 或 per-backend group 粒度，也不把每秒 token 状态写入 coordinator。普通业务客户端仍不能通过 proxy 使用 Redis protocol `CONFIG` 命令族管理该能力。
 - Hot key cache 默认关闭，只缓存配置 allowlist 中 exact key 的 `GET` / `MGET` string bulk value；它是 proxy 进程内短 TTL 弱一致缓存，同 proxy 写入会清理本地 cache。开启写后广播后，source proxy 可经 dashboard/topom best-effort 通知其他 online proxy 删除本地 DB+key cache，但广播队列满、dashboard/topom 不可达、目标 proxy 超时或直连后端 Redis 写入仍只能靠 TTL 收敛，不适合要求跨 proxy 强一致的 key。
 - 集群拓扑变更必须经由 dashboard/topom 管理，不应绕过它直接改 coordinator 中的状态。
 - Consul 只作为 coordinator/Jodis 的 KV + Session 后端，不提供存量元数据自动迁移，也不代表 Codis 使用 Consul service catalog、health check 或 service mesh。

@@ -219,6 +219,20 @@ func (s *Proxy) Model() *models.Proxy {
 	return s.model
 }
 
+func (s *Proxy) SetQPSLimit(config *QPSLimitConfig) error {
+	if config == nil {
+		return errors.New("missing qps limit config")
+	}
+	return s.router.qpsLimiter.SetLimit(config.Revision, config.Limit, time.Now())
+}
+
+func (s *Proxy) ResetStats() {
+	ResetStats()
+	if s.router != nil {
+		s.router.qpsLimiter.ResetStats()
+	}
+}
+
 func (s *Proxy) Config() *Config {
 	return s.config
 }
@@ -532,6 +546,7 @@ type Stats struct {
 
 	HotKeyCache           *HotKeyCacheStats    `json:"hot_key_cache,omitempty"`
 	SessionAuthBruteforce *AuthBruteforceStats `json:"session_auth_bruteforce,omitempty"`
+	QPSLimit              *QPSLimitStats       `json:"qps_limit,omitempty"`
 
 	Runtime *RuntimeStats `json:"runtime,omitempty"`
 }
@@ -635,6 +650,9 @@ func (s *Proxy) Stats(flags StatsFlags) *Stats {
 	}
 	if authBruteforce := s.authBruteforce.Stats(); authBruteforce.Visible() {
 		stats.SessionAuthBruteforce = &authBruteforce
+	}
+	if qpsLimit := s.router.qpsLimiter.Stats(); qpsLimit.Visible() {
+		stats.QPSLimit = &qpsLimit
 	}
 
 	if flags.HasBit(StatsRuntime) {

@@ -310,6 +310,13 @@ func (s *Session) handleRequest(r *Request, d *Router) error {
 		s.setAuthorized(true)
 	}
 
+	if !d.qpsLimiter.Allow(time.Now()) {
+		r.Resp = redis.NewErrorf(qpsLimitExceededMessage)
+		r.SkipRedisErrorStats = true
+		s.incrOpFails(r, nil)
+		return nil
+	}
+
 	if opstr == "ACL" {
 		return s.handleRequestACL(r, d)
 	}
@@ -716,6 +723,9 @@ func (s *Session) setAuthorized(authorized bool) {
 }
 
 func (s *Session) getOpStats(opstr string) *opStats {
+	if s.stats.opmap == nil {
+		s.stats.opmap = make(map[string]*opStats, 16)
+	}
 	e := s.stats.opmap[opstr]
 	if e == nil {
 		e = &opStats{opstr: opstr}
@@ -730,7 +740,9 @@ func (s *Session) incrOpStats(r *Request, t redis.RespType) {
 	e.nsecs.Add(time.Now().UnixNano() - r.UnixNano)
 	switch t {
 	case redis.TypeError:
-		e.redis.errors.Incr()
+		if !r.SkipRedisErrorStats {
+			e.redis.errors.Incr()
+		}
 	}
 }
 

@@ -61,6 +61,9 @@ proxy_datacenter = ""
 # Set max number of alive sessions.
 proxy_max_clients = 1000
 
+# Set total accepted requests per second for this proxy process. 0 to disable.
+proxy_qps_limit = 0
+
 # Set max offheap memory size. (0 to disable)
 proxy_max_offheap_size = "1024mb"
 

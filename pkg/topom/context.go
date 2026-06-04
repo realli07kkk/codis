@@ -25,6 +25,8 @@ type context struct {
 	sentinel *models.Sentinel
 	acl      *models.ACL
 
+	proxyQPSLimit *models.ProxyQPSLimit
+
 	hosts struct {
 		sync.Mutex
 		m map[string]net.IP

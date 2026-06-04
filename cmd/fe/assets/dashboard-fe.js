@@ -607,9 +607,13 @@ dashboard.controller('MainCodisCtrl', ['$scope', '$http', '$uibModal', '$timeout
             if ($scope.resetACLEditor) {
                 $scope.resetACLEditor();
             }
+            if ($scope.resetQPSLimitEditor) {
+                $scope.resetQPSLimitEditor();
+            }
         }
         initRDBAnalysis($scope, $http, $timeout);
         initACLEditor($scope, $http, $timeout);
+        initQPSLimitEditor($scope, $http, $timeout);
         $scope.resetOverview();
 
         $http.get('/list').then(function (resp) {
@@ -633,6 +637,7 @@ dashboard.controller('MainCodisCtrl', ['$scope', '$http', '$uibModal', '$timeout
                 $scope.codis_coord_addr = overview.config.coordinator_addr;
                 $scope.updateStats(overview.stats);
                 $scope.loadACL();
+                $scope.loadQPSLimit();
             });
         }
 

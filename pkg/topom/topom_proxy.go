@@ -133,6 +133,12 @@ func (s *Topom) reinitProxy(ctx *context, p *models.Proxy, c *proxy.ApiClient) e
 		log.ErrorErrorf(err, "proxy-[%s] set acl failed", p.Token)
 		return errors.Errorf("proxy-[%s] set acl failed", p.Token)
 	}
+	if shouldSyncProxyQPSLimit(ctx.proxyQPSLimit) {
+		if err := c.SetQPSLimit(ctx.proxyQPSLimit.Revision, ctx.proxyQPSLimit.Limit); err != nil {
+			log.ErrorErrorf(err, "proxy-[%s] set qps limit failed", p.Token)
+			return errors.Errorf("proxy-[%s] set qps limit failed", p.Token)
+		}
+	}
 	if err := c.Start(); err != nil {
 		log.ErrorErrorf(err, "proxy-[%s] start failed", p.Token)
 		return errors.Errorf("proxy-[%s] start failed", p.Token)

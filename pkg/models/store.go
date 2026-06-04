@@ -62,6 +62,10 @@ func ACLPath(product string) string {
 	return filepath.Join(CodisDir, product, "acl")
 }
 
+func ProxyQPSLimitPath(product string) string {
+	return filepath.Join(CodisDir, product, "proxy_qps_limit")
+}
+
 func LoadTopom(client Client, product string, must bool) (*Topom, error) {
 	b, err := client.Read(LockPath(product), must)
 	if err != nil || b == nil {
@@ -123,6 +127,10 @@ func (s *Store) ACLPath() string {
 	return ACLPath(s.product)
 }
 
+func (s *Store) ProxyQPSLimitPath() string {
+	return ProxyQPSLimitPath(s.product)
+}
+
 func (s *Store) Acquire(topom *Topom) error {
 	return s.client.Create(s.LockPath(), topom.Encode())
 }
@@ -149,6 +157,22 @@ func (s *Store) LoadACL(must bool) (*ACL, error) {
 
 func (s *Store) UpdateACL(acl *ACL) error {
 	return s.client.Update(s.ACLPath(), acl.Encode())
+}
+
+func (s *Store) LoadProxyQPSLimit(must bool) (*ProxyQPSLimit, error) {
+	b, err := s.client.Read(s.ProxyQPSLimitPath(), must)
+	if err != nil || b == nil {
+		return nil, err
+	}
+	config := &ProxyQPSLimit{}
+	if err := jsonDecode(config, b); err != nil {
+		return nil, err
+	}
+	return config, nil
+}
+
+func (s *Store) UpdateProxyQPSLimit(config *ProxyQPSLimit) error {
+	return s.client.Update(s.ProxyQPSLimitPath(), config.Encode())
 }
 
 func (s *Store) SlotMappings() ([]*SlotMapping, error) {

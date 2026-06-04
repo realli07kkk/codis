@@ -24,7 +24,8 @@ type Request struct {
 	Database int32
 	UnixNano int64
 
-	ACLIdentity *SessionACLIdentity
+	ACLIdentity         *SessionACLIdentity
+	SkipRedisErrorStats bool
 
 	*redis.Resp
 	Err error
@@ -47,6 +48,7 @@ func (r *Request) MakeSubRequest(n int) []Request {
 		x.Database = r.Database
 		x.UnixNano = r.UnixNano
 		x.ACLIdentity = r.ACLIdentity
+		x.SkipRedisErrorStats = r.SkipRedisErrorStats
 	}
 	return sub
 }

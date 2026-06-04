@@ -101,6 +101,42 @@
             <div class="col-md-12"
                  style="margin-bottom: 10px; padding-bottom: 10px; border-bottom: solid 1px lightgray;">
                 <form class="form-inline">
+                    <h4 style="padding-left:30px; padding-right:20px; display: inline;">Proxy QPS Limit</h4>
+                    <span ng-if="qps_limit_model" style="padding-left: 15px;">
+                        Revision [[qps_limit_model.revision]] / [[qps_limit_model.sync_status]]
+                    </span>
+                    <span ng-if="qps_limit_model" style="padding-left: 15px;">
+                        [[qps_limit_model.enabled ? 'enabled' : 'disabled']]
+                    </span>
+                </form>
+            </div>
+            <div class="col-md-12" style="padding-bottom: 10px;" ng-if="codis_addr != 'NA'">
+                <form class="form-inline">
+                    <label style="font-weight: normal; padding-right: 10px;">Limit</label>
+                    <input style="height: 28px; width: 180px;" type="text" class="form-control"
+                           ng-model="qps_limit_edit.limit_text"
+                           ng-disabled="qps_limit_saving">
+                    <button class="btn btn-primary btn-sm active" style="width: 120px; font-size: 14px; padding: 2px;"
+                            ng-click="submitQPSLimit()"
+                            ng-disabled="qps_limit_saving">
+                        Apply
+                    </button>
+                    <button class="btn btn-default btn-sm active" style="width: 120px; font-size: 14px; padding: 2px;"
+                            ng-click="loadQPSLimit()"
+                            ng-disabled="qps_limit_saving">
+                        Refresh
+                    </button>
+                </form>
+            </div>
+            <div class="col-md-12" ng-if="qps_limit_error">
+                <div class="alert alert-danger" style="padding: 6px 12px; margin-bottom: 10px;">[[qps_limit_error]]</div>
+            </div>
+        </div>
+
+        <div class="row" style="min-width: 1200px">
+            <div class="col-md-12"
+                 style="margin-bottom: 10px; padding-bottom: 10px; border-bottom: solid 1px lightgray;">
+                <form class="form-inline">
                     <h4 style="padding-left:30px; padding-right:20px; display: inline;">ACL</h4>
                     <span ng-if="acl_model" style="padding-left: 15px;">
                         Revision [[acl_model.revision]] / [[acl_model.sync_status]]
@@ -1063,5 +1099,6 @@
 <script src="rdb-analysis.js"></script>
 <script src="dashboard-fe.js"></script>
 <script src="acl.js"></script>
+<script src="qps-limit.js"></script>
 </body>
 </html>

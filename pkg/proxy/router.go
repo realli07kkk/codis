@@ -33,6 +33,7 @@ type Router struct {
 	hotKeyCache          *HotKeyCache
 	hotKeyCacheBroadcast *hotKeyCacheBroadcastReporter
 	clusterNodes         *clusterNodesProvider
+	qpsLimiter           *QPSLimiter
 	acl                  struct {
 		mu       sync.RWMutex
 		snapshot *ACLSnapshot
@@ -52,6 +53,7 @@ func NewRouter(config *Config) *Router {
 	s.hotKeyCache = newHotKeyCache(config)
 	s.hotKeyCacheBroadcast = newHotKeyCacheBroadcastReporter(config, s.hotKeyCache)
 	s.clusterNodes = newClusterNodesProvider(config, nil, nil)
+	s.qpsLimiter = newQPSLimiter(config.ProxyQPSLimit)
 	for i := range s.slots {
 		s.slots[i].router = s
 		s.slots[i].id = i

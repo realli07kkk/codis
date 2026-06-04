@@ -83,6 +83,7 @@ func newApiServer(p *Proxy) http.Handler {
 		r.Put("/sentinels/:xauth", binding.Json(models.Sentinel{}), api.SetSentinels)
 		r.Put("/sentinels/:xauth/rewatch", api.RewatchSentinels)
 		r.Put("/acl/:xauth", binding.Json(models.ACL{}), api.SetACL)
+		r.Put("/qps-limit/:xauth", binding.Json(QPSLimitConfig{}), api.SetQPSLimit)
 		r.Put("/hot-key-cache/invalidate/:xauth", binding.Json(HotKeyCacheInvalidationRequest{}), api.HotKeyCacheInvalidate)
 	})
 
@@ -176,7 +177,7 @@ func (s *apiServer) ResetStats(params martini.Params) (int, string) {
 	if err := s.verifyXAuth(params); err != nil {
 		return rpc.ApiResponseError(err)
 	} else {
-		ResetStats()
+		s.proxy.ResetStats()
 		return rpc.ApiResponseJson("OK")
 	}
 }
@@ -252,6 +253,16 @@ func (s *apiServer) SetACL(acl models.ACL, params martini.Params) (int, string) 
 		return rpc.ApiResponseError(err)
 	}
 	if err := s.proxy.SetACL(&acl); err != nil {
+		return rpc.ApiResponseError(err)
+	}
+	return rpc.ApiResponseJson("OK")
+}
+
+func (s *apiServer) SetQPSLimit(config QPSLimitConfig, params martini.Params) (int, string) {
+	if err := s.verifyXAuth(params); err != nil {
+		return rpc.ApiResponseError(err)
+	}
+	if err := s.proxy.SetQPSLimit(&config); err != nil {
 		return rpc.ApiResponseError(err)
 	}
 	return rpc.ApiResponseJson("OK")
@@ -389,6 +400,11 @@ func (c *ApiClient) RewatchSentinels() error {
 func (c *ApiClient) SetACL(acl *models.ACL) error {
 	url := c.encodeURL("/api/proxy/acl/%s", c.xauth)
 	return rpc.ApiPutJson(url, acl, nil)
+}
+
+func (c *ApiClient) SetQPSLimit(revision, limit int64) error {
+	url := c.encodeURL("/api/proxy/qps-limit/%s", c.xauth)
+	return rpc.ApiPutJson(url, &QPSLimitConfig{Revision: revision, Limit: limit}, nil)
 }
 
 func (c *ApiClient) InvalidateHotKeyCache(req *HotKeyCacheInvalidationRequest) (*HotKeyCacheInvalidationResult, error) {

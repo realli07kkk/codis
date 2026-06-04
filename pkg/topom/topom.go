@@ -39,6 +39,8 @@ type Topom struct {
 
 		sentinel *models.Sentinel
 		acl      *models.ACL
+
+		proxyQPSLimit *models.ProxyQPSLimit
 	}
 	aclSync struct {
 		revision int64
@@ -287,6 +289,7 @@ func (s *Topom) newContext() (*context, error) {
 			ctx.proxy = s.cache.proxy
 			ctx.sentinel = s.cache.sentinel
 			ctx.acl = s.cache.acl
+			ctx.proxyQPSLimit = s.cache.proxyQPSLimit
 			ctx.hosts.m = make(map[string]net.IP)
 			ctx.method, _ = models.ParseForwardMethod(s.config.MigrationMethod)
 			return ctx, nil

@@ -45,6 +45,12 @@ func (s *Topom) dirtyACLCache() {
 	})
 }
 
+func (s *Topom) dirtyProxyQPSLimitCache() {
+	s.cache.hooks.PushBack(func() {
+		s.cache.proxyQPSLimit = nil
+	})
+}
+
 func (s *Topom) dirtyCacheAll() {
 	s.cache.hooks.PushBack(func() {
 		s.cache.slots = nil
@@ -52,6 +58,7 @@ func (s *Topom) dirtyCacheAll() {
 		s.cache.proxy = nil
 		s.cache.sentinel = nil
 		s.cache.acl = nil
+		s.cache.proxyQPSLimit = nil
 	})
 }
 
@@ -89,6 +96,12 @@ func (s *Topom) refillCache() error {
 		return errors.Errorf("store: load acl failed")
 	} else {
 		s.cache.acl = acl
+	}
+	if config, err := s.refillCacheProxyQPSLimit(s.cache.proxyQPSLimit); err != nil {
+		log.ErrorErrorf(err, "store: load proxy qps limit failed")
+		return errors.Errorf("store: load proxy qps limit failed")
+	} else {
+		s.cache.proxyQPSLimit = config
 	}
 	return nil
 }
@@ -184,6 +197,20 @@ func (s *Topom) refillCacheACL(acl *models.ACL) (*models.ACL, error) {
 	return &models.ACL{}, nil
 }
 
+func (s *Topom) refillCacheProxyQPSLimit(config *models.ProxyQPSLimit) (*models.ProxyQPSLimit, error) {
+	if config != nil {
+		return config, nil
+	}
+	p, err := s.store.LoadProxyQPSLimit(false)
+	if err != nil {
+		return nil, err
+	}
+	if p != nil {
+		return p, nil
+	}
+	return &models.ProxyQPSLimit{}, nil
+}
+
 func (s *Topom) storeUpdateSlotMapping(m *models.SlotMapping) error {
 	log.Warnf("update slot-[%d]:\n%s", m.Id, m.Encode())
 	if err := s.store.UpdateSlotMapping(m); err != nil {
@@ -261,6 +288,15 @@ func (s *Topom) storeUpdateACL(acl *models.ACL) error {
 	if err := s.store.UpdateACL(acl); err != nil {
 		log.ErrorErrorf(err, "store: update acl failed")
 		return errors.Errorf("store: update acl failed")
+	}
+	return nil
+}
+
+func (s *Topom) storeUpdateProxyQPSLimit(config *models.ProxyQPSLimit) error {
+	log.Warnf("update proxy qps limit revision-[%d], limit-[%d]", config.Revision, config.Limit)
+	if err := s.store.UpdateProxyQPSLimit(config); err != nil {
+		log.ErrorErrorf(err, "store: update proxy qps limit failed")
+		return errors.Errorf("store: update proxy qps limit failed")
 	}
 	return nil
 }

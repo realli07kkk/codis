@@ -1,0 +1,120 @@
+feature: 2026-06-04-proxy-qps-rate-limit
+created: 2026-06-04
+
+steps:
+  - action: "proxy limiter 骨架：新增默认关闭配置、校验、进程级 QPSLimiter 和 stats snapshot"
+    exit_signal: "proxy_qps_limit=0 时请求行为保持现状；proxy_qps_limit>0 的 limiter 单测能稳定接受和拒绝请求"
+    status: done
+  - action: "请求入口接入：在 session reader 请求路径接入 limiter，保留 AUTH/QUIT bypass 和 pipeline 响应顺序"
+    exit_signal: "普通命令超过阈值返回 ERR proxy qps limit exceeded；AUTH/QUIT 不被 QPS limit 阻断；pipeline 响应顺序保持"
+    status: done
+  - action: "proxy 动态应用接口：新增 proxy admin API、ApiClient 方法和运行期 SetQPSLimit"
+    exit_signal: "HTTP PUT 可把 limit 从 0 改正数、从正数改 0、从高值调低，proxy stats 反映当前 revision 和 limit"
+    status: done
+  - action: "dashboard 管理源：新增 ProxyQPSLimit model/store/topom context、GET/PUT API、revision 和 sync status"
+    exit_signal: "dashboard PUT 写入 coordinator revision；GET 返回 limit、revision、not_configured/ready/proxy_sync_failed 状态"
+    status: done
+  - action: "dashboard fan-out 与 reinit 重放：把当前 QPS limit 下发给 online proxy，并在 proxy online/reinit 时重放"
+    exit_signal: "online proxy 收到新配置；部分 proxy 失败时 sync_status 记录失败 token；新 proxy reinit 后 stats 显示目标 limit"
+    status: done
+  - action: "FE 配置入口：新增 QPS limit editor，选择 product 后加载，提交后刷新"
+    exit_signal: "FE 展示当前 limit/revision/sync_status，可提交非负整数，非法输入或 API 错误可见"
+    status: done
+  - action: "验证与文档：补齐 proxy/topom/FE 测试和运维说明"
+    exit_signal: "目标 Go 测试通过；文档明确 per-proxy 语义、默认关闭、动态配置入口、CONFIG SET 边界和 rejected request 错误语义"
+    status: done
+
+checks:
+  - item: "默认 proxy_qps_limit 为 0，普通请求行为与当前版本一致"
+    source: 验收场景
+    status: passed
+  - item: "proxy_qps_limit 小于 0 时配置校验失败，错误指向 proxy_qps_limit"
+    source: 验收场景
+    status: passed
+  - item: "proxy_qps_limit 正数语义是单个 proxy 进程内所有 session 共享的总请求 QPS 上限"
+    source: 名词契约
+    status: passed
+  - item: "QPSLimiter 保存 limit、revision、tokens、last_refill、accepted、rejected，并提供 Allow、SetLimit、Stats"
+    source: 名词契约
+    status: passed
+  - item: "limit 为 0 时 limiter fast path 直接允许，不访问 coordinator、不发 HTTP"
+    source: 流程级约束
+    status: passed
+  - item: "limit 为正数时普通请求按 token bucket budget 接受或拒绝"
+    source: 编排骨架
+    status: passed
+  - item: "超出 budget 的普通请求返回 ERR proxy qps limit exceeded，不访问后端 Redis"
+    source: 验收场景
+    status: passed
+  - item: "限流失败不无条件关闭连接；是否关闭只遵循现有 session_break_on_failure 路径"
+    source: 流程级约束
+    status: passed
+  - item: "pipeline 中 accepted 和 rejected request 按原始请求顺序写回"
+    source: 验收场景
+    status: passed
+  - item: "AUTH 和 QUIT 不被 QPS limit 阻断"
+    source: 验收场景
+    status: passed
+  - item: "decoded request 仍计入 ops total；rejected request 计入 fails 和 limiter rejected stats，但不计入后端 Redis error"
+    source: 流程级约束
+    status: passed
+  - item: "运行期把 limit 从正数改为 0 后，后续普通请求不再因 QPS limit 被拒绝"
+    source: 验收场景
+    status: passed
+  - item: "运行期把 limit 从高值调低到低值时，不继承高值下积累的过大 burst"
+    source: 验收场景
+    status: passed
+  - item: "重复下发同一 revision/limit 到同一 proxy 保持幂等"
+    source: 流程级约束
+    status: passed
+  - item: "ProxyQPSLimit model 包含 revision、limit、updated_at"
+    source: 名词契约
+    status: passed
+  - item: "Store 提供 ProxyQPSLimitPath、LoadProxyQPSLimit、UpdateProxyQPSLimit，路径为 /codis3/{product}/proxy_qps_limit"
+    source: 名词契约
+    status: passed
+  - item: "dashboard GET /api/topom/proxy/qps-limit/:xauth 返回 revision、limit、sync_status"
+    source: 名词契约
+    status: passed
+  - item: "dashboard PUT /api/topom/proxy/qps-limit/:xauth 只接受非负整数，非法值不写 coordinator、不下发 proxy"
+    source: 验收场景
+    status: passed
+  - item: "dashboard PUT 成功后 revision 增加，并 fan-out SetQPSLimit 到所有 online proxy"
+    source: 编排骨架
+    status: passed
+  - item: "fan-out 部分失败时 coordinator 保留目标配置，sync_status 显示 proxy_sync_failed:<token>"
+    source: 验收场景
+    status: passed
+  - item: "新 proxy create/online/reinit 时 topom 重放当前 ProxyQPSLimit，proxy stats 显示目标 revision 和 limit"
+    source: 验收场景
+    status: passed
+  - item: "FE 选择 product 后加载并展示 QPS limit、revision、sync status"
+    source: 验收场景
+    status: passed
+  - item: "FE 可提交非负整数并刷新 view，非法输入或 dashboard 错误会显示在页面上"
+    source: 验收场景
+    status: passed
+  - item: "普通业务 Redis 客户端执行非 qps 字段的 CONFIG 命令仍保持不支持"
+    source: 范围守护
+    status: passed
+  - item: "不开放完整 Redis CONFIG 命令族给业务客户端"
+    source: 范围守护
+    status: passed
+  - item: "若实现 Redis protocol CONFIG SET proxy_qps_limit 例外，只允许精确字段，且不写 coordinator，会被 dashboard 下一次 sync 覆盖"
+    source: 范围守护
+    status: passed
+  - item: "不实现跨 proxy 分布式 token bucket，不把每秒额度状态写入 coordinator"
+    source: 范围守护
+    status: passed
+  - item: "不实现 per-client、per-IP、per-user、per-command、per-DB、per-slot、per-key 或 per-backend group 限流"
+    source: 范围守护
+    status: passed
+  - item: "不改变 proxy_max_clients、session_max_pipeline、session_auth_bruteforce、ACL、hot key cache、stream routing 或 slot migration 语义"
+    source: 范围守护
+    status: passed
+  - item: "proxy stats 暴露 qps_limit revision、limit、enabled、accepted、rejected"
+    source: 验收场景
+    status: passed
+  - item: "实现落点遵守 design 2.5：limiter/topom/FE 逻辑分别落入专属文件，session.go 和 API 文件只保留薄挂载"
+    source: 结构健康度
+    status: passed

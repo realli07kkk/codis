@@ -78,6 +78,9 @@ proxy_datacenter = ""
 # Set max number of alive sessions.
 proxy_max_clients = 1000
 
+# Set total accepted requests per second for this proxy process. 0 to disable.
+proxy_qps_limit = 0
+
 # Set max offheap memory size. (0 to disable)
 proxy_max_offheap_size = "1024mb"
 
@@ -191,6 +194,7 @@ type Config struct {
 
 	ProxyDataCenter      string         `toml:"proxy_datacenter" json:"proxy_datacenter"`
 	ProxyMaxClients      int            `toml:"proxy_max_clients" json:"proxy_max_clients"`
+	ProxyQPSLimit        int64          `toml:"proxy_qps_limit" json:"proxy_qps_limit"`
 	ProxyMaxOffheapBytes bytesize.Int64 `toml:"proxy_max_offheap_size" json:"proxy_max_offheap_size"`
 	ProxyHeapPlaceholder bytesize.Int64 `toml:"proxy_heap_placeholder" json:"proxy_heap_placeholder"`
 
@@ -325,6 +329,9 @@ func (c *Config) Validate() error {
 	}
 	if c.ProxyMaxClients < 0 {
 		return errors.New("invalid proxy_max_clients")
+	}
+	if c.ProxyQPSLimit < 0 {
+		return errors.New("invalid proxy_qps_limit")
 	}
 
 	const MaxInt = bytesize.Int64(^uint(0) >> 1)

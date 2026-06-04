@@ -89,6 +89,8 @@ func newApiServer(t *Topom) http.Handler {
 		})
 		r.Get("/acl/:xauth", api.GetACL)
 		r.Put("/acl/:xauth", binding.Json(ACLUpdateRequest{}), api.SetACL)
+		r.Get("/proxy/qps-limit/:xauth", api.GetProxyQPSLimit)
+		r.Put("/proxy/qps-limit/:xauth", binding.Json(ProxyQPSLimitUpdateRequest{}), api.SetProxyQPSLimit)
 		r.Put("/hot-key-cache/invalidate/:xauth", binding.Json(proxy.HotKeyCacheBroadcastRequest{}), api.HotKeyCacheInvalidate)
 		r.Group("/proxy", func(r martini.Router) {
 			r.Put("/create/:xauth/:addr", api.CreateProxy)
@@ -215,6 +217,28 @@ func (s *apiServer) SetACL(req ACLUpdateRequest, params martini.Params) (int, st
 		return rpc.ApiResponseError(err)
 	}
 	view, err := s.topom.UpdateACL(&req)
+	if err != nil {
+		return rpc.ApiResponseError(err)
+	}
+	return rpc.ApiResponseJson(view)
+}
+
+func (s *apiServer) GetProxyQPSLimit(params martini.Params) (int, string) {
+	if err := s.verifyXAuth(params); err != nil {
+		return rpc.ApiResponseError(err)
+	}
+	view, err := s.topom.GetProxyQPSLimit()
+	if err != nil {
+		return rpc.ApiResponseError(err)
+	}
+	return rpc.ApiResponseJson(view)
+}
+
+func (s *apiServer) SetProxyQPSLimit(req ProxyQPSLimitUpdateRequest, params martini.Params) (int, string) {
+	if err := s.verifyXAuth(params); err != nil {
+		return rpc.ApiResponseError(err)
+	}
+	view, err := s.topom.UpdateProxyQPSLimit(&req)
 	if err != nil {
 		return rpc.ApiResponseError(err)
 	}
@@ -879,6 +903,25 @@ func (c *ApiClient) GetACL() (*ACLView, error) {
 func (c *ApiClient) SetACL(req *ACLUpdateRequest) (*ACLView, error) {
 	url := c.encodeURL("/api/topom/acl/%s", c.xauth)
 	view := &ACLView{}
+	if err := rpc.ApiPutJson(url, req, view); err != nil {
+		return nil, err
+	}
+	return view, nil
+}
+
+func (c *ApiClient) GetProxyQPSLimit() (*ProxyQPSLimitView, error) {
+	url := c.encodeURL("/api/topom/proxy/qps-limit/%s", c.xauth)
+	view := &ProxyQPSLimitView{}
+	if err := rpc.ApiGetJson(url, view); err != nil {
+		return nil, err
+	}
+	return view, nil
+}
+
+func (c *ApiClient) SetProxyQPSLimit(limit int64) (*ProxyQPSLimitView, error) {
+	url := c.encodeURL("/api/topom/proxy/qps-limit/%s", c.xauth)
+	view := &ProxyQPSLimitView{}
+	req := &ProxyQPSLimitUpdateRequest{Limit: limit}
 	if err := rpc.ApiPutJson(url, req, view); err != nil {
 		return nil, err
 	}
