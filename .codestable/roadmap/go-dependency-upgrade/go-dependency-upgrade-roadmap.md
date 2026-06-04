@@ -1,7 +1,7 @@
 ---
 doc_type: roadmap
 slug: go-dependency-upgrade
-status: active
+status: completed
 created: 2026-06-04
 last_reviewed: 2026-06-04
 tags: [go, modules, dependency-upgrade, maintenance]
