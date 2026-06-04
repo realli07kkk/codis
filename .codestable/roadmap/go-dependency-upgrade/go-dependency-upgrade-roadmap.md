@@ -248,8 +248,8 @@ go build -tags cgo_jemalloc ./cmd/proxy
    - 所属模块：service-integration-stacks
    - 覆盖 module：`github.com/hashicorp/consul/api`, `github.com/armon/go-metrics`, `github.com/fatih/color`, `github.com/go-viper/mapstructure/v2`, `github.com/hashicorp/errwrap`, `github.com/hashicorp/go-cleanhttp`, `github.com/hashicorp/go-hclog`, `github.com/hashicorp/go-immutable-radix`, `github.com/hashicorp/go-multierror`, `github.com/hashicorp/go-rootcerts`, `github.com/hashicorp/golang-lru`, `github.com/hashicorp/serf`, `github.com/mattn/go-colorable`, `github.com/mattn/go-isatty`, `github.com/mitchellh/go-homedir`, `golang.org/x/exp`
    - 依赖：`dep-network-core-stack`
-   - 状态：planned
-   - 对应 feature：未启动
+   - 状态：done
+   - 对应 feature：`2026-06-04-dep-coordinator-consul-stack`
 
 8. **dep-rdb-analysis-stack** — 升级或确认 RDB parser 与 sonic/bytedance 依赖链，验证 dashboard RDB Analysis 和 remote fetch analysis。
    - 所属模块：service-integration-stacks
@@ -294,3 +294,4 @@ go build -tags cgo_jemalloc ./cmd/proxy
 - 2026-06-04：完成 `dep-dashboard-martini-stack`，将 `github.com/go-martini/martini` 升级到 `v0.0.0-20170121215854-22fa46961aab`，确认 `binding`、`gzip`、`render` 和 `inject` 已是当前 `@latest`，并通过 proxy/topom/FE 目标测试与默认 cmd/pkg 测试。
 - 2026-06-04：完成 `dep-coordinator-etcd-stack`，确认 `github.com/coreos/etcd`、`github.com/coreos/go-semver`、`github.com/json-iterator/go`、`github.com/modern-go/concurrent` 和 `github.com/modern-go/reflect2` 均已是旧 module path 当前 `@latest`，保留旧 `github.com/coreos/etcd/client` 栈且不迁移现代 etcd module path，并通过 coordinator 目标测试与默认 cmd/pkg 测试。
 - 2026-06-04：完成 `dep-coordinator-zookeeper-stack`，将 `github.com/samuel/go-zookeeper` 升级到 `v0.0.0-20201211165307-7117e9ea2414`，并通过 Zookeeper coordinator 目标测试与默认 cmd/pkg 测试。
+- 2026-06-04：完成 `dep-coordinator-consul-stack`，将 `github.com/hashicorp/consul/api` 升级到 `v1.34.3`，确认 HashiCorp/Consul indirect 依赖链按 parent-driven 策略保留当前版本，并通过 Consul coordinator 目标测试与默认 cmd/pkg 测试。

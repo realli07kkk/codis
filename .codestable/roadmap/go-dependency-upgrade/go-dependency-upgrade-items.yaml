@@ -47,8 +47,8 @@ items:
   - slug: dep-coordinator-consul-stack
     description: "升级 Consul API 与 HashiCorp 依赖链，验证 Consul coordinator/Jodis 后端和 Session/KV watch 语义"
     depends_on: [dep-network-core-stack]
-    status: planned
-    feature: null
+    status: done
+    feature: 2026-06-04-dep-coordinator-consul-stack
     minimal_loop: false
     notes: "覆盖 module: github.com/hashicorp/consul/api, github.com/armon/go-metrics, github.com/fatih/color, github.com/go-viper/mapstructure/v2, github.com/hashicorp/errwrap, github.com/hashicorp/go-cleanhttp, github.com/hashicorp/go-hclog, github.com/hashicorp/go-immutable-radix, github.com/hashicorp/go-multierror, github.com/hashicorp/go-rootcerts, github.com/hashicorp/golang-lru, github.com/hashicorp/serf, github.com/mattn/go-colorable, github.com/mattn/go-isatty, github.com/mitchellh/go-homedir, golang.org/x/exp。"
   - slug: dep-rdb-analysis-stack

@@ -10,7 +10,7 @@ require (
 	github.com/garyburd/redigo v1.6.4
 	github.com/go-martini/martini v0.0.0-20170121215854-22fa46961aab
 	github.com/google/uuid v1.6.0
-	github.com/hashicorp/consul/api v1.34.2
+	github.com/hashicorp/consul/api v1.34.3
 	github.com/hdt3213/rdb v1.3.2
 	github.com/influxdata/influxdb v1.1.1-0.20170109231301-8c2cfd14af25
 	github.com/martini-contrib/binding v0.0.0-20160701174519-05d3e151b6cf

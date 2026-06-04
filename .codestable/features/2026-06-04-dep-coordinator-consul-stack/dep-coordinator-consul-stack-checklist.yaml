@@ -1,0 +1,117 @@
+feature: 2026-06-04-dep-coordinator-consul-stack
+created: 2026-06-04
+
+steps:
+  - action: "版本调查复核：重新执行 go list 查询 Consul stack 的 current、latest 和 module path 边界"
+    exit_signal: "Consul API 目标仍是 v1.34.3；indirect 分类与 design 一致；armon/go-metrics path mismatch 已复核"
+    status: done
+  - action: "依赖触达和策略分类：执行 go mod why、go list -deps 并复核 pkg/models/consul import surface"
+    exit_signal: "Consul stack 经 pkg/models/consul -> github.com/hashicorp/consul/api 被默认 cmd/pkg 路径触达；github.com/hashicorp/go-metrics 不在 API-only graph"
+    status: done
+  - action: "module manifest 定点升级：执行 GOPROXY=https://proxy.golang.org,direct go get github.com/hashicorp/consul/api@v1.34.3"
+    exit_signal: "go.mod 只把 github.com/hashicorp/consul/api 改到目标版本；go 1.26.1 和 jemalloc-go replace 保留"
+    status: done
+  - action: "checksum 与依赖图收口：核对 go.sum、module graph 和导入路径"
+    exit_signal: "go.sum 只新增 Consul API 目标版本的 content/go.mod checksum；没有无关 module churn；不引入 Consul server 主模块或 hashicorp/go-metrics"
+    status: done
+  - action: "Consul target 测试：运行 go test ./pkg/models/consul ./pkg/models ./cmd/dashboard ./cmd/proxy ./cmd/admin ./cmd/fe"
+    exit_signal: "Consul client 包、models 工厂和使用 coordinator/Jodis 参数的 cmd 入口均编译测试通过"
+    status: done
+  - action: "默认构建测试闭环：运行 go test ./cmd/... ./pkg/..."
+    exit_signal: "默认 cmd/pkg 测试通过，不报 module version、vendor mode 或 API 不兼容错误"
+    status: done
+  - action: "范围守护与临时产物清理：核对最终 diff、vendor/Godeps 和 roadmap 文档状态"
+    exit_signal: "diff 仅包含 go.mod、go.sum、本 feature spec 和 roadmap 状态；无 Go 源码、配置、部署、extern、vendor/Godeps 或无关 module churn"
+    status: done
+
+checks:
+  - item: "module_set 覆盖 roadmap 中 Consul API 与 HashiCorp/Consul indirect 依赖链"
+    source: "名词契约"
+    status: passed
+  - item: "github.com/hashicorp/consul/api 从 v1.34.2 升级到 v1.34.3，scope 保持 direct"
+    source: "名词契约"
+    status: passed
+  - item: "roadmap 覆盖的 indirect module 已逐个确认 parent-driven retain 或 retain-with-note"
+    source: "名词契约"
+    status: passed
+  - item: "github.com/armon/go-metrics v0.5.4 存在 module path mismatch，本 feature 不迁移到 github.com/hashicorp/go-metrics"
+    source: "名词契约"
+    status: passed
+  - item: "go.sum 只新增 Consul API 目标版本 checksum，不做无关 module churn"
+    source: "名词契约"
+    status: passed
+  - item: "本仓库 import surface 不变，继续由 pkg/models/consul 使用 github.com/hashicorp/consul/api"
+    source: "名词契约"
+    status: passed
+  - item: "models.Client、models.NewClient、dashboard/proxy/admin/fe coordinator 参数和配置语义不变"
+    source: "名词契约"
+    status: passed
+  - item: "实施顺序为版本查询、策略分类、定点升级、diff 守护、target 测试、默认测试"
+    source: "编排骨架"
+    status: passed
+  - item: "测试失败时不通过全量 go mod tidy、Consul 主模块引入或 coordinator 语义改写掩盖问题"
+    source: "流程级约束"
+    status: passed
+  - item: "重复执行定点 go get 和验收命令不生成 vendor、Godeps 或 vendor/modules.txt"
+    source: "流程级约束"
+    status: passed
+  - item: "go.mod 中 github.com/hashicorp/consul/api direct require 是本 feature 的实际版本升级挂载点"
+    source: "挂载点"
+    status: passed
+  - item: "go.sum 中 Consul API 目标 checksum 是 clean checkout 解析目标版本的锁定挂载点"
+    source: "挂载点"
+    status: passed
+  - item: "pkg/models/consul/consulclient.go 的 github.com/hashicorp/consul/api import 是 Consul client 使用面挂载点"
+    source: "挂载点"
+    status: passed
+  - item: "Consul target test gate 保留，用于证明 Consul coordinator 编译面仍可通过"
+    source: "挂载点"
+    status: passed
+  - item: "默认 cmd/pkg 测试 gate 保留，用于证明升级后构建测试闭环"
+    source: "挂载点"
+    status: passed
+  - item: "Diff 不引入 github.com/hashicorp/consul server 主模块、github.com/hashicorp/consul/sdk direct require 或 github.com/hashicorp/go-metrics"
+    source: "范围守护"
+    status: passed
+  - item: "Diff 不修改 pkg/models/consul 源码、models.Client 或 models.NewClient"
+    source: "范围守护"
+    status: passed
+  - item: "Diff 不修改 dashboard/proxy/admin/fe coordinator 参数、配置模板或文档中的 coordinator 语义"
+    source: "范围守护"
+    status: passed
+  - item: "Diff 不修改 Zookeeper、Etcd、filesystem coordinator 后端"
+    source: "范围守护"
+    status: passed
+  - item: "Diff 不升级 Redis client、Martini、RDB parser、metrics 上报、jemalloc 或其他 roadmap 子 feature 覆盖的 module"
+    source: "范围守护"
+    status: passed
+  - item: "go list -m -u -json github.com/hashicorp/consul/api 返回当前版本和 Update 目标版本"
+    source: "验收场景"
+    status: passed
+  - item: "go list -m -json github.com/hashicorp/consul/api@latest 确认 @latest 等于 v1.34.3"
+    source: "验收场景"
+    status: passed
+  - item: "github.com/armon/go-metrics@v0.5.4.mod 的 module path mismatch 已被复核"
+    source: "验收场景"
+    status: passed
+  - item: "go mod why -m 覆盖 Consul stack 关键 module，确认 Consul API 和 retained indirect 可追溯到 pkg/models/consul"
+    source: "验收场景"
+    status: passed
+  - item: "go list -deps ./cmd/... ./pkg/... 仍触达 github.com/hashicorp/consul/api 和当前 retained indirect"
+    source: "验收场景"
+    status: passed
+  - item: "定点 go get 后 go.mod 只有 github.com/hashicorp/consul/api 改为目标版本"
+    source: "验收场景"
+    status: passed
+  - item: "go.sum diff 只新增 Consul API 目标版本 checksum"
+    source: "验收场景"
+    status: passed
+  - item: "go test ./pkg/models/consul ./pkg/models ./cmd/dashboard ./cmd/proxy ./cmd/admin ./cmd/fe 通过"
+    source: "验收场景"
+    status: passed
+  - item: "go test ./cmd/... ./pkg/... 通过"
+    source: "验收场景"
+    status: passed
+  - item: "重复执行验收命令后 git status 不出现 vendor、Godeps、vendor/modules.txt 或仓库内临时构建产物"
+    source: "验收场景"
+    status: passed
