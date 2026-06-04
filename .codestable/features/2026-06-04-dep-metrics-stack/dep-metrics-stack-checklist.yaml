@@ -1,0 +1,111 @@
+feature: 2026-06-04-dep-metrics-stack
+created: 2026-06-04
+
+steps:
+  - action: "版本调查复核：重新执行 go list 查询 InfluxDB 和 StatsD 的 current/latest"
+    exit_signal: "InfluxDB 目标仍是 v1.12.4；StatsD 仍是 v2.0.0 且无 Update"
+    status: done
+  - action: "依赖触达分类：执行 go mod why 与 go list -deps 并复核 proxy metrics import surface"
+    exit_signal: "InfluxDB 和 StatsD 都经 pkg/proxy 被默认 cmd/pkg 路径触达"
+    status: done
+  - action: "module manifest 定点升级：执行 GOPROXY=https://proxy.golang.org,direct go get github.com/influxdata/influxdb@v1.12.4"
+    exit_signal: "go.mod 将 InfluxDB 改到 v1.12.4；StatsD、Go directive、jemalloc replace 保留"
+    status: done
+  - action: "checksum 与依赖图收口：核对 go.mod/go.sum、module graph 和导入路径"
+    exit_signal: "新增 indirect/checksum 可追溯到 influxdb@v1.12.4；没有不相关 direct module 升级"
+    status: done
+  - action: "Metrics target 测试：运行 go test ./pkg/proxy ./cmd/proxy ./cmd/dashboard ./cmd/admin ./cmd/fe"
+    exit_signal: "proxy metrics 包和相关 cmd 入口编译测试通过"
+    status: done
+  - action: "默认构建测试闭环：运行 go test ./cmd/... ./pkg/..."
+    exit_signal: "默认 cmd/pkg 测试通过，不报 module version、vendor mode 或 InfluxDB client API 不兼容错误"
+    status: done
+  - action: "范围守护与临时产物清理：核对最终 diff、vendor/Godeps 和 roadmap 文档状态"
+    exit_signal: "diff 仅包含 go.mod、go.sum、本 feature spec 和 roadmap 状态；无 Go 源码、配置、部署、extern、vendor/Godeps 或方案外 module churn"
+    status: done
+
+checks:
+  - item: "module_set 覆盖 roadmap 中 InfluxDB 和 StatsD metrics module"
+    source: "名词契约"
+    status: passed
+  - item: "github.com/influxdata/influxdb 从旧 pseudo version 升级到 v1.12.4，scope 保持 direct"
+    source: "名词契约"
+    status: passed
+  - item: "gopkg.in/alexcesaro/statsd.v2 当前 v2.0.0 等于 @latest v2.0.0"
+    source: "名词契约"
+    status: passed
+  - item: "新增 indirect require/checksum 只接受 influxdb@v1.12.4 parent-required graph"
+    source: "名词契约"
+    status: passed
+  - item: "pkg/proxy/metrics.go 的 InfluxDB/StatsD import surface 不变"
+    source: "名词契约"
+    status: passed
+  - item: "metrics_report_* 配置字段、默认值、校验和配置模板不变"
+    source: "名词契约"
+    status: passed
+  - item: "实施顺序为版本查询、触达分类、定点升级、依赖图收口、target 测试、默认测试"
+    source: "编排骨架"
+    status: passed
+  - item: "测试失败时不通过修改 metrics 行为、全量 go mod tidy 或升级不相关 module 掩盖问题"
+    source: "流程级约束"
+    status: passed
+  - item: "重复执行定点 go get 和验收命令不生成 vendor、Godeps 或 vendor/modules.txt"
+    source: "流程级约束"
+    status: passed
+  - item: "go.mod 中 github.com/influxdata/influxdb direct require 是升级挂载点"
+    source: "挂载点"
+    status: passed
+  - item: "go.mod/go.sum 中 InfluxDB parent-required indirect/checksum 是 graph 锁定挂载点"
+    source: "挂载点"
+    status: passed
+  - item: "pkg/proxy/metrics.go 的 metrics import 是使用面挂载点"
+    source: "挂载点"
+    status: passed
+  - item: "Metrics target test gate 保留，用于证明 proxy metrics 编译面仍可通过"
+    source: "挂载点"
+    status: passed
+  - item: "默认 cmd/pkg test gate 保留，用于证明升级后构建测试闭环"
+    source: "挂载点"
+    status: passed
+  - item: "go list -m -u -json github.com/influxdata/influxdb 返回 Update v1.12.4"
+    source: "验收场景"
+    status: passed
+  - item: "go list -m -json github.com/influxdata/influxdb@latest 确认 @latest 等于 v1.12.4"
+    source: "验收场景"
+    status: passed
+  - item: "go list -m -u -json gopkg.in/alexcesaro/statsd.v2 确认无 Update"
+    source: "验收场景"
+    status: passed
+  - item: "go mod why -m 覆盖 Metrics stack，确认 InfluxDB 和 StatsD 都可追溯到 pkg/proxy"
+    source: "验收场景"
+    status: passed
+  - item: "go list -deps ./cmd/... ./pkg/... 触达 InfluxDB client/v2 和 StatsD"
+    source: "验收场景"
+    status: passed
+  - item: "定点 go get 后 go.mod 中 InfluxDB 改到 v1.12.4，StatsD、Go directive 和 jemalloc replace 不变"
+    source: "验收场景"
+    status: passed
+  - item: "go.mod/go.sum 新增内容可追溯到 influxdb@v1.12.4 parent graph，且无不相关 direct module 升级"
+    source: "验收场景"
+    status: passed
+  - item: "go test ./pkg/proxy ./cmd/proxy ./cmd/dashboard ./cmd/admin ./cmd/fe 通过"
+    source: "验收场景"
+    status: passed
+  - item: "go test ./cmd/... ./pkg/... 通过"
+    source: "验收场景"
+    status: passed
+  - item: "重复验收后 git status 不出现 vendor、Godeps、vendor/modules.txt 或仓库内临时构建产物"
+    source: "验收场景"
+    status: passed
+  - item: "Diff 不修改 pkg/proxy/metrics.go、pkg/proxy/config.go、config/proxy.toml 或 metrics 语义相关文档"
+    source: "范围守护"
+    status: passed
+  - item: "Diff 不修改 dashboard/topom metrics 读取流程、proxy stats JSON 或其他运行期行为"
+    source: "范围守护"
+    status: passed
+  - item: "Diff 不升级 StatsD、RDB parser、coordinator、Redis client、Martini、jemalloc 或其他 roadmap 子 feature module"
+    source: "范围守护"
+    status: passed
+  - item: "Diff 不修改 extern/redis-8.6.3、Docker、部署脚本、前端资源或配置模板"
+    source: "范围守护"
+    status: passed

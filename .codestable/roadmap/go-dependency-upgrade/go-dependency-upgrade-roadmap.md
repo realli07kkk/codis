@@ -262,8 +262,8 @@ go build -tags cgo_jemalloc ./cmd/proxy
    - 所属模块：service-integration-stacks
    - 覆盖 module：`github.com/influxdata/influxdb`, `gopkg.in/alexcesaro/statsd.v2`
    - 依赖：无
-   - 状态：planned
-   - 对应 feature：未启动
+   - 状态：done
+   - 对应 feature：`2026-06-04-dep-metrics-stack`
 
 10. **dep-jemalloc-stack** — 评估 `github.com/spinlock/jemalloc-go` 最新 pseudo version，并同步处理 `third_party/jemalloc-go` local replace。
     - 所属模块：native-build-stack
@@ -296,3 +296,4 @@ go build -tags cgo_jemalloc ./cmd/proxy
 - 2026-06-04：完成 `dep-coordinator-zookeeper-stack`，将 `github.com/samuel/go-zookeeper` 升级到 `v0.0.0-20201211165307-7117e9ea2414`，并通过 Zookeeper coordinator 目标测试与默认 cmd/pkg 测试。
 - 2026-06-04：完成 `dep-coordinator-consul-stack`，将 `github.com/hashicorp/consul/api` 升级到 `v1.34.3`，确认 HashiCorp/Consul indirect 依赖链按 parent-driven 策略保留当前版本，并通过 Consul coordinator 目标测试与默认 cmd/pkg 测试。
 - 2026-06-04：完成 `dep-rdb-analysis-stack`，确认 `github.com/hdt3213/rdb` 已是当前 `@latest v1.3.2`，sonic/bytedance 依赖链按 parent-driven 策略保留当前版本且不产生 manifest diff，并通过 RDB Analysis 目标测试与默认 cmd/pkg 测试。
+- 2026-06-04：完成 `dep-metrics-stack`，将 `github.com/influxdata/influxdb` 升级到 `v1.12.4`，确认 `gopkg.in/alexcesaro/statsd.v2` 已是当前 `@latest v2.0.0`，并通过 metrics 目标测试与默认 cmd/pkg 测试。
