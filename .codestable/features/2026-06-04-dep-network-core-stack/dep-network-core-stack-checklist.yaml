@@ -1,0 +1,102 @@
+feature: 2026-06-04-dep-network-core-stack
+created: 2026-06-04
+
+steps:
+  - action: "版本调查复核：重新执行 go list 查询 x/net 与 x/sys 的 current、latest 和 versions"
+    exit_signal: "x/net 目标仍是 tagged v0.55.0，x/sys 目标仍是 tagged v0.45.0；如变化则记录实际结果并暂停确认"
+    status: done
+  - action: "module manifest 定点升级：执行 go get golang.org/x/net@v0.55.0 golang.org/x/sys@v0.45.0"
+    exit_signal: "go.mod 只把 x/net 与 x/sys 改到目标版本，go 1.26.1 和 jemalloc-go replace 保留"
+    status: done
+  - action: "checksum 与依赖图收口：核对 go.sum 和 module graph"
+    exit_signal: "go.sum 只新增目标版本 checksum；go mod why 仍显示 x/net 来自本仓库 context import，x/sys 来自 Consul/HashiCorp 间接链路"
+    status: done
+  - action: "默认构建测试闭环：运行默认 cmd/pkg 测试"
+    exit_signal: "go test ./cmd/... ./pkg/... 通过，不报 module version、vendor mode 或 API 不兼容错误"
+    status: done
+  - action: "cgo_jemalloc 闭环：运行 proxy cgo 构建"
+    exit_signal: "go build -tags cgo_jemalloc -o /tmp/codis-proxy-cgo-test ./cmd/proxy 通过，jemalloc-go 仍解析到 third_party/jemalloc-go"
+    status: done
+  - action: "范围守护与临时产物清理：核对最终 diff 和临时二进制"
+    exit_signal: "diff 仅包含 go.mod、go.sum、本 feature spec 和 roadmap item 状态；/tmp/codis-proxy-cgo-test 不留在仓库内"
+    status: done
+
+checks:
+  - item: "module_set 只覆盖 golang.org/x/net 和 golang.org/x/sys"
+    source: 名词契约
+    status: passed
+  - item: "golang.org/x/net 从 v0.51.0 升级到 tagged v0.55.0，scope 保持 direct"
+    source: 名词契约
+    status: passed
+  - item: "golang.org/x/sys 从 v0.41.0 升级到 tagged v0.45.0，scope 保持 indirect"
+    source: 名词契约
+    status: passed
+  - item: "go.sum 新增 x/net v0.55.0 与 x/sys v0.45.0 的 checksum，不做无关 module 大量 churn"
+    source: 名词契约
+    status: passed
+  - item: "本仓库 import surface 不变，不新增 golang.org/x/sys/* 直接 import"
+    source: 名词契约
+    status: passed
+  - item: "三处 golang.org/x/net/context import 不在本 feature 中迁移到标准库 context"
+    source: 范围守护
+    status: passed
+  - item: "实施顺序为版本查询、定点升级、diff 守护、默认测试、cgo build，不先做全量依赖整理"
+    source: 编排骨架
+    status: passed
+  - item: "go test 或 cgo build 失败时不通过全量 go mod tidy 或父依赖大升级掩盖问题"
+    source: 流程级约束
+    status: passed
+  - item: "重复执行定点 go get 和验收命令不生成 vendor、Godeps 或 vendor/modules.txt"
+    source: 流程级约束
+    status: passed
+  - item: "运行代码、Redis 协议、proxy/topom/coordinator 行为保持不变"
+    source: 流程级约束
+    status: passed
+  - item: "go.mod 中 x/net direct require 是本 feature 的直接挂载点"
+    source: 挂载点
+    status: passed
+  - item: "go.mod 中 x/sys indirect require 是本 feature 的间接依赖挂载点"
+    source: 挂载点
+    status: passed
+  - item: "go.sum 中目标版本 checksum 是 clean checkout 解析目标版本的锁定挂载点"
+    source: 挂载点
+    status: passed
+  - item: "cgo_jemalloc verification gate 保留，用于承担 roadmap 最小闭环职责"
+    source: 挂载点
+    status: passed
+  - item: "go.mod 保留 go 1.26.1 module directive"
+    source: 范围守护
+    status: passed
+  - item: "go.mod 保留 replace github.com/spinlock/jemalloc-go => ./third_party/jemalloc-go"
+    source: 范围守护
+    status: passed
+  - item: "Diff 不包含 cmd/、pkg/ 运行逻辑改动"
+    source: 范围守护
+    status: passed
+  - item: "Diff 不修改 third_party/jemalloc-go、extern/redis-8.6.3、Docker、部署脚本、前端资源或配置模板"
+    source: 范围守护
+    status: passed
+  - item: "Diff 不升级 Consul、Etcd、Redis client、RDB analysis、metrics 或其他 roadmap 子 feature 覆盖的 module"
+    source: 范围守护
+    status: passed
+  - item: "go list -m -json golang.org/x/net@latest 返回 tagged v0.55.0"
+    source: 验收场景
+    status: passed
+  - item: "go list -m -json golang.org/x/sys@latest 返回 tagged v0.45.0"
+    source: 验收场景
+    status: passed
+  - item: "go mod why -m golang.org/x/net 仍可追溯到本仓库使用的 golang.org/x/net/context"
+    source: 验收场景
+    status: passed
+  - item: "go mod why -m golang.org/x/sys 仍可追溯到 Consul/HashiCorp 间接依赖链"
+    source: 验收场景
+    status: passed
+  - item: "go test ./cmd/... ./pkg/... 通过"
+    source: 验收场景
+    status: passed
+  - item: "go build -tags cgo_jemalloc -o /tmp/codis-proxy-cgo-test ./cmd/proxy 通过"
+    source: 验收场景
+    status: passed
+  - item: "重复执行验收命令后 git status 不出现 vendor、Godeps、vendor/modules.txt 或仓库内临时构建产物"
+    source: 验收场景
+    status: passed

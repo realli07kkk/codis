@@ -20,7 +20,7 @@ require (
 	github.com/samuel/go-zookeeper v0.0.0-20161028232340-1d7be4effb13
 	github.com/spinlock/jemalloc-go v0.0.0-20161230074307-26719b2ee618
 	github.com/ugorji/go v1.2.14
-	golang.org/x/net v0.51.0
+	golang.org/x/net v0.55.0
 	gopkg.in/alexcesaro/statsd.v2 v2.0.0
 )
 
@@ -52,7 +52,7 @@ require (
 	github.com/twitchyliquid64/golang-asm v0.15.1 // indirect
 	golang.org/x/arch v0.9.0 // indirect
 	golang.org/x/exp v0.0.0-20260218203240-3dfff04db8fa // indirect
-	golang.org/x/sys v0.41.0 // indirect
+	golang.org/x/sys v0.45.0 // indirect
 )
 
 replace github.com/spinlock/jemalloc-go => ./third_party/jemalloc-go

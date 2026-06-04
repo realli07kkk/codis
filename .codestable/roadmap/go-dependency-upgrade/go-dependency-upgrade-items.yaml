@@ -5,8 +5,8 @@ items:
   - slug: dep-network-core-stack
     description: "升级 golang.org/x/net v0.51.0 -> v0.55.0 与 golang.org/x/sys v0.41.0 -> v0.45.0，完成依赖升级最小闭环并验证 cgo 相关链路"
     depends_on: []
-    status: planned
-    feature: null
+    status: done
+    feature: 2026-06-04-dep-network-core-stack
     minimal_loop: true
     notes: "覆盖 module: golang.org/x/net, golang.org/x/sys。"
   - slug: dep-config-cli-utility-stack
