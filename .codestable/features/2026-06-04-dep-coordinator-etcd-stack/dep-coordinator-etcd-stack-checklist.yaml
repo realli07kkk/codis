@@ -1,0 +1,108 @@
+feature: 2026-06-04-dep-coordinator-etcd-stack
+created: 2026-06-04
+
+steps:
+  - action: "版本调查复核：重新执行 go list 查询 etcd stack 五个 module 的 current、latest 和 versions"
+    exit_signal: "五个 module 的 @latest 仍等于当前版本；github.com/modern-go/concurrent 无 tagged Versions 列表但 @latest 为当前 pseudo version；如变化则记录实际结果并暂停确认"
+    status: done
+  - action: "依赖触达和策略分类：执行 go mod why、go list -deps 并复核 pkg/models/etcd import surface"
+    exit_signal: "五个 module 均经 pkg/models/etcd -> github.com/coreos/etcd/client 或其子依赖触达；策略均为 retain-with-note"
+    status: done
+  - action: "module manifest 保留确认：不执行升级型 go get，核对 git diff -- go.mod go.sum"
+    exit_signal: "go.mod/go.sum 对本 feature 保持零 diff；go 1.26.1 和 jemalloc-go replace 保留"
+    status: done
+  - action: "coordinator target 测试：运行 go test ./pkg/models/etcd ./pkg/models ./cmd/dashboard ./cmd/proxy ./cmd/admin ./cmd/fe"
+    exit_signal: "etcd client 包、models 工厂和使用 coordinator 参数的 cmd 入口均编译测试通过"
+    status: done
+  - action: "默认构建测试闭环：运行 go test ./cmd/... ./pkg/..."
+    exit_signal: "默认 cmd/pkg 测试通过，不报 module version、vendor mode 或 API 不兼容错误"
+    status: done
+  - action: "范围守护与临时产物清理：核对最终 diff、vendor/Godeps 和 roadmap 文档状态"
+    exit_signal: "diff 仅包含本 feature spec 和 roadmap 状态；无 Go 源码、配置、部署、extern、vendor/Godeps 或无关 module churn"
+    status: done
+
+checks:
+  - item: "module_set 覆盖 github.com/coreos/etcd、github.com/coreos/go-semver、github.com/json-iterator/go、github.com/modern-go/concurrent、github.com/modern-go/reflect2"
+    source: "名词契约"
+    status: passed
+  - item: "五个 module 的 @latest 均等于当前版本，处理策略均为 retain-with-note"
+    source: "名词契约"
+    status: passed
+  - item: "github.com/coreos/etcd 保持 v3.3.27+incompatible，scope 保持 direct"
+    source: "名词契约"
+    status: passed
+  - item: "四个 indirect module 保持当前版本且仍经 etcd client 依赖链触达"
+    source: "名词契约"
+    status: passed
+  - item: "go.mod/go.sum 对本 feature 保持零 diff，不做无关 module churn"
+    source: "名词契约"
+    status: passed
+  - item: "本仓库 import surface 不变，继续由 pkg/models/etcd 使用 github.com/coreos/etcd/client"
+    source: "名词契约"
+    status: passed
+  - item: "models.Client、models.NewClient、dashboard/proxy/admin/fe coordinator 参数和配置语义不变"
+    source: "名词契约"
+    status: passed
+  - item: "实施顺序为版本查询、策略分类、manifest 零 diff 守护、target 测试、默认测试、范围守护"
+    source: "编排骨架"
+    status: passed
+  - item: "测试失败时不通过现代 etcd path 迁移、全量 go mod tidy 或 coordinator 语义改写掩盖问题"
+    source: "流程级约束"
+    status: passed
+  - item: "重复执行验收命令不生成 vendor、Godeps 或 vendor/modules.txt"
+    source: "流程级约束"
+    status: passed
+  - item: "go.mod 中 github.com/coreos/etcd direct require 是本 feature 的保留挂载点"
+    source: "挂载点"
+    status: passed
+  - item: "go.mod 中四个 indirect require 是本 feature 的依赖链保留挂载点"
+    source: "挂载点"
+    status: passed
+  - item: "pkg/models/etcd/etcdclient.go 的 github.com/coreos/etcd/client import 是旧 client path 保留挂载点"
+    source: "挂载点"
+    status: passed
+  - item: "coordinator target test gate 保留，用于证明 etcd coordinator 编译面仍可通过"
+    source: "挂载点"
+    status: passed
+  - item: "默认 cmd/pkg 测试 gate 保留，用于证明保留后构建测试闭环"
+    source: "挂载点"
+    status: passed
+  - item: "Diff 不迁移到 go.etcd.io/etcd/* 或修改 pkg/models/etcd 源码"
+    source: "范围守护"
+    status: passed
+  - item: "Diff 不修改 Zookeeper、filesystem、Consul coordinator 后端"
+    source: "范围守护"
+    status: passed
+  - item: "Diff 不升级 Zookeeper、Consul、Redis client、RDB parser、metrics、jemalloc 或其他 roadmap 子 feature 覆盖的 module"
+    source: "范围守护"
+    status: passed
+  - item: "Diff 不修改 go 1.26.1 module directive、jemalloc-go replace、extern/redis-8.6.3、Docker、部署脚本、前端资源或配置模板"
+    source: "范围守护"
+    status: passed
+  - item: "go list -m -u -json 覆盖五个 module，确认均无 Update 字段"
+    source: "验收场景"
+    status: passed
+  - item: "go list -m -json <module>@latest 覆盖五个 module，确认 @latest 均等于当前版本"
+    source: "验收场景"
+    status: passed
+  - item: "go list -m -versions -json 覆盖五个 module，确认最新 tagged/pseudo 口径"
+    source: "验收场景"
+    status: passed
+  - item: "go mod why -m 覆盖五个 module，确认均可追溯到 pkg/models/etcd 和 github.com/coreos/etcd/client 依赖链"
+    source: "验收场景"
+    status: passed
+  - item: "go list -deps ./cmd/... ./pkg/... 仍触达 etcd stack 五个 module"
+    source: "验收场景"
+    status: passed
+  - item: "git diff -- go.mod go.sum 为零 diff"
+    source: "验收场景"
+    status: passed
+  - item: "go test ./pkg/models/etcd ./pkg/models ./cmd/dashboard ./cmd/proxy ./cmd/admin ./cmd/fe 通过"
+    source: "验收场景"
+    status: passed
+  - item: "go test ./cmd/... ./pkg/... 通过"
+    source: "验收场景"
+    status: passed
+  - item: "重复执行验收命令后 git status 不出现 vendor、Godeps、vendor/modules.txt 或仓库内临时构建产物"
+    source: "验收场景"
+    status: passed
