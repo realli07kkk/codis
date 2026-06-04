@@ -213,8 +213,8 @@ go build -tags cgo_jemalloc ./cmd/proxy
    - 所属模块：low-risk-runtime-stacks
    - 覆盖 module：`github.com/BurntSushi/toml`, `github.com/docopt/docopt-go`, `github.com/google/uuid`, `github.com/emirpasic/gods`, `github.com/oxtoacart/bpool`, `github.com/ugorji/go`
    - 依赖：无
-   - 状态：planned
-   - 对应 feature：未启动
+   - 状态：done
+   - 对应 feature：`2026-06-04-dep-config-cli-utility-stack`
 
 3. **dep-redis-client-stack** — 升级 `github.com/garyburd/redigo`，验证 Redis 连接、AUTH、SELECT、迁移和脚本调用路径。
    - 所属模块：low-risk-runtime-stacks

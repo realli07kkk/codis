@@ -1,0 +1,129 @@
+feature: 2026-06-04-dep-config-cli-utility-stack
+created: 2026-06-04
+
+steps:
+  - action: "版本调查复核：重新执行 go list 查询六个 module 的 current、latest 和 versions"
+    exit_signal: "五个升级目标与 design 一致；ugorji/go 仍为 v1.2.14；如变化则记录实际结果并暂停确认"
+    status: done
+  - action: "依赖触达和策略分类：执行 go mod why -m 并复核 import surface"
+    exit_signal: "toml、docopt-go、uuid、gods、bpool 被默认构建路径触达；ugorji/go 仍不被主 module 需要，走 retain-with-note"
+    status: done
+  - action: "module manifest 定点升级：执行五个 module 的定点 go get"
+    exit_signal: "go.mod 只把 toml、docopt-go、uuid、gods、bpool 改到目标版本；ugorji/go v1.2.14、go 1.26.1 和 jemalloc-go replace 保留"
+    status: done
+  - action: "checksum 与依赖图收口：核对 go.sum 和 module graph"
+    exit_signal: "go.sum 只新增五个目标版本的 checksum；没有无关 module 大量 churn；bpool 仍来自 martini-contrib/render 链路"
+    status: done
+  - action: "默认构建测试闭环：运行默认 cmd/pkg 测试"
+    exit_signal: "go test ./cmd/... ./pkg/... 通过，不报 module version、vendor mode 或 API 不兼容错误"
+    status: done
+  - action: "范围守护与临时产物清理：核对最终 diff 和仓库状态"
+    exit_signal: "diff 仅包含 go.mod、go.sum、本 feature spec 和 roadmap item 状态；不出现 vendor/Godeps、配置模板、部署脚本、前端资源或仓库内临时构建产物"
+    status: done
+
+checks:
+  - item: "module_set 只覆盖 toml、docopt-go、uuid、gods、bpool、ugorji/go"
+    source: "名词契约"
+    status: passed
+  - item: "github.com/BurntSushi/toml 从当前 pseudo version 升级到 v1.6.0，scope 保持 direct"
+    source: "名词契约"
+    status: passed
+  - item: "github.com/docopt/docopt-go 从当前 pseudo version 升级到 v0.0.0-20180111231733-ee0de3bc6815，scope 保持 direct"
+    source: "名词契约"
+    status: passed
+  - item: "github.com/google/uuid 从 v1.5.0 升级到 v1.6.0，scope 保持 direct"
+    source: "名词契约"
+    status: passed
+  - item: "github.com/emirpasic/gods 从 v1.9.0 升级到 v1.18.1，scope 保持 direct"
+    source: "名词契约"
+    status: passed
+  - item: "github.com/oxtoacart/bpool 从当前 pseudo version 升级到 v0.0.0-20190530202638-03653db5a59c，scope 保持 direct"
+    source: "名词契约"
+    status: passed
+  - item: "github.com/ugorji/go 保持 v1.2.14，处理策略为 retain-with-note"
+    source: "名词契约"
+    status: passed
+  - item: "go.sum 新增五个目标版本的 checksum，不做无关 module 大量 churn"
+    source: "名词契约"
+    status: passed
+  - item: "本仓库 import surface 不变，不新增或删除配置、CLI、topom 相关 import"
+    source: "名词契约"
+    status: passed
+  - item: "实施顺序为版本查询、策略分类、定点升级、diff 守护、默认测试，不先做全量依赖整理"
+    source: "编排骨架"
+    status: passed
+  - item: "go test 失败时不通过全量 go mod tidy、Martini stack 升级或业务代码重写掩盖问题"
+    source: "流程级约束"
+    status: passed
+  - item: "重复执行定点 go get 和验收命令不生成 vendor、Godeps 或 vendor/modules.txt"
+    source: "流程级约束"
+    status: passed
+  - item: "配置格式、CLI 参数、Redis 协议、proxy/topom/coordinator 行为保持不变"
+    source: "流程级约束"
+    status: passed
+  - item: "go.mod 中五个 upgraded direct require 是本 feature 的版本升级挂载点"
+    source: "挂载点"
+    status: passed
+  - item: "go.mod 中 ugorji/go v1.2.14 direct require 是本 feature 的保留决策挂载点"
+    source: "挂载点"
+    status: passed
+  - item: "go.sum 中五个目标版本 checksum 是 clean checkout 解析目标版本的锁定挂载点"
+    source: "挂载点"
+    status: passed
+  - item: "默认 cmd/pkg 测试 gate 保留，用于证明升级后构建测试闭环"
+    source: "挂载点"
+    status: passed
+  - item: "go.mod 保留 go 1.26.1 module directive"
+    source: "范围守护"
+    status: passed
+  - item: "go.mod 保留 replace github.com/spinlock/jemalloc-go => ./third_party/jemalloc-go"
+    source: "范围守护"
+    status: passed
+  - item: "Diff 不包含 cmd/ usage 文本、CLI 参数名、参数默认值或分发逻辑改动"
+    source: "范围守护"
+    status: passed
+  - item: "Diff 不包含 proxy/topom 配置结构、TOML tag、默认配置文本或输出格式改动"
+    source: "范围守护"
+    status: passed
+  - item: "Diff 不修改 slot action、RDB Analysis job id、Redis 协议、proxy/topom/coordinator 行为"
+    source: "范围守护"
+    status: passed
+  - item: "Diff 不升级 Martini web stack 本体、Redis client、coordinator、RDB parser、metrics 或其他 roadmap 子 feature 覆盖的 module"
+    source: "范围守护"
+    status: passed
+  - item: "Diff 不删除 github.com/ugorji/go direct require"
+    source: "范围守护"
+    status: passed
+  - item: "Diff 不修改 third_party/jemalloc-go、extern/redis-8.6.3、Docker、部署脚本、前端资源或配置模板"
+    source: "范围守护"
+    status: passed
+  - item: "go list -m -json github.com/BurntSushi/toml@latest 返回 v1.6.0"
+    source: "验收场景"
+    status: passed
+  - item: "go list -m -json github.com/docopt/docopt-go@latest 返回 v0.0.0-20180111231733-ee0de3bc6815，且 versions 无 tagged release 列表"
+    source: "验收场景"
+    status: passed
+  - item: "go list -m -json github.com/google/uuid@latest 返回 v1.6.0"
+    source: "验收场景"
+    status: passed
+  - item: "go list -m -json github.com/emirpasic/gods@latest 返回 v1.18.1"
+    source: "验收场景"
+    status: passed
+  - item: "go list -m -json github.com/oxtoacart/bpool@latest 返回 v0.0.0-20190530202638-03653db5a59c，且 versions 无 tagged release 列表"
+    source: "验收场景"
+    status: passed
+  - item: "go list -m -json github.com/ugorji/go@latest 返回 v1.2.14，不产生升级 diff"
+    source: "验收场景"
+    status: passed
+  - item: "go mod why -m github.com/oxtoacart/bpool 仍可追溯到 cmd/fe -> martini-contrib/render -> bpool"
+    source: "验收场景"
+    status: passed
+  - item: "go mod why -m github.com/ugorji/go 仍显示 main module 不需要该 module，且本 feature 不删除它"
+    source: "验收场景"
+    status: passed
+  - item: "go test ./cmd/... ./pkg/... 通过"
+    source: "验收场景"
+    status: passed
+  - item: "重复执行验收命令后 git status 不出现 vendor、Godeps、vendor/modules.txt 或仓库内临时构建产物"
+    source: "验收场景"
+    status: passed

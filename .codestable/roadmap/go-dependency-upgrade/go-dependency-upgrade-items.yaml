@@ -12,8 +12,8 @@ items:
   - slug: dep-config-cli-utility-stack
     description: "升级或确认配置、CLI、UUID、通用数据结构和 codec 相关 Go module"
     depends_on: []
-    status: planned
-    feature: null
+    status: done
+    feature: 2026-06-04-dep-config-cli-utility-stack
     minimal_loop: false
     notes: "覆盖 module: github.com/BurntSushi/toml, github.com/docopt/docopt-go, github.com/google/uuid, github.com/emirpasic/gods, github.com/oxtoacart/bpool, github.com/ugorji/go。"
   - slug: dep-redis-client-stack
