@@ -8,6 +8,7 @@ require (
 	github.com/docopt/docopt-go v0.0.0-20180111231733-ee0de3bc6815
 	github.com/emirpasic/gods v1.18.1
 	github.com/go-martini/martini v0.0.0-20170121215854-22fa46961aab
+	github.com/go-zookeeper/zk v1.0.4
 	github.com/google/uuid v1.6.0
 	github.com/hashicorp/consul/api v1.34.3
 	github.com/hdt3213/rdb v1.3.2
@@ -17,7 +18,6 @@ require (
 	github.com/martini-contrib/render v0.0.0-20150707142108-ec18f8345a11
 	github.com/oxtoacart/bpool v0.0.0-20190530202638-03653db5a59c
 	github.com/redis/go-redis/v9 v9.20.0
-	github.com/samuel/go-zookeeper v0.0.0-20201211165307-7117e9ea2414
 	github.com/spinlock/jemalloc-go v0.0.0-20201010032256-e81523fb8524
 	github.com/ugorji/go v1.2.14
 	golang.org/x/net v0.55.0

@@ -1,0 +1,132 @@
+feature: 2026-06-05-dep-zookeeper-module-path-migration
+created: 2026-06-05
+
+steps:
+  - action: "版本调查复核：重新执行 go list 查询 github.com/go-zookeeper/zk 的 latest 和 versions，并核对 GitHub release/tag"
+    exit_signal: "目标仍是正式 tag v1.0.4；不是 pseudo version；module path 为 github.com/go-zookeeper/zk"
+    status: done
+  - action: "依赖触达和 import surface 复核：执行 go mod why、go list -deps 和旧 path rg 搜索"
+    exit_signal: "旧 path 经 pkg/models/zk -> github.com/samuel/go-zookeeper/zk 被默认 cmd/pkg 路径触达，真实 Go import surface 只有 pkg/models/zk/zkclient.go"
+    status: done
+  - action: "SDK import path 迁移：把 pkg/models/zk/zkclient.go import 替换为 github.com/go-zookeeper/zk"
+    exit_signal: "源代码不再 import github.com/samuel/go-zookeeper/zk；package name 仍是 zk；无函数语义改动"
+    status: done
+  - action: "module manifest 定点迁移：执行目标版本的定点 module 更新，并删除旧 direct require"
+    exit_signal: "go.mod direct require 为 github.com/go-zookeeper/zk v1.0.4；github.com/samuel/go-zookeeper 不再出现在 go.mod；go 1.26.1 和 jemalloc-go replace 保留"
+    status: done
+  - action: "checksum 与依赖图收口：核对 go.sum、module graph 和旧 path 反向 grep"
+    exit_signal: "go.sum 只出现新 SDK 必要 checksum 和旧 SDK 未引用 checksum 清理；没有无关 module churn；go list -deps 触达 github.com/go-zookeeper/zk 且不触达旧 path"
+    status: done
+  - action: "public API 迁移说明与 compile guard：补充 Client.Do breaking API 迁移文档，并增加外部包风格的 compile guard"
+    exit_signal: "文档明确旧 samuel 回调签名需要迁到 go-zookeeper；compile guard 证明 Client.Do 接受 func(*github.com/go-zookeeper/zk.Conn) error"
+    status: done
+  - action: "coordinator target 测试：运行 go test ./pkg/models/zk ./pkg/models ./cmd/internal/coordinator ./cmd/dashboard ./cmd/proxy ./cmd/admin ./cmd/fe"
+    exit_signal: "Zookeeper client 包、models 工厂、coordinator 参数解析和相关 cmd 入口均编译测试通过"
+    status: done
+  - action: "默认构建测试闭环：运行 go test ./cmd/... ./pkg/..."
+    exit_signal: "默认 cmd/pkg 测试通过，不报 module version、vendor mode 或 API 不兼容错误"
+    status: done
+  - action: "范围守护与临时产物清理：核对最终 diff、旧 path 搜索、vendor/Godeps 和临时产物"
+    exit_signal: "diff 只包含 go.mod、go.sum、pkg/models/zk/zkclient.go、public API 迁移文档、compile guard 和本 feature spec；无配置、部署、extern、Docker、前端、vendor/Godeps 或无关 module churn"
+    status: done
+
+checks:
+  - item: "module_set 删除 github.com/samuel/go-zookeeper direct require，并新增 github.com/go-zookeeper/zk direct require"
+    source: "名词契约"
+    status: passed
+  - item: "github.com/go-zookeeper/zk 目标版本为最新正式 tag v1.0.4"
+    source: "名词契约"
+    status: passed
+  - item: "pkg/models/zk/zkclient.go import path 改为 github.com/go-zookeeper/zk，package alias 仍为 zk"
+    source: "名词契约"
+    status: passed
+  - item: "Client.Do 的源码级 breaking change 已通过迁移文档说明，外部调用方需把回调 import path 改为 github.com/go-zookeeper/zk"
+    source: "名词契约"
+    status: passed
+  - item: "go.sum 只新增新 SDK checksum 并清理不再引用的旧 SDK checksum，不做无关 module churn"
+    source: "名词契约"
+    status: passed
+  - item: "models.Client、models.NewClient、dashboard/proxy/admin/fe coordinator 参数和配置语义不变"
+    source: "名词契约"
+    status: passed
+  - item: "实施顺序为版本查询、触达复核、import 迁移、module manifest 迁移、public API 迁移说明、diff 守护、target 测试、默认测试"
+    source: "编排骨架"
+    status: passed
+  - item: "测试失败时不通过全量 go mod tidy、长期 replace 或 coordinator 语义改写掩盖问题"
+    source: "流程级约束"
+    status: passed
+  - item: "重复执行定点 go get 和验收命令不生成 vendor、Godeps 或 vendor/modules.txt"
+    source: "流程级约束"
+    status: passed
+  - item: "go.mod 中 github.com/go-zookeeper/zk v1.0.4 direct require 是本 feature 的 module 挂载点"
+    source: "挂载点"
+    status: passed
+  - item: "pkg/models/zk/zkclient.go 的 github.com/go-zookeeper/zk import 是 Zookeeper client 使用面挂载点"
+    source: "挂载点"
+    status: passed
+  - item: "旧 path 反向 grep gate 保留，用于证明本 feature 不再通过旧 SDK path 工作"
+    source: "挂载点"
+    status: passed
+  - item: "coordinator target test gate 保留，用于证明 Zookeeper coordinator/Jodis 编译面仍可通过"
+    source: "挂载点"
+    status: passed
+  - item: "doc/zookeeper_sdk_migration_zh.md 保留，用于说明 Client.Do 的 breaking API 迁移"
+    source: "挂载点"
+    status: passed
+  - item: "pkg/models/zk 的 Client.Do compile guard 保留，用于证明新回调签名"
+    source: "挂载点"
+    status: passed
+  - item: "Diff 不修改 Zookeeper CRUD、watch、ephemeral、sequence、digest auth 或 reconnect 逻辑"
+    source: "范围守护"
+    status: passed
+  - item: "Diff 不修改 etcd、filesystem、Consul coordinator 后端"
+    source: "范围守护"
+    status: passed
+  - item: "Diff 不升级 Redis client、Martini、etcd、Consul、RDB parser、metrics、jemalloc 或其他 module"
+    source: "范围守护"
+    status: passed
+  - item: "Diff 不使用长期 replace 把旧 path 指向新 path"
+    source: "范围守护"
+    status: passed
+  - item: "Diff 不通过 unsafe、双连接或保留旧 SDK 伪装 Client.Do 兼容"
+    source: "范围守护"
+    status: passed
+  - item: "Diff 不修改 go 1.26.1 module directive、jemalloc-go replace、extern/redis-8.6.3、Docker、部署脚本、前端资源或配置模板"
+    source: "范围守护"
+    status: passed
+  - item: "go list -m -json github.com/go-zookeeper/zk@latest 确认 Version 为 v1.0.4 且 Path 为 github.com/go-zookeeper/zk"
+    source: "验收场景"
+    status: passed
+  - item: "go list -m -versions -json github.com/go-zookeeper/zk 确认最高正式 tag 为 v1.0.4"
+    source: "验收场景"
+    status: passed
+  - item: "rg 搜索确认 pkg、cmd 和 go.mod 中不再出现 github.com/samuel/go-zookeeper"
+    source: "验收场景"
+    status: passed
+  - item: "go mod why -m github.com/go-zookeeper/zk 确认可追溯到 pkg/models/zk"
+    source: "验收场景"
+    status: passed
+  - item: "go list -deps ./cmd/... ./pkg/... 触达 github.com/go-zookeeper/zk 且不触达 github.com/samuel/go-zookeeper/zk"
+    source: "验收场景"
+    status: passed
+  - item: "go.mod diff 删除旧 direct require 并新增 github.com/go-zookeeper/zk v1.0.4"
+    source: "验收场景"
+    status: passed
+  - item: "go.sum diff 只包含 Zookeeper SDK 新旧 path 迁移所需 checksum 变化"
+    source: "验收场景"
+    status: passed
+  - item: "doc/zookeeper_sdk_migration_zh.md 说明 Client.Do 旧 samuel 回调签名需要迁移到 go-zookeeper"
+    source: "验收场景"
+    status: passed
+  - item: "pkg/models/zk 的 API compile guard 能编译 Client.Do 的 func(*github.com/go-zookeeper/zk.Conn) error 签名"
+    source: "验收场景"
+    status: passed
+  - item: "go test ./pkg/models/zk ./pkg/models ./cmd/internal/coordinator ./cmd/dashboard ./cmd/proxy ./cmd/admin ./cmd/fe 通过"
+    source: "验收场景"
+    status: passed
+  - item: "go test ./cmd/... ./pkg/... 通过"
+    source: "验收场景"
+    status: passed
+  - item: "重复验收命令后 git status 不出现 vendor、Godeps、vendor/modules.txt 或仓库内临时构建产物"
+    source: "验收场景"
+    status: passed
