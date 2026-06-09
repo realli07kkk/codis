@@ -43,3 +43,13 @@ refactor: 2026-06-09-codis-server-build
   - guard 错误信息格式测试通过（模拟缺失 g++ 输出可操作的安装提示）
   - attention.md 条目追加完成
 - 偏离: 无
+
+## 修复: review findings（2026-06-09）
+
+4 个 review 发现的修正，全部落在 `extern/redis-8.6.3/deps/Makefile`：
+
+1. **jemalloc configure 参数丢失**: `autogen.sh` 内部调用 `./configure` 生成 Makefile，原 `[ -f Makefile ] ||` 守卫跳过我们的 configure。修复：去守卫，autogen 后始终运行 configure；补上 `--with-lg-quantum=3`（deps/README.md 要求）。
+2. **fast_float 缺少 FASTFLOAT_ALLOWS_LEADING_PLUS**: 不加宏导致 `+inf`/`+1.5` 解析失败。修复：`-DFASTFLOAT_ALLOWS_LEADING_PLUS`。
+3. **clean/distclean 是 no-op**: 破坏原有 `make distclean` 语义。修复：clean 清除所有 .o/.a；distclean 额外清理 jemalloc 生成物。
+4. **BUILD_TLS 时缺少 libhiredis_ssl.a**: 修复：best-effort 编译 ssl.c。
+- 验证: full distclean → make all → LINK redis-server ✓; `LG_QUANTUM 3` ✓; `je_malloc_usable_size` ✓; `libhiredis_ssl.a` 11KB ✓
