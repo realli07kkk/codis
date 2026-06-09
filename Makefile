@@ -189,6 +189,8 @@ codis-fe: codis-deps
 codis-server:
 	@mkdir -p bin config
 	@rm -f bin/codis-server
+	@which g++ >/dev/null 2>&1 || { echo "ERROR: g++ required to build codis-server (fast_float C++17 dependency)."; echo "Install: dnf install -y gcc-c++ (EL/Rocky) or apt install -y g++"; exit 1; }
+	@which autoconf >/dev/null 2>&1 || { echo "ERROR: autoconf required to build codis-server (jemalloc autogen)."; echo "Install: dnf install -y autoconf automake libtool"; exit 1; }
 	make -j4 -C $(REDIS8_DIR)/
 	@cp -f $(REDIS8_DIR)/src/redis-server  bin/codis-server
 	@cp -f $(REDIS8_DIR)/src/redis-benchmark bin/

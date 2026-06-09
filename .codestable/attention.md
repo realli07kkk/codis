@@ -14,6 +14,7 @@
 - 不要顺手现代化 Go 依赖；依赖版本偏离必须有可复现的现代 Go 编译原因。
 - `cgo_jemalloc` 的 module mode 来源现在走 `go.mod` 的 `replace github.com/spinlock/jemalloc-go => ./third_party/jemalloc-go`；后续相关修改应改 `third_party/jemalloc-go`，不是旧 `vendor/github.com/spinlock/jemalloc-go`。
 - 涉及 Redis 8 源码 object 接入时，相关 Redis Makefile 必须是 tracked/unignored 构建输入；不要在构建时 patch ignored 本地 Makefile。
+- `make codis-server` 编译嵌入式 Redis 8 需要 C/C++ 工具链和 autotools：`dnf install -y gcc gcc-c++ autoconf automake libtool`（Rocky/EL）或等价的 apt 包。构建过程中 jemalloc 会自动完成 autogen → configure → make。
 
 ### 运行与本地起服务
 
