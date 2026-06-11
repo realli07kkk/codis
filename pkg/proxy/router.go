@@ -132,8 +132,12 @@ func (s *Router) SetACL(acl *models.ACL) error {
 	s.acl.mu.Unlock()
 
 	if old == nil || old.Revision != next.Revision || old.Enabled != next.Enabled {
+		if next.Enabled {
+			clientSessions.markACLStale(s.config, next.Revision)
+		} else {
+			clientSessions.clearACLAuthorization(s.config)
+		}
 		s.closeUserBackendPools()
-		clientSessions.markACLStale(s.config, next.Revision)
 	}
 	return nil
 }
@@ -180,13 +184,23 @@ func (s *Router) userBackendConn(addr string, database int32, seed uint, replica
 		return nil
 	}
 	pool := s.userBackendPool(replica, identity)
-	return pool.GetOrCreate(addr).BackendConn(database, seed, must)
+	if pool == nil {
+		return nil
+	}
+	bc := pool.GetOrCreate(addr)
+	if bc == nil {
+		return nil
+	}
+	return bc.BackendConn(database, seed, must)
 }
 
 func (s *Router) userBackendPool(replica bool, identity *SessionACLIdentity) *sharedBackendConnPool {
 	key := userBackendKey(identity)
 	s.userPools.mu.Lock()
 	defer s.userPools.mu.Unlock()
+	if !s.aclIdentityCurrent(identity) {
+		return nil
+	}
 
 	pools := s.userPools.primary
 	parallel := s.config.BackendPrimaryParallel
@@ -204,6 +218,14 @@ func (s *Router) userBackendPool(replica bool, identity *SessionACLIdentity) *sh
 	pool := newSharedBackendConnPool(s.config, parallel, auth)
 	pools[key] = pool
 	return pool
+}
+
+func (s *Router) aclIdentityCurrent(identity *SessionACLIdentity) bool {
+	if identity == nil || !s.config.CodisACLEnabled {
+		return false
+	}
+	snapshot := s.ACLSnapshot()
+	return snapshot != nil && snapshot.Enabled && snapshot.Revision == identity.Revision
 }
 
 func (s *Router) closeUserBackendPools() {

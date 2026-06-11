@@ -56,9 +56,13 @@ func (d *forwardSync) process(s *Slot, r *Request, hkey []byte) (*BackendConn, e
 			return nil, err
 		}
 	}
+	bc := d.forward2(s, r)
+	if bc == nil {
+		return nil, ErrSlotIsNotReady
+	}
 	r.Group = &s.refs
 	r.Group.Add(1)
-	return d.forward2(s, r), nil
+	return bc, nil
 }
 
 type forwardSemiAsync struct {
@@ -126,9 +130,13 @@ func (d *forwardSemiAsync) process(s *Slot, r *Request, hkey []byte) (_ *Backend
 			return nil, true, nil
 		}
 	}
+	bc := d.forward2(s, r)
+	if bc == nil {
+		return nil, false, ErrSlotIsNotReady
+	}
 	r.Group = &s.refs
 	r.Group.Add(1)
-	return d.forward2(s, r), false, nil
+	return bc, false, nil
 }
 
 type forwardHelper struct {

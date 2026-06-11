@@ -67,6 +67,21 @@ func (r *clientSessionRegistry) markACLStale(config *Config, revision int64) {
 	}
 }
 
+func (r *clientSessionRegistry) clearACLAuthorization(config *Config) {
+	r.RLock()
+	sessions := make([]*Session, 0, len(r.sessions))
+	for _, s := range r.sessions {
+		if s.config == config {
+			sessions = append(sessions, s)
+		}
+	}
+	r.RUnlock()
+
+	for _, s := range sessions {
+		s.clearACLAuthorization()
+	}
+}
+
 // Caller must not hold any Session.mu while calling snapshot.
 // snapshot releases the registry lock before taking per-session read locks.
 func (r *clientSessionRegistry) snapshot(now time.Time) []clientListEntry {

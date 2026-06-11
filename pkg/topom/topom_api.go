@@ -89,6 +89,7 @@ func newApiServer(t *Topom) http.Handler {
 		})
 		r.Get("/acl/:xauth", api.GetACL)
 		r.Put("/acl/:xauth", binding.Json(ACLUpdateRequest{}), api.SetACL)
+		r.Put("/acl/sync/:xauth", api.SyncACL)
 		r.Get("/proxy/qps-limit/:xauth", api.GetProxyQPSLimit)
 		r.Put("/proxy/qps-limit/:xauth", binding.Json(ProxyQPSLimitUpdateRequest{}), api.SetProxyQPSLimit)
 		r.Put("/hot-key-cache/invalidate/:xauth", binding.Json(proxy.HotKeyCacheBroadcastRequest{}), api.HotKeyCacheInvalidate)
@@ -217,6 +218,17 @@ func (s *apiServer) SetACL(req ACLUpdateRequest, params martini.Params) (int, st
 		return rpc.ApiResponseError(err)
 	}
 	view, err := s.topom.UpdateACL(&req)
+	if err != nil {
+		return rpc.ApiResponseError(err)
+	}
+	return rpc.ApiResponseJson(view)
+}
+
+func (s *apiServer) SyncACL(params martini.Params) (int, string) {
+	if err := s.verifyXAuth(params); err != nil {
+		return rpc.ApiResponseError(err)
+	}
+	view, err := s.topom.SyncACL()
 	if err != nil {
 		return rpc.ApiResponseError(err)
 	}
@@ -904,6 +916,15 @@ func (c *ApiClient) SetACL(req *ACLUpdateRequest) (*ACLView, error) {
 	url := c.encodeURL("/api/topom/acl/%s", c.xauth)
 	view := &ACLView{}
 	if err := rpc.ApiPutJson(url, req, view); err != nil {
+		return nil, err
+	}
+	return view, nil
+}
+
+func (c *ApiClient) SyncACL() (*ACLView, error) {
+	url := c.encodeURL("/api/topom/acl/sync/%s", c.xauth)
+	view := &ACLView{}
+	if err := rpc.ApiPutJson(url, nil, view); err != nil {
 		return nil, err
 	}
 	return view, nil

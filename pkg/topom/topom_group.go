@@ -138,6 +138,11 @@ func (s *Topom) GroupAddServer(gid int, dc, addr string) error {
 	}
 	defer s.dirtyGroupCache(g.Id)
 
+	if err := s.syncACLToRedisAddr(addr, ctx.acl); err != nil {
+		log.ErrorErrorf(err, "redis %s sync acl failed", addr)
+		return errors.Errorf("redis %s sync acl failed", addr)
+	}
+
 	g.Servers = append(g.Servers, &models.GroupServer{Addr: addr, DataCenter: dc})
 	return s.storeUpdateGroup(g)
 }

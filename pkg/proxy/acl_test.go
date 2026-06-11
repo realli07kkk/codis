@@ -187,6 +187,66 @@ func TestACLRevisionSwitchStalesSession(x *testing.T) {
 	assert.Must(resp.IsBulkBytes() && string(resp.Value) == "app_ro")
 }
 
+func TestACLDisableClearsAuthorizedSession(x *testing.T) {
+	config := newProxyConfig()
+	config.CodisACLEnabled = true
+	config.SessionAuth = "legacy-secret"
+
+	s, addr := openStartedProxy(config)
+	defer s.Close()
+
+	aclInstallAppRO(x, s)
+
+	c := dialProxy(addr)
+	defer c.Close()
+
+	resp := proxyCall(c, "AUTH", "app_ro", "secret")
+	assert.Must(resp.IsString() && string(resp.Value) == "OK")
+
+	assert.MustNoError(s.SetACL(&models.ACL{
+		Revision: 2,
+		Enabled:  false,
+	}))
+
+	resp = proxyCall(c, "CLIENT", "LIST")
+	assert.Must(resp.IsError())
+	assert.Must(string(resp.Value) == "NOAUTH Authentication required")
+
+	resp = proxyCall(c, "AUTH", "legacy-secret")
+	assert.Must(resp.IsString() && string(resp.Value) == "OK")
+}
+
+func TestACLReAuthFailureTriggersBruteforceLock(x *testing.T) {
+	config := newAuthBruteforceTestConfig()
+	config.CodisACLEnabled = true
+
+	s, addr := openStartedProxy(config)
+	defer s.Close()
+
+	aclInstallAppRO(x, s)
+
+	c := dialProxy(addr)
+	defer c.Close()
+
+	resp := proxyCall(c, "AUTH", "app_ro", "secret")
+	assert.Must(resp.IsString() && string(resp.Value) == "OK")
+
+	for i := 0; i < config.SessionAuthBruteforceMaxFailures; i++ {
+		resp = proxyCall(c, "AUTH", "app_ro", "wrong")
+		assert.Must(resp.IsError())
+		assert.Must(strings.HasPrefix(string(resp.Value), "WRONGPASS"))
+	}
+
+	resp = proxyCall(c, "AUTH", "app_ro", "secret")
+	assert.Must(resp.IsError())
+	assert.Must(string(resp.Value) == authBruteforceLockedMessage)
+
+	stats := s.Stats(0).SessionAuthBruteforce
+	assert.Must(stats != nil)
+	assert.Must(stats.Failures == int64(config.SessionAuthBruteforceMaxFailures))
+	assert.Must(stats.Locks == 1)
+}
+
 func TestACLCommandNeverFallsThroughToBackend(x *testing.T) {
 	config := newProxyConfig()
 	config.CodisACLEnabled = true

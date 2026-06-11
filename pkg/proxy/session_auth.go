@@ -82,7 +82,7 @@ func (s *Session) handleACLAuth(r *Request, d *Router) error {
 	wasAuthorized := s.isAuthorized()
 	now := time.Now()
 	remoteAddr := s.remoteAddr()
-	if s.authBruteforce.BeforeAuth(remoteAddr, wasAuthorized, now) {
+	if s.authBruteforce.BeforeAuth(remoteAddr, false, now) {
 		r.Resp = redis.NewErrorf(authBruteforceLockedMessage)
 		return nil
 	}
@@ -90,10 +90,10 @@ func (s *Session) handleACLAuth(r *Request, d *Router) error {
 	hash := models.ACLPasswordHash(password)
 	user := snapshot.Users[username]
 	if user == nil || !user.Enabled || !aclPasswordAllowed(user, hash) {
+		s.authBruteforce.RecordAuthFailure(remoteAddr, false, now)
 		if !wasAuthorized {
 			s.clearACLIdentity()
 			s.setAuthorized(false)
-			s.authBruteforce.RecordAuthFailure(remoteAddr, wasAuthorized, now)
 		}
 		r.Resp = redis.NewErrorf("WRONGPASS invalid username-password pair or user is disabled")
 		return nil
@@ -195,6 +195,11 @@ func (s *Session) clearACLIdentity() {
 		}
 		s.aclIdentity = nil
 	}
+}
+
+func (s *Session) clearACLAuthorization() {
+	s.clearACLIdentity()
+	s.setAuthorized(false)
 }
 
 func (s *Session) markACLStale(revision int64) {

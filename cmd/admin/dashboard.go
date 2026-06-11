@@ -87,6 +87,8 @@ func (t *cmdDashboard) Main(d map[string]interface{}) {
 
 	case d["--acl"].(bool):
 		fallthrough
+	case d["--acl-sync"].(bool):
+		fallthrough
 	case d["--acl-set"] != nil:
 		t.handleACLCommand(d)
 
@@ -303,6 +305,18 @@ func (t *cmdDashboard) handleACLCommand(d map[string]interface{}) {
 			log.PanicErrorf(err, "json marshal failed")
 		}
 		fmt.Println(string(b))
+
+	case d["--acl-sync"].(bool):
+		log.Debugf("call rpc acl sync to dashboard %s", t.addr)
+		view, err := c.SyncACL()
+		if err != nil {
+			log.PanicErrorf(err, "call rpc acl sync to dashboard %s failed", t.addr)
+		}
+		pretty, err := json.MarshalIndent(view, "", "    ")
+		if err != nil {
+			log.PanicErrorf(err, "json marshal failed")
+		}
+		fmt.Println(string(pretty))
 
 	case d["--acl-set"] != nil:
 		path := utils.ArgumentMust(d, "--acl-set")

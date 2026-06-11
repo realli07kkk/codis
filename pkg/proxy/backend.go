@@ -434,6 +434,8 @@ func (s *sharedBackendConn) Release() {
 	if s == nil {
 		return
 	}
+	s.owner.mu.Lock()
+	defer s.owner.mu.Unlock()
 	if s.refcnt <= 0 {
 		log.Panicf("shared backend conn has been closed, close too many times")
 	} else {
@@ -502,11 +504,13 @@ func (s *sharedBackendConn) BackendConn(database int32, seed uint, must bool) *B
 }
 
 type sharedBackendConnPool struct {
+	mu       sync.Mutex
 	config   *Config
 	parallel int
 	auth     RedisAuthIdentity
 
-	pool map[string]*sharedBackendConn
+	closed bool
+	pool   map[string]*sharedBackendConn
 }
 
 func newSharedBackendConnPool(config *Config, parallel int, auth RedisAuthIdentity) *sharedBackendConnPool {
@@ -518,6 +522,12 @@ func newSharedBackendConnPool(config *Config, parallel int, auth RedisAuthIdenti
 }
 
 func (p *sharedBackendConnPool) Close() {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.closed {
+		return
+	}
+	p.closed = true
 	for addr, bc := range p.pool {
 		for _, parallel := range bc.conns {
 			for _, conn := range parallel {
@@ -529,16 +539,37 @@ func (p *sharedBackendConnPool) Close() {
 }
 
 func (p *sharedBackendConnPool) KeepAlive() {
+	p.mu.Lock()
+	if p.closed {
+		p.mu.Unlock()
+		return
+	}
+	conns := make([]*sharedBackendConn, 0, len(p.pool))
 	for _, bc := range p.pool {
+		conns = append(conns, bc)
+	}
+	p.mu.Unlock()
+
+	for _, bc := range conns {
 		bc.KeepAlive()
 	}
 }
 
 func (p *sharedBackendConnPool) Get(addr string) *sharedBackendConn {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.closed {
+		return nil
+	}
 	return p.pool[addr]
 }
 
 func (p *sharedBackendConnPool) Retain(addr string) *sharedBackendConn {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.closed {
+		return nil
+	}
 	if bc := p.pool[addr]; bc != nil {
 		return bc.Retain()
 	} else {
@@ -549,6 +580,11 @@ func (p *sharedBackendConnPool) Retain(addr string) *sharedBackendConn {
 }
 
 func (p *sharedBackendConnPool) GetOrCreate(addr string) *sharedBackendConn {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.closed {
+		return nil
+	}
 	if bc := p.pool[addr]; bc != nil {
 		return bc
 	}

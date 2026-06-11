@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"reflect"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/CodisLabs/codis/pkg/models"
@@ -66,6 +67,42 @@ func TestUpdateACLSyncsRedisAndStoresRedactedView(x *testing.T) {
 	assert.Must(acl.Revision == 1)
 	assert.Must(len(acl.Users) == 1)
 	assert.Must(acl.Users[0].PasswordHashes[0] == hash)
+}
+
+func TestUpdateACLSyncsBackendServiceUserWithHash(x *testing.T) {
+	cfg := NewDefaultConfig()
+	cfg.AdminAddr = "127.0.0.1:0"
+	cfg.ProductName = "topom_acl_service_user_test"
+	cfg.ProductAuth = "topom_auth"
+	cfg.BackendAuthUsername = "svc"
+	cfg.BackendAuthPassword = "backend-secret"
+	topom, err := New(newDiskClient(), cfg)
+	assert.MustNoError(err)
+	assert.MustNoError(topom.Start(false))
+	defer topom.Close()
+
+	server := redistest.NewServer(x, func(args []string) *redistest.Resp {
+		return redistest.OK()
+	})
+
+	g := &models.Group{Id: 1, Servers: []*models.GroupServer{{Addr: server.Addr()}}}
+	topom.dirtyGroupCache(g.Id)
+	assert.MustNoError(topom.storeCreateGroup(g))
+
+	_, err = topom.UpdateACL(&ACLUpdateRequest{
+		Enabled: true,
+		Users: []*ACLUserUpdate{{
+			Name:        "app_ro",
+			Enabled:     true,
+			NewPassword: "secret",
+			Rules:       []string{"~app:*", "+@read"},
+		}},
+	})
+	assert.MustNoError(err)
+
+	hash := models.ACLPasswordHash([]byte("backend-secret"))
+	assert.Must(commandExists(server.Commands(), []string{"AUTH", "svc", "backend-secret"}))
+	assert.Must(commandExists(server.Commands(), []string{"ACL", "SETUSER", "svc", "reset", "on", "#" + hash, "+@all", "~*"}))
 }
 
 func TestUpdateACLFailureDoesNotStoreRevision(x *testing.T) {
@@ -156,6 +193,74 @@ func TestUpdateACLProxySyncFailureRecordsAllFailedTokens(x *testing.T) {
 	view, err := topom.GetACL()
 	assert.MustNoError(err)
 	assert.Must(view.SyncStatus == "proxy_sync_failed:a_failed,c_failed")
+}
+
+func TestSyncACLRetriesStoredRevision(x *testing.T) {
+	topom := openACLTopom()
+	defer topom.Close()
+
+	var failedProxyOK atomic.Bool
+	failedProxy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !failedProxyOK.Load() {
+			http.Error(w, "failed", http.StatusInternalServerError)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer failedProxy.Close()
+
+	failedURL, err := url.Parse(failedProxy.URL)
+	assert.MustNoError(err)
+	contextCreateProxy(topom, &models.Proxy{Token: "failed", AdminAddr: failedURL.Host})
+
+	_, err = topom.UpdateACL(&ACLUpdateRequest{
+		Enabled: true,
+		Users: []*ACLUserUpdate{{
+			Name:        "app_ro",
+			Enabled:     true,
+			NewPassword: "secret",
+			Rules:       []string{"~app:*", "+@read"},
+		}},
+	})
+	assert.Must(err != nil)
+
+	view, err := topom.GetACL()
+	assert.MustNoError(err)
+	assert.Must(view.Revision == 1)
+	assert.Must(view.SyncStatus == "proxy_sync_failed:failed")
+
+	failedProxyOK.Store(true)
+	view, err = topom.SyncACL()
+	assert.MustNoError(err)
+	assert.Must(view.Revision == 1)
+	assert.Must(view.SyncStatus == "ready")
+}
+
+func TestGroupAddServerSyncsStoredACL(x *testing.T) {
+	topom := openACLTopom()
+	defer topom.Close()
+
+	assert.MustNoError(topom.CreateGroup(1))
+	_, err := topom.UpdateACL(&ACLUpdateRequest{
+		Enabled: true,
+		Users: []*ACLUserUpdate{{
+			Name:        "app_ro",
+			Enabled:     true,
+			NewPassword: "secret",
+			Rules:       []string{"~app:*", "+@read"},
+		}},
+	})
+	assert.MustNoError(err)
+
+	server := redistest.NewServer(x, func(args []string) *redistest.Resp {
+		return redistest.OK()
+	})
+
+	assert.MustNoError(topom.GroupAddServer(1, "", server.Addr()))
+
+	hash := models.ACLPasswordHash([]byte("secret"))
+	assert.Must(commandExists(server.Commands(), []string{"AUTH", "topom_auth"}))
+	assert.Must(commandExists(server.Commands(), []string{"ACL", "SETUSER", "app_ro", "reset", "on", "#" + hash, "~app:*", "+@read"}))
 }
 
 func commandExists(commands [][]string, want []string) bool {

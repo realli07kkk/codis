@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/CodisLabs/codis/pkg/proxy/redis"
+	"github.com/CodisLabs/codis/pkg/proxy/redis/redistest"
 	"github.com/CodisLabs/codis/pkg/utils/assert"
 )
 
@@ -78,5 +79,45 @@ func TestBackend(t *testing.T) {
 		assert.MustNoError(r.Err)
 		assert.Must(r.Resp != nil)
 		assert.Must(string(r.Resp.Value) == strconv.Itoa(i))
+	}
+}
+
+func TestSharedBackendConnPoolConcurrentGetOrCreateAndClose(t *testing.T) {
+	config := NewDefaultConfig()
+	config.BackendNumberDatabases = 1
+	config.BackendMaxPipeline = 0
+
+	server := redistest.NewServer(t, func(args []string) *redistest.Resp {
+		return redistest.OK()
+	})
+
+	for iter := 0; iter < 64; iter++ {
+		pool := newSharedBackendConnPool(config, 1, RedisAuthIdentity{})
+		start := make(chan struct{})
+		var wg sync.WaitGroup
+
+		for worker := 0; worker < 8; worker++ {
+			wg.Add(1)
+			go func(worker int) {
+				defer wg.Done()
+				<-start
+				for i := 0; i < 32; i++ {
+					if bc := pool.GetOrCreate(server.Addr()); bc != nil {
+						_ = bc.BackendConn(0, uint(worker+i), false)
+					}
+				}
+			}(worker)
+		}
+
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			pool.Close()
+		}()
+
+		close(start)
+		wg.Wait()
+		pool.Close()
 	}
 }

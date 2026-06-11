@@ -15,6 +15,8 @@ import (
 	"github.com/CodisLabs/codis/pkg/utils/redis"
 )
 
+const aclRedisSyncTimeout = time.Second * 5
+
 type ACLView struct {
 	Revision   int64          `json:"revision"`
 	Enabled    bool           `json:"enabled"`
@@ -84,6 +86,36 @@ func (s *Topom) UpdateACL(req *ACLUpdateRequest) (*ACLView, error) {
 		return nil, err
 	}
 	return newACLView(acl, s.aclSyncStatus(acl)), nil
+}
+
+func (s *Topom) SyncACL() (*ACLView, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	ctx, err := s.newContext()
+	if err != nil {
+		return nil, err
+	}
+	if err := s.syncACLToRedis(ctx, ctx.acl); err != nil {
+		return nil, err
+	}
+	failed, err := s.syncACLToProxies(ctx, ctx.acl)
+	s.setACLSyncResult(ctx.acl.Revision, failed)
+	if err != nil {
+		return nil, err
+	}
+	return newACLView(ctx.acl, s.aclSyncStatus(ctx.acl)), nil
+}
+
+func shouldSyncACLRuntime(acl *models.ACL) bool {
+	return acl != nil && (acl.Revision != 0 || acl.Enabled || len(acl.Users) != 0)
+}
+
+func (s *Topom) syncACLToRedisAddr(addr string, acl *models.ACL) error {
+	if !shouldSyncACLRuntime(acl) {
+		return nil
+	}
+	return s.syncACLToRedisServer(addr, acl, nil)
 }
 
 func (s *Topom) buildACL(current *models.ACL, req *ACLUpdateRequest) (*models.ACL, error) {
@@ -247,6 +279,9 @@ func (s *Topom) setACLSyncResult(revision int64, failed []string) {
 }
 
 func (s *Topom) syncACLToRedis(ctx *context, acl *models.ACL) error {
+	if !shouldSyncACLRuntime(acl) {
+		return nil
+	}
 	addrs := aclTargetServerAddrs(ctx)
 	for _, addr := range addrs {
 		if err := s.syncACLToRedisServer(addr, acl, ctx.acl); err != nil {
@@ -277,7 +312,7 @@ func aclTargetServerAddrs(ctx *context) []string {
 }
 
 func (s *Topom) syncACLToRedisServer(addr string, acl *models.ACL, current *models.ACL) error {
-	c, err := redis.NewClientWithAuthIdentity(addr, s.config.BackendAuthIdentity(), s.config.MigrationTimeout.Duration())
+	c, err := redis.NewClientWithAuthIdentity(addr, s.config.BackendAuthIdentity(), aclRedisSyncTimeout)
 	if err != nil {
 		return err
 	}
@@ -312,7 +347,8 @@ func (s *Topom) ensureBackendServiceUser(c *redis.Client) error {
 	if s.config.BackendAuthUsername == "" || s.config.BackendAuthPassword == "" {
 		return nil
 	}
-	_, err := c.Do("ACL", "SETUSER", s.config.BackendAuthUsername, "reset", "on", ">"+s.config.BackendAuthPassword, "+@all", "~*")
+	hash := models.ACLPasswordHash([]byte(s.config.BackendAuthPassword))
+	_, err := c.Do("ACL", "SETUSER", s.config.BackendAuthUsername, "reset", "on", "#"+hash, "+@all", "~*")
 	return err
 }
 
