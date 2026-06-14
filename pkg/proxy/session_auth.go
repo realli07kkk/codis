@@ -19,6 +19,10 @@ type SessionACLIdentity struct {
 	Password       []byte
 	Revision       int64
 	Stale          bool
+	// ForcedDB, when non-nil, makes this session route every command to the
+	// bound DB regardless of subsequent SELECT commands. It is derived from
+	// the authenticated user's DB binding at AUTH time.
+	ForcedDB *int
 }
 
 func (s *Session) handleAuth(r *Request, d *Router) error {
@@ -99,12 +103,30 @@ func (s *Session) handleACLAuth(r *Request, d *Router) error {
 		return nil
 	}
 
+	// DB-bound ACL user: resolve ForcedDB. Out-of-range is fail-closed —
+	// reject AUTH without writing identity (topom only checks db>=0; the
+	// proxy has the actual backend_number_databases and is the final gate).
+	var forcedDB *int
+	if user.DB != nil {
+		db := *user.DB
+		if db < 0 || db >= int(s.config.BackendNumberDatabases) {
+			r.Resp = redis.NewErrorf("ERR acl user %s bound db %d exceeds backend db count %d",
+				username, db, s.config.BackendNumberDatabases)
+			return nil
+		}
+		forcedDB = &db
+	}
+
 	s.setACLIdentity(&SessionACLIdentity{
 		Username:       username,
 		CredentialHash: hash,
 		Password:       append([]byte(nil), password...),
 		Revision:       snapshot.Revision,
+		ForcedDB:       forcedDB,
 	})
+	if forcedDB != nil {
+		s.setDatabase(int32(*forcedDB))
+	}
 	s.setAuthorized(true)
 	s.authBruteforce.RecordAuthSuccess(remoteAddr)
 	r.Resp = RespOK

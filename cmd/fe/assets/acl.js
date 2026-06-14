@@ -35,6 +35,9 @@ function initACLEditor($scope, $http, $timeout) {
                 enabled: !!user.enabled,
                 rules: (user.rules || []).slice(0)
             });
+            if (user.db !== undefined && user.db !== null) {
+                users[i].db = user.db;
+            }
         }
         return users;
     }
@@ -102,6 +105,7 @@ function initACLEditor($scope, $http, $timeout) {
             name: "",
             enabled: true,
             new_password: "",
+            db_text: "",
             rules_text: ""
         };
     };
@@ -114,6 +118,7 @@ function initACLEditor($scope, $http, $timeout) {
             name: user.name,
             enabled: !!user.enabled,
             new_password: "",
+            db_text: (user.db !== undefined && user.db !== null) ? String(user.db) : "",
             rules_text: (user.rules || []).join("\n")
         };
     };
@@ -134,12 +139,24 @@ function initACLEditor($scope, $http, $timeout) {
             $scope.acl_error = "invalid acl user";
             return;
         }
+        var dbText = (edit.db_text || "").trim();
+        var dbValue;
+        if (dbText !== "") {
+            dbValue = Number(dbText);
+            if (!Number.isInteger(dbValue) || dbValue < 0) {
+                $scope.acl_error = "invalid db (must be a non-negative integer or empty)";
+                return;
+            }
+        }
         var users = cloneACLUsers();
         var updated = {
             name: name,
             enabled: !!edit.enabled,
             rules: rules
         };
+        if (dbText !== "") {
+            updated.db = dbValue;
+        }
         if (edit.new_password) {
             updated.new_password = edit.new_password;
         }
@@ -163,18 +180,15 @@ function initACLEditor($scope, $http, $timeout) {
     };
 
     $scope.deleteACLUser = function (user) {
-        var users = [];
-        for (var i = 0; i < ($scope.acl_users || []).length; i++) {
-            if ($scope.acl_users[i].name !== user.name) {
-                users.push({
-                    name: $scope.acl_users[i].name,
-                    enabled: !!$scope.acl_users[i].enabled,
-                    rules: ($scope.acl_users[i].rules || []).slice(0)
-                });
+        var users = cloneACLUsers();
+        var kept = [];
+        for (var i = 0; i < users.length; i++) {
+            if (users[i].name !== user.name) {
+                kept.push(users[i]);
             }
         }
         alertAction("Delete ACL user " + user.name, function () {
-            submitACLUsers(users, null);
+            submitACLUsers(kept, null);
         });
     };
 

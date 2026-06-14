@@ -1,0 +1,99 @@
+feature: 2026-06-14-acl-db-routing
+created: 2026-06-14
+
+steps:
+  - action: "名词层：models.ACLUser 加 DB *int（nil=未绑定），NewACLSnapshot deep copy 带上 DB"
+    exit_signal: "含/不含 db 的 ACL 均能 encode/decode；无 db 字段的旧 JSON 解码后 DB=nil"
+    status: done
+  - action: "proxy 强制：SessionACLIdentity 加 ForcedDB；handleACLAuth 解析绑定 db（越界 fail-closed）；handleSelect 对绑定会话返回 OK 但不改 db"
+    exit_signal: "绑定用户命令落绑定 db、SELECT 回 OK 不改路由；unbound 用户 SELECT/路由行为不变"
+    status: done
+  - action: "控制面：topom ACLUserUpdate/ACLUserView/buildACLUser 支持 db（校验 db≥0、回显、不渲染进 ACL SETUSER）；admin redactACLUpdateRequest 保留 db"
+    exit_signal: "提交带 db 的用户后 GET ACL view 回显 db，且后端收到的 ACL SETUSER 不含任何 db token"
+    status: done
+  - action: "FE：acl.js + index.html 加 per-user db 输入与展示"
+    exit_signal: "FE ACL 面板能配置和查看绑定 db"
+    status: done
+  - action: "验收覆盖：补齐正常、SELECT 忽略、unbound 不变、越界 fail-closed、revision 切换重认证、存量解码场景"
+    exit_signal: "目标 proxy/topom/models package 测试通过"
+    status: done
+
+checks:
+  - item: "models.ACLUser 含可空 DB（*int），nil=未绑定，>=0=绑定；无 db 字段的旧 ACL JSON 解码后 DB=nil"
+    source: 名词契约
+    status: passed
+  - item: "NewACLSnapshot deep copy 把每个用户的 DB 一并复制到 snapshot"
+    source: 名词契约
+    status: passed
+  - item: "SessionACLIdentity 含 ForcedDB *int；绑定用户认证成功后 ForcedDB 非 nil"
+    source: 名词契约
+    status: passed
+  - item: "app1 绑 db=3，客户端 AUTH app1 <pwd> 后 SET/GET 落后端 db 3；service 账号在 db 3 能查到 key、db 0 查不到"
+    source: 验收场景
+    status: passed
+  - item: "AUTH app1 <pwd> 后 SELECT 5 返回 OK，随后 GET 仍读 db 3"
+    source: 验收场景
+    status: passed
+  - item: "default 绑 db=2，客户端 AUTH <pwd>（无用户名）后命令落 db 2"
+    source: 验收场景
+    status: passed
+  - item: "未绑 db 的 app_ro 认证后 db 从 0 开始，SELECT 4 生效、命令落 db 4"
+    source: 验收场景
+    status: passed
+  - item: "app_bad 绑 db=99 但 proxy backend_number_databases=16，AUTH app_bad <pwd> 返回错误、不写会话身份、不落任何命令"
+    source: 验收场景
+    status: passed
+  - item: "coordinator 中无 db 字段的旧 ACL 升级后解码全部 unbound，客户端行为与升级前一致"
+    source: 验收场景
+    status: passed
+  - item: "把 app1 的 db 从 3 改 7 下发新 revision 后，旧会话下一条非 AUTH 命令返回 NOAUTH，重认证后命令落 db 7"
+    source: 验收场景
+    status: passed
+  - item: "提交 app1{db:3} 后 GET ACL view 返回该用户 db=3"
+    source: 验收场景
+    status: passed
+  - item: "FE ACL 面板可为用户填写/展示绑定 db，提交后刷新可见（代码审查通过；浏览器肉眼验证待补，见 acceptance 第 9 节遗留）"
+    source: 验收场景
+    status: passed
+  - item: "slot 迁移进行中，绑定用户执行被允许的命令成功，且迁移/ACL DRYRUN 走的 db 不被 Forced DB 干扰"
+    source: 验收场景
+    status: passed
+  - item: "Forced DB 仅通过认证时 setDatabase + SELECT no-op 实现，SELECT 永远改不动绑定 db"
+    source: 流程级约束
+    status: passed
+  - item: "db 绑定随 models.ACL 经现有 SetACL snapshot 下发，复用现有 revision/stale gate，不新增下发通道"
+    source: 流程级约束
+    status: passed
+  - item: "内部命令（迁移、ACL DRYRUN、ACL SETUSER、stats）用各自构造的 r.Database，不读 session Forced DB"
+    source: 流程级约束
+    status: passed
+  - item: "绑定 db 越界时由 proxy 在认证时 fail-closed，不静默落到 db 0 或截断"
+    source: 流程级约束
+    status: passed
+  - item: "models.ACLUser.DB 字段承载绑定关系"
+    source: 挂载点
+    status: passed
+  - item: "proxy 认证设 ForcedDB + handleSelect no-op + snapshot 带 DB 是强制路由执行点"
+    source: 挂载点
+    status: passed
+  - item: "topom ACLUserUpdate/ACLUserView/buildACLUser db 校验与回显是配置源头"
+    source: 挂载点
+    status: passed
+  - item: "FE acl.js/index.html per-user db 输入 + admin redact 保留 db 是运维操作面"
+    source: 挂载点
+    status: passed
+  - item: "后端 Redis 收到的 ACL SETUSER 不包含任何 db / select-db token"
+    source: 范围守护
+    status: passed
+  - item: "legacy session_auth（codis_acl_enabled=false）下不出现任何 db 绑定行为"
+    source: 范围守护
+    status: passed
+  - item: "绑定用户的 SELECT 不改变实际路由 db，也不返回错误（返回 OK）"
+    source: 范围守护
+    status: passed
+  - item: "越界绑定 db 不静默落到 db 0 或被截断"
+    source: 范围守护
+    status: passed
+  - item: "db 绑定不放大用户权限、不绕过 Redis 侧 ACL key/command 判断"
+    source: 范围守护
+    status: passed

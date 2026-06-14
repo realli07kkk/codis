@@ -36,6 +36,52 @@ func TestACLModelEncodeDecode(t *testing.T) {
 	}
 }
 
+// DB-bound users must round-trip the db pointer, and legacy JSON (no db field)
+// must decode to a nil DB so existing records behave as unbound.
+func TestACLUserDBBindingEncodeDecode(t *testing.T) {
+	db3 := 3
+	bound := &ACLUser{
+		Name:           "app1",
+		Enabled:        true,
+		DB:             &db3,
+		PasswordHashes: []string{"hash1"},
+		Rules:          []string{"+@all", "~*"},
+	}
+	raw := jsonEncode(bound)
+	var decodedBound ACLUser
+	if err := jsonDecode(&decodedBound, raw); err != nil {
+		t.Fatal(err)
+	}
+	if decodedBound.DB == nil || *decodedBound.DB != 3 {
+		t.Fatalf("bound user db not round-tripped: %+v", decodedBound.DB)
+	}
+
+	// Legacy record without a db field — must decode as unbound (DB==nil).
+	legacy := []byte(`{"name":"legacy","enabled":true,"password_hashes":["h"],"rules":["+@read"]}`)
+	var decodedLegacy ACLUser
+	if err := jsonDecode(&decodedLegacy, legacy); err != nil {
+		t.Fatal(err)
+	}
+	if decodedLegacy.DB != nil {
+		t.Fatalf("legacy user must decode with nil db, got %v", *decodedLegacy.DB)
+	}
+
+	// Explicit db=0 must survive round-trip distinct from unbound.
+	db0 := 0
+	zero := &ACLUser{Name: "zero", Enabled: true, DB: &db0, Rules: []string{"+@all"}}
+	zeroRaw := jsonEncode(zero)
+	if string(zeroRaw) == "" {
+		t.Fatal("empty encode")
+	}
+	var decodedZero ACLUser
+	if err := jsonDecode(&decodedZero, zeroRaw); err != nil {
+		t.Fatal(err)
+	}
+	if decodedZero.DB == nil || *decodedZero.DB != 0 {
+		t.Fatalf("db=0 must round-trip as bound-to-0, got %+v", decodedZero.DB)
+	}
+}
+
 func TestStoreACLPathAndUpdate(t *testing.T) {
 	root := filepath.Join(os.TempDir(), "codis-acl-store-test")
 	_ = os.RemoveAll(root)

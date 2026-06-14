@@ -25,8 +25,10 @@ type ACLView struct {
 }
 
 type ACLUserView struct {
-	Name          string   `json:"name"`
-	Enabled       bool     `json:"enabled"`
+	Name    string `json:"name"`
+	Enabled bool   `json:"enabled"`
+	// DB echoes the user's DB binding back to operators. nil = unbound.
+	DB            *int     `json:"db,omitempty"`
 	PasswordCount int      `json:"password_count"`
 	Rules         []string `json:"rules"`
 	LastError     string   `json:"last_error,omitempty"`
@@ -38,8 +40,10 @@ type ACLUpdateRequest struct {
 }
 
 type ACLUserUpdate struct {
-	Name           string   `json:"name"`
-	Enabled        bool     `json:"enabled"`
+	Name    string `json:"name"`
+	Enabled bool   `json:"enabled"`
+	// DB, when non-nil, binds the user to a fixed backend DB. nil = unbound.
+	DB             *int     `json:"db,omitempty"`
 	NewPassword    string   `json:"new_password,omitempty"`
 	PasswordHashes []string `json:"password_hashes,omitempty"`
 	Rules          []string `json:"rules"`
@@ -196,9 +200,20 @@ func (s *Topom) buildACLUser(current map[string]*models.ACLUser, input *ACLUserU
 	if len(hashes) == 0 && !hasACLRule(rules, "nopass") {
 		return nil, errors.Errorf("acl user %s: missing password hash", name)
 	}
+	// DB binding: topom can only validate db>=0; the proxy enforces the
+	// upper bound against backend_number_databases at AUTH time.
+	var dbBinding *int
+	if input.DB != nil {
+		db := *input.DB
+		if db < 0 {
+			return nil, errors.Errorf("acl user %s: invalid db %d", name, db)
+		}
+		dbBinding = &db
+	}
 	return &models.ACLUser{
 		Name:           name,
 		Enabled:        input.Enabled,
+		DB:             dbBinding,
 		PasswordHashes: hashes,
 		Rules:          rules,
 	}, nil
@@ -253,12 +268,17 @@ func newACLView(acl *models.ACL, status string) *ACLView {
 		if user == nil {
 			continue
 		}
-		view.Users = append(view.Users, &ACLUserView{
+		uv := &ACLUserView{
 			Name:          user.Name,
 			Enabled:       user.Enabled,
 			PasswordCount: len(user.PasswordHashes),
 			Rules:         append([]string(nil), user.Rules...),
-		})
+		}
+		if user.DB != nil {
+			db := *user.DB
+			uv.DB = &db
+		}
+		view.Users = append(view.Users, uv)
 	}
 	return view
 }

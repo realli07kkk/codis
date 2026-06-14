@@ -323,6 +323,13 @@ func (s *Session) handleRequest(r *Request, d *Router) error {
 
 	switch opstr {
 	case "SELECT":
+		// DB-bound session: SELECT must return OK but never change the
+		// routing db. ForcedDB is only set on ACL identities, so legacy
+		// auth sessions are unaffected (their ACLIdentity is nil).
+		if r.ACLIdentity != nil && r.ACLIdentity.ForcedDB != nil {
+			r.Resp = RespOK
+			return nil
+		}
 		if err := d.aclDryRunLocal(r); err != nil || r.Resp != nil {
 			return err
 		}

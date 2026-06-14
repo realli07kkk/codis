@@ -16,8 +16,13 @@ type ACL struct {
 }
 
 type ACLUser struct {
-	Name           string   `json:"name"`
-	Enabled        bool     `json:"enabled"`
+	Name    string `json:"name"`
+	Enabled bool   `json:"enabled"`
+	// DB expresses a DB-bound ACL user. nil = unbound (legacy/default), a
+	// non-negative value = clients authenticating as this user are forced to
+	// this DB. It is a proxy-only routing attribute and is never rendered
+	// into a Redis ACL SETUSER.
+	DB             *int     `json:"db,omitempty"`
 	PasswordHashes []string `json:"password_hashes"`
 	Rules          []string `json:"rules"`
 }

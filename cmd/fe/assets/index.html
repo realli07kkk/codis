@@ -184,6 +184,17 @@
                         </td>
                     </tr>
                     <tr>
+                        <td style="width: 140px;"><b>Bound DB</b></td>
+                        <td colspan="5">
+                            <input style="height: 28px; width: 120px;" type="text" class="form-control"
+                                   placeholder="empty = unbound"
+                                   ng-model="acl_edit.db_text">
+                            <span class="help-block" style="margin: 0; display: inline; color: #888;">
+                                non-negative integer; empty = no db binding
+                            </span>
+                        </td>
+                    </tr>
+                    <tr>
                         <td><b>Rules</b></td>
                         <td colspan="5">
                             <textarea class="form-control" style="width: 100%; height: 78px;"
@@ -211,6 +222,7 @@
                     <tr>
                         <th style="min-width: 160px;">User</th>
                         <th style="width: 80px;">Enabled</th>
+                        <th style="width: 100px;">Bound DB</th>
                         <th style="width: 120px;">Passwords</th>
                         <th>Rules</th>
                         <th style="width: 90px;"></th>
@@ -220,6 +232,7 @@
                     <tr ng-repeat="user in acl_users">
                         <td>[[user.name]]</td>
                         <td>[[user.enabled]]</td>
+                        <td>[[user.db === undefined || user.db === null ? '-' : user.db]]</td>
                         <td>[[user.password_count]]</td>
                         <td>[[user.rules.join(' ')]]</td>
                         <td class="button_tight_column" style="text-align: center">

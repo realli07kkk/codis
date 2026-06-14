@@ -368,6 +368,10 @@ func redactACLUpdateRequest(req *topom.ACLUpdateRequest) *topom.ACLUpdateRequest
 			PasswordHashes: append([]string(nil), user.PasswordHashes...),
 			Rules:          append([]string(nil), user.Rules...),
 		}
+		if user.DB != nil {
+			db := *user.DB
+			dup.DB = &db
+		}
 		if user.NewPassword != "" {
 			dup.NewPassword = "<redacted>"
 		}

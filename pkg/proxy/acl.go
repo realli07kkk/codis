@@ -31,6 +31,10 @@ func NewACLSnapshot(acl *models.ACL) *ACLSnapshot {
 			PasswordHashes: append([]string(nil), user.PasswordHashes...),
 			Rules:          append([]string(nil), user.Rules...),
 		}
+		if user.DB != nil {
+			db := *user.DB
+			dup.DB = &db
+		}
 		s.Users[dup.Name] = dup
 	}
 	return s

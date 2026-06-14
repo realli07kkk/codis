@@ -263,6 +263,121 @@ func TestGroupAddServerSyncsStoredACL(x *testing.T) {
 	assert.Must(commandExists(server.Commands(), []string{"ACL", "SETUSER", "app_ro", "reset", "on", "#" + hash, "~app:*", "+@read"}))
 }
 
+// TestUpdateACLEchoesDBAndKeepsRedisACLEndpointClean: submitting a user with a
+// bound db must (a) echo db back in the GET view, (b) persist it in the store,
+// and (c) NOT render any db/select token into the Redis ACL SETUSER command.
+func TestUpdateACLEchoesDBAndKeepsRedisACLEndpointClean(x *testing.T) {
+	t := openACLTopom()
+	defer t.Close()
+
+	server := redistest.NewServer(x, func(args []string) *redistest.Resp {
+		return redistest.OK()
+	})
+
+	g := &models.Group{Id: 1, Servers: []*models.GroupServer{{Addr: server.Addr()}}}
+	t.dirtyGroupCache(g.Id)
+	assert.MustNoError(t.storeCreateGroup(g))
+
+	db3 := 3
+	view, err := t.UpdateACL(&ACLUpdateRequest{
+		Enabled: true,
+		Users: []*ACLUserUpdate{{
+			Name:        "app1",
+			Enabled:     true,
+			NewPassword: "secret",
+			DB:          &db3,
+			Rules:       []string{"~app:*", "+@read"},
+		}},
+	})
+	assert.MustNoError(err)
+	assert.Must(len(view.Users) == 1)
+	assert.Must(view.Users[0].DB != nil && *view.Users[0].DB == 3)
+
+	// Store must persist db so proxy sync sees it.
+	acl, err := t.store.LoadACL(true)
+	assert.MustNoError(err)
+	assert.Must(len(acl.Users) == 1)
+	assert.Must(acl.Users[0].DB != nil && *acl.Users[0].DB == 3)
+
+	// Redis backend ACL SETUSER must NOT contain any db token (db is a
+	// proxy-only routing attribute).
+	hash := models.ACLPasswordHash([]byte("secret"))
+	setuser := []string{"ACL", "SETUSER", "app1", "reset", "on", "#" + hash, "~app:*", "+@read"}
+	assert.Must(commandExists(server.Commands(), setuser))
+	for _, cmd := range server.Commands() {
+		if len(cmd) >= 4 && strings.EqualFold(cmd[0], "ACL") && strings.EqualFold(cmd[1], "SETUSER") {
+			for _, tok := range cmd[3:] {
+				lower := strings.ToLower(tok)
+				if lower == "db" || strings.HasPrefix(lower, "select") {
+					x.Fatalf("ACL SETUSER must not contain db token, got %v", cmd)
+				}
+			}
+		}
+	}
+}
+
+// TestUpdateACLRejectsNegativeDB: topom validates db>=0 before persisting.
+func TestUpdateACLRejectsNegativeDB(x *testing.T) {
+	t := openACLTopom()
+	defer t.Close()
+
+	dbBad := -1
+	_, err := t.UpdateACL(&ACLUpdateRequest{
+		Enabled: true,
+		Users: []*ACLUserUpdate{{
+			Name:        "app1",
+			Enabled:     true,
+			NewPassword: "secret",
+			DB:          &dbBad,
+			Rules:       []string{"~app:*", "+@read"},
+		}},
+	})
+	assert.Must(err != nil)
+	assert.Must(strings.Contains(err.Error(), "invalid db"))
+}
+
+// TestUpdateACLEditDBToUnbound: a user previously bound to a db must become
+// unbound when the follow-up request omits the db field (request db==nil).
+func TestUpdateACLEditDBToUnbound(x *testing.T) {
+	t := openACLTopom()
+	defer t.Close()
+
+	server := redistest.NewServer(x, func(args []string) *redistest.Resp {
+		return redistest.OK()
+	})
+
+	g := &models.Group{Id: 1, Servers: []*models.GroupServer{{Addr: server.Addr()}}}
+	t.dirtyGroupCache(g.Id)
+	assert.MustNoError(t.storeCreateGroup(g))
+
+	db3 := 3
+	_, err := t.UpdateACL(&ACLUpdateRequest{
+		Enabled: true,
+		Users: []*ACLUserUpdate{{
+			Name:           "app1",
+			Enabled:        true,
+			PasswordHashes: []string{models.ACLPasswordHash([]byte("secret"))},
+			DB:             &db3,
+			Rules:          []string{"~app:*", "+@read"},
+		}},
+	})
+	assert.MustNoError(err)
+
+	// Follow-up without DB field → unbound (DB == nil).
+	view, err := t.UpdateACL(&ACLUpdateRequest{
+		Enabled: true,
+		Users: []*ACLUserUpdate{{
+			Name:           "app1",
+			Enabled:        true,
+			PasswordHashes: []string{models.ACLPasswordHash([]byte("secret"))},
+			Rules:          []string{"~app:*", "+@read"},
+		}},
+	})
+	assert.MustNoError(err)
+	assert.Must(len(view.Users) == 1)
+	assert.Must(view.Users[0].DB == nil)
+}
+
 func commandExists(commands [][]string, want []string) bool {
 	for _, cmd := range commands {
 		if len(cmd) != len(want) {
