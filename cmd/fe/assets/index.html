@@ -137,6 +137,82 @@
             <div class="col-md-12"
                  style="margin-bottom: 10px; padding-bottom: 10px; border-bottom: solid 1px lightgray;">
                 <form class="form-inline">
+                    <h4 style="padding-left:30px; padding-right:20px; display: inline;">PITR (Point-In-Time Recovery)</h4>
+                </form>
+            </div>
+            <div class="col-md-12" style="padding-bottom: 10px;" ng-if="codis_addr != 'NA'">
+                <form class="form-inline">
+                    <label style="font-weight: normal; padding-right: 10px;">Server</label>
+                    <input style="height: 28px; width: 200px;" type="text" class="form-control"
+                           placeholder="host:port (master in current product)"
+                           ng-model="pitr_create.server_addr"
+                           ng-disabled="pitr_creating">
+                    <label style="font-weight: normal; padding-left: 15px; padding-right: 10px;">Truncate Ts (unix seconds)</label>
+                    <input style="height: 28px; width: 180px;" type="text" class="form-control"
+                           placeholder="1716000000"
+                           ng-model="pitr_create.truncate_ts"
+                           ng-disabled="pitr_creating">
+                    <button class="btn btn-danger btn-sm active" style="width: 120px; font-size: 14px; padding: 2px;"
+                            ng-click="submitPitrCreate()"
+                            ng-disabled="pitr_creating">
+                        Create
+                    </button>
+                    <button class="btn btn-default btn-sm active" style="width: 120px; font-size: 14px; padding: 2px;"
+                            ng-click="loadPitrJobs()"
+                            ng-disabled="pitr_creating">
+                        Refresh
+                    </button>
+                </form>
+            </div>
+            <div class="col-md-12" style="padding-bottom: 10px;" ng-if="pitr_jobs && pitr_jobs.length">
+                <table class="table table-condensed table-bordered" style="margin-bottom: 0;">
+                    <thead>
+                    <tr>
+                        <th style="width: 25%;">Job ID</th>
+                        <th style="width: 18%;">Server</th>
+                        <th style="width: 12%;">Truncate Ts</th>
+                        <th style="width: 12%;">State</th>
+                        <th>Last Step / Error</th>
+                        <th style="width: 16%;">Actions</th>
+                    </tr>
+                    </thead>
+                    <tbody>
+                    <tr ng-repeat="job in pitr_jobs">
+                        <td><small>[[job.id]]</small></td>
+                        <td>[[job.server_addr]]</td>
+                        <td>[[job.truncate_ts]]</td>
+                        <td>[[job.state]]</td>
+                        <td>
+                            <span ng-if="job.steps && job.steps.length">
+                                [[job.steps[job.steps.length-1].name]]: [[job.steps[job.steps.length-1].status]]
+                            </span>
+                            <span ng-if="job.error" style="color: #a94442;">
+                                <br><small>[[job.error]]</small>
+                            </span>
+                        </td>
+                        <td>
+                            <button class="btn btn-default btn-xs" ng-click="cancelPitrJob(job.id)"
+                                    ng-if="job.state != 'succeeded' && job.state != 'failed' && job.state != 'cancelled'">
+                                Cancel
+                            </button>
+                            <button class="btn btn-default btn-xs" ng-click="removePitrJob(job.id)"
+                                    ng-if="job.state == 'succeeded' || job.state == 'failed' || job.state == 'cancelled'">
+                                Remove
+                            </button>
+                        </td>
+                    </tr>
+                    </tbody>
+                </table>
+            </div>
+            <div class="col-md-12" ng-if="pitr_error">
+                <div class="alert alert-danger" style="padding: 6px 12px; margin-bottom: 10px;">[[pitr_error]]</div>
+            </div>
+        </div>
+
+        <div class="row" style="min-width: 1200px">
+            <div class="col-md-12"
+                 style="margin-bottom: 10px; padding-bottom: 10px; border-bottom: solid 1px lightgray;">
+                <form class="form-inline">
                     <h4 style="padding-left:30px; padding-right:20px; display: inline;">ACL</h4>
                     <span ng-if="acl_model" style="padding-left: 15px;">
                         Revision [[acl_model.revision]] / [[acl_model.sync_status]]
@@ -1113,5 +1189,6 @@
 <script src="dashboard-fe.js"></script>
 <script src="acl.js"></script>
 <script src="qps-limit.js"></script>
+<script src="pitr.js"></script>
 </body>
 </html>

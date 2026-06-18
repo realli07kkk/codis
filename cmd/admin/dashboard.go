@@ -95,6 +95,17 @@ func (t *cmdDashboard) Main(d map[string]interface{}) {
 	case d["--rdb-analysis-remote-fetch"].(bool):
 		t.handleRDBAnalysisRemoteFetch(d)
 
+	case d["--pitr-create"].(bool):
+		fallthrough
+	case d["--pitr-list"].(bool):
+		fallthrough
+	case d["--pitr-get"].(bool):
+		fallthrough
+	case d["--pitr-cancel"].(bool):
+		fallthrough
+	case d["--pitr-remove"].(bool):
+		t.handlePitrCommand(d)
+
 	}
 }
 

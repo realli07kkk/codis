@@ -24,10 +24,12 @@
 
 - 项目测试使用 Go 内置 `testing`。常规入口是 `make gotest`，它会跑 `go test ./cmd/... ./pkg/...`。
 - 代理或拓扑相关改动先跑目标包测试，例如 `go test ./pkg/proxy -run TestName`，再视风险跑更大范围。
+- darwin 开发机上 `/bin/true` `/bin/false` 路径不固定（常在 `/usr/bin/`），写涉及外部 binary 的 `os/exec` 测试不要硬编码 `/bin/xxx`，用 `exec.LookPath` 或多路径 fallback helper。
 
 ### 命令与脚本陷阱
 
 - `make codis-proxy` 和 `make codis-dashboard` 会刷新对应默认配置文件。
+- 重生成 `config/dashboard.toml` 用 `go run ./cmd/dashboard --default-config`（直接 print `DefaultConfig` 常量含注释），不要用 `Config.String()`（后者丢注释压成裸 key 列表）。
 - `make clean` 会删除 `bin/`、`scripts/tmp` 和测试临时文件；`make distclean` 还会清理嵌入式 Redis 与 jemalloc 构建输出。
 - 当前环境没有 `python` 命令；运行 `.codestable/tools/*.py` 时使用 `python3`。
 - 不要用全量 `go mod tidy` 收口本仓库；它会扫描 etcd 依赖测试链路，更新 `go.mod` 时优先用验收命令驱动最小机械变化。

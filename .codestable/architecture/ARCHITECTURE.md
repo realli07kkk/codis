@@ -4,8 +4,8 @@ slug: system-overview
 scope: Codis 仓库当前整体架构
 summary: Codis 通过 proxy 层隐藏 Redis 分片细节，由 dashboard/topom 维护拓扑、迁移和高可用状态，并用 models 抽象的 coordinator 存储集群元数据。
 status: current
-last_reviewed: 2026-06-04
-tags: [redis, proxy, topology, consul, stream, rdb, acl, rate-limit]
+last_reviewed: 2026-06-18
+tags: [redis, proxy, topology, consul, stream, rdb, acl, rate-limit, pitr, flashback]
 depends_on: []
 implements: [redis-cluster-service, platform-release-artifacts]
 ---
@@ -29,6 +29,7 @@ implements: [redis-cluster-service, platform-release-artifacts]
 - **RDB Analysis**：dashboard/topom 进程内的离线 RDB 文件分析能力。它通过 `github.com/hdt3213/rdb` 解析已有 RDB 文件，输出 DB/type/prefix 聚合、big keys、hot keys 和 flamegraph 树形数据；输入可以来自浏览器上传、dashboard 受控 workspace 路径，或 dashboard 从当前 product 内 Redis 8 Codis Server 的 RDB HTTP export 拉取后的临时文件。它不在 proxy 业务请求路径中执行，也不是 Redis 在线命令。核心类型在 `pkg/topom/topom_rdb_analysis.go:36` 到 `pkg/topom/topom_rdb_analysis.go:95`。
 - **RDB HTTP export**：Redis 8 Codis Server 上默认关闭的本机 RDB 导出入口。它复用 Redis 监听端口，只接受精确 `GET /codis/rdb/latest` 和 `X-Codis-RDB-Auth` header，传输当前 `server.rdb_filename` 指向且已经存在的本地 RDB 文件；它不调用 `SAVE` / `BGSAVE`，也不主动上传到 dashboard。`codis-rdb-export-rate-limit` 可对所有 export 连接共享的 body bytes/sec 做 server 级限速，默认 0 不限速；限速只暂停 export 自身 writable handler，不进入普通 Redis 命令执行或 reply 写出路径。实现锚点在 `extern/redis-8.6.3/src/codis_rdb_export.c`、`extern/redis-8.6.3/src/networking.c` 和 `extern/redis-8.6.3/src/iothread.c`。
 - **Remote RDB fetch analysis**：dashboard/topom 对 RDB HTTP export 的受控拉取入口。dashboard API 只接受当前 product model 中精确匹配的 `server_addr`，用 dashboard 本地持久化的 `rdb_analysis_remote_fetch_auth` 生成 `X-Codis-RDB-Auth` header，下载完整 RDB 到受控临时文件后才创建 RDB Analysis job；它不是任意 URL 拉取器，不支持 tus/resume/Range，也不触发 `SAVE` / `BGSAVE`。
+- **PITR / 数据闪回**：默认关闭的 dashboard 进程内单 Redis 8 Codis Server AOF point-in-time 截断恢复编排能力。复用 Redis 8 原生 `aof-timestamp-enabled`（AOF `#TS:` 注释）和 `redis-check-aof --truncate-to-timestamp`，**不修改 Redis C 源码**；dashboard 编排"validate → prereq → feasibility(server UP) → SHUTDOWN NOSAVE → snapshot(manifest + 最后 segment) → truncate + 双向 stat-diff 漂移检测 → restart(可选 kick + 始终轮询 INFO) → wait-load → resync replicas"状态机，job 进程内、不进 coordinator/proxy。FE/admin/REST 三入口经 `PUT /api/topom/pitr/create/:xauth` 创建 job（uuid v7 id，response wire 字段 `job_id`）。核心安全设计：SHUTDOWN 后用新连接探活确认 server 真停才继续（CR-001）；per-server lock 持续到 operator 显式 Remove（PITR 不幂等）；truncate 前快照最后 segment 把 `ftruncate` 变可逆 + 双向 stat-diff 兜底模型漂移；不 fork redis-server（靠外部进程管理器拉起 + 轮询）；truncate 失败不自动重启（down+告警优于 up+悄悄错）。
 - **Go module manifest**：仓库根目录的 `go.mod` / `go.sum`，用于现代 Go module mode 下解析 cmd/pkg 默认构建标签依赖；当前使用 `go 1.26.1`，默认 cmd/pkg、`cgo_jemalloc` proxy 构建和 Makefile 测试入口都已接通。
 - **Go Redis helper**：`pkg/utils/redis` 暴露给 topom、admin、HA 和部分测试工具的 Redis 管理适配层。它对上层保留 `Client` / `Pool` / `InfoCache` / `Sentinel` API，底层使用 `github.com/redis/go-redis/v9` standalone client + dedicated `Conn`，继续维护 Codis 自己的 DB selection、pipeline send/recv 计数、reply shape 校验和 Sentinel 管理语义；它不是 `pkg/proxy/redis` RESP codec。
 
@@ -146,6 +147,9 @@ Proxy QPS limit 开启、下发过非零 revision，或出现 rejected 计数后
 - `cmd/fe/assets/rdb-analysis.js` / `cmd/fe/assets/index.html` — FE RDB Analysis 区域、upload/workspace/Remote 任务创建、轮询、取消、错误展示、结果表格和 flamegraph 树形表格。
 - `cmd/admin/main.go` / `cmd/admin/dashboard.go` / `cmd/admin/rdb_analysis_remote_fetch.go` — admin CLI 参数分发、ACL 读取/提交/dry-run redaction 和 RDB Analysis remote fetch 命令入口。
 - `cmd/ha/main.go` — HA 巡检和自动维护循环。
+- `pkg/topom/topom_pitr.go` / `pkg/topom/topom_pitr_run.go` / `pkg/topom/topom_pitr_api.go` / `pkg/topom/topom_pitr_disk.go` — dashboard 进程内 PITR job manager、9 步状态机（validate/prereq/feasibility/shutdown/snapshot/truncate/restart/wait-load/resync）、REST handler + ApiClient 客户端方法、bin preflight + free disk 辅助。
+- `cmd/admin/pitr.go` / `cmd/admin/dashboard_pitr_test.go` — `codis-admin --pitr-*` flag 分发 + 真实 docopt 解析测试。
+- `cmd/fe/assets/pitr.js` / `cmd/fe/assets/index.html` — FE PITR 区域（create/list/cancel/remove + 非终态 job 轮询）。
 - `Makefile` — 二进制、嵌入式 Redis、默认配置、显式平台矩阵产物和 no-redis 平台产物的构建入口。
 - `config/redis.conf` / `config/sentinel.conf` — Redis 8 Codis Server tracked 默认配置模板；`redis.conf` 显式包含 `codis-enabled yes`，Sentinel 模板保留 Redis 8 默认并补充 Codis packaging 暴露面说明。
 - `Dockerfile` / `scripts/docker.sh` / `example/server.py` / `kubernetes/codis-server.yaml` — 默认 Redis 8 Codis Server 的发布包装和本地示例入口。
@@ -176,6 +180,7 @@ Proxy QPS limit 开启、下发过非零 revision，或出现 rejected 计数后
 - Redis 8 异步迁移同样遵守“所有 ACK 成功后才删除源端 key”：connect/write/read、AUTH、SELECT、restore async ACK、timeout、cancel 或 client close 任一失败都会保留源端数据；同一 DB 同时只允许一个 async migration，`SLOTSMGRT-ASYNC-STATUS` / `FENCE` / `CANCEL` 都按当前 DB 隔离。
 - Codis-managed Redis ACL 默认关闭，旧 `session_auth` 和 password-only backend auth 行为保持兼容。启用后，ACL source of truth 是 dashboard/topom 提交到 coordinator 的 `/codis3/{product}/acl` revision，并同步到 Redis Server 和 proxy snapshot；普通客户端不能通过 proxy 执行 ACL 管理命令，FE 只能调用 dashboard/topom ACL API，不能直调 proxy admin ACL API 或 Redis Server ACL。ACL 当前只管理 Redis 8 OSS ACL 用户、命令和 key pattern，不实现 RESP3/HELLO parity、Redis Cluster ACL、Pub/Sub channel ACL、Redis Stack/module key-spec 语义或跨 dashboard 的分布式原子 rollout。若 proxy fan-out 部分失败，dashboard/topom 会在 ACL view 的 `sync_status` 暴露 partial failure，并允许幂等重试收敛。ACL 用户的可选 db 绑定是 proxy 路由属性，不渲染进 Redis `ACL SETUSER`、不放大权限；topom 只校验 db≥0，上限由 proxy 在认证时按 `backend_number_databases` fail-closed 兜底；该能力仅在 `codis_acl_enabled` 下生效，legacy `session_auth` 路径无 db 绑定。
 - Proxy QPS limit 默认关闭，0 表示不限制，正数表示单个 proxy 进程内所有 session 共享的普通请求 QPS 上限；它不是跨 proxy 分布式限流，不实现 per-client、per-IP、per-user、per-command、per-DB、per-slot、per-key 或 per-backend group 限流，也不把每秒 token 状态写入 coordinator。业务客户端的 Redis protocol `CONFIG` 命令族仍按既有 proxy 命令边界不开放；QPS limit 只通过 dashboard/topom 和 proxy admin API 管理，dashboard 中的 coordinator revision 是目标配置 source of truth。被 QPS limit 拒绝的请求返回 Redis error 文本，但不代表后端 Redis 错误。
+- PITR / 数据闪回 默认关闭，只做单 Redis 8 Codis Server 级 AOF point-in-time 截断恢复；它不做跨 group 全局一致性恢复、不做指定 key 子集恢复，不修改 Redis C 源码（复用原生 `aof-timestamp-enabled` + `redis-check-aof --truncate-to-timestamp`），不自动开 AOF / aof-timestamp-enabled（运维在 Redis 配置层预先开启，dashboard 只校验），不做 AOF 保留策略 / 轮转 / 备份管理，不实现跨机 AOF 文件操作（scp/rsync/NFS），不编排 proxy 只读切换（恢复期间该 group slot 写入失败但不自动切 slot），不在业务 Redis 协议路径暴露 PITR 命令，不把 job 写入 coordinator。依赖运维已开 AOF + 文件系统直访目标 server AOF 目录 + 外部进程管理器拉起 redis（dashboard 绝不 fork redis-server）。PITR 不幂等：per-server lock 持续到 operator 显式 Remove 才释放；SHUTDOWN 后必须 fresh probe 确认 server 已停才继续；truncate 前快照 manifest + 最后 segment 使 `ftruncate` 可逆，并用 pre/post 双向 stat-diff 检测模型漂移；truncate 失败不自动重启。
 - `go.mod` 使用当前本地工具链版本 `go 1.26.1`；Go modules 构建迁移全部完成，编译契约和注意事项已落档入 `CLAUDE.md` 和 `.codestable/attention.md`。
 - Go Redis helper 的第三方 client 固定走 `github.com/redis/go-redis/v9` module path；默认兼容选项必须保持 RESP2、禁用 identity、禁用 command retry，并通过 dedicated connection 维护 Codis 的单连接 DB 和 pipeline 计数语义。测试 fake Redis 需要对 go-redis `HELLO` 返回 Redis error 以触发 RESP2 fallback；不要把该 handshake 当作业务命令断言。
 - 对同一个业务集群，现有文档要求同一时刻最多一个 dashboard，且所有集群修改都经由 dashboard 完成，见 `doc/tutorial_zh.md:43` 到 `doc/tutorial_zh.md:46`。
@@ -201,6 +206,7 @@ Proxy QPS limit 开启、下发过非零 revision，或出现 rejected 计数后
 - `.codestable/features/2026-06-04-codis-acl/codis-acl-design.md` / `.codestable/features/2026-06-04-codis-acl/codis-acl-acceptance.md` — Codis-managed Redis 8 ACL、多账号 proxy AUTH、user-bound backend、service identity 和 ACL 管理面的设计与验收记录。
 - `.codestable/features/2026-06-14-acl-db-routing/acl-db-routing-design.md` / `.codestable/features/2026-06-14-acl-db-routing/acl-db-routing-acceptance.md` — ACL 用户按 db 绑定、Forced DB 强制路由（优先级高于 SELECT）、越界 fail-closed 的设计与验收记录。
 - `.codestable/features/2026-06-04-proxy-qps-rate-limit/proxy-qps-rate-limit-design.md` / `.codestable/features/2026-06-04-proxy-qps-rate-limit/proxy-qps-rate-limit-acceptance.md` — Codis Proxy 进程级 QPS limit、dashboard/topom 管理面、proxy admin API 下发和 FE 配置入口的设计与验收记录。
+- `.codestable/features/2026-06-18-pitr-server-flashback/pitr-server-flashback-design.md` / `.codestable/features/2026-06-18-pitr-server-flashback/pitr-server-flashback-acceptance.md` — dashboard 进程内单 Redis 8 Codis Server AOF point-in-time 截断恢复（PITR/数据闪回）的设计与验收记录。
 - `.codestable/features/2026-05-19-rdb-remote-transfer-analysis/rdb-remote-transfer-analysis-design.md` / `.codestable/features/2026-05-19-rdb-remote-transfer-analysis/rdb-remote-transfer-analysis-acceptance.md` — dashboard Remote RDB fetch analysis 的设计与验收记录。
 - `.codestable/features/2026-05-18-consul-coordinator-sdk-upgrade/consul-coordinator-sdk-upgrade-design.md` / `.codestable/features/2026-05-18-consul-coordinator-sdk-upgrade/consul-coordinator-sdk-upgrade-acceptance.md` — Consul coordinator/Jodis 后端设计与验收记录。
 - `.codestable/features/2026-05-17-redis8-validation-cutover/redis8-validation-cutover-acceptance.md` — Redis 8 本地 validation-cutover 验收报告。

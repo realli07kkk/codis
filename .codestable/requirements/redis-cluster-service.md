@@ -3,7 +3,7 @@ doc_type: requirement
 slug: redis-cluster-service
 pitch: 让业务像使用单机 Redis 一样使用可扩缩容的 Redis 集群
 status: current
-last_reviewed: 2026-06-04
+last_reviewed: 2026-06-18
 implemented_by: [system-overview]
 tags: [redis, cluster, operations, acl, security, rate-limit]
 ---
@@ -59,6 +59,7 @@ dashboard 可以作为当前 product 内 Redis 8 RDB HTTP export 的受控调用
 - 2026-06-04：Codis 新增默认关闭的 Redis 8 ACL 统一管理和 proxy 多账号认证能力。dashboard/topom、codis-admin 和 FE 可读取/提交 ACL revision；topom 先同步 Redis Server `ACL SETUSER`，再写 coordinator `/codis3/{product}/acl`，并把 snapshot 下发给 proxy。proxy 启用 `codis_acl_enabled` 后支持客户端 `AUTH [username] password`、`ACL WHOAMI`、user-bound backend connection、service identity + ACL DRYRUN、本地 hot key cache ACL gate 和 revision stale 重新认证；backend named auth 同时覆盖复制 `masteruser/masterauth` 与 Redis 8 同步/异步 migration auth。该进展保持默认关闭和旧 password-only 行为兼容，不允许普通客户端经 proxy 管理 ACL。
 - 2026-06-04：Codis Proxy 新增默认关闭的进程级 QPS limit。平台维护者可在 dashboard/FE 读取和提交当前 product 的 `proxy_qps_limit`，topom 将 revision/limit 写入 coordinator `/codis3/{product}/proxy_qps_limit` 并下发到 online proxy，proxy reinit 时重放当前目标配置。普通请求超过本 proxy token bucket 时返回 `ERR proxy qps limit exceeded`，不访问后端 Redis；`AUTH` 和 `QUIT` 不被 QPS limit 阻断。该进展保持默认 0 不限制，不开放 Redis protocol `CONFIG SET proxy_qps_limit`，不实现跨 proxy 分布式限流。
 - 2026-06-14：Codis-managed ACL 用户新增可选 db 绑定。平台维护者可在 dashboard/FE/codis-admin 给 ACL 用户配置一个固定 db（`models.ACLUser.DB`）；客户端用该用户认证后，proxy 用 Forced DB 把该 session 的所有命令强制路由到绑定 db，优先级高于客户端 `SELECT`（`SELECT` 返回 OK 但不改路由）。未绑定用户行为不变。db 绑定是 proxy 路由属性，不渲染进 Redis `ACL SETUSER`、不放大权限；topom 只校验 db≥0，越界由 proxy 在认证时按 `backend_number_databases` fail-closed。该进展仅在 `codis_acl_enabled` 下生效，legacy `session_auth` 路径无 db 绑定，存量无 db 字段的 ACL 解码为未绑定。
+- 2026-06-18：dashboard 新增默认关闭的 PITR（point-in-time recovery）/ 数据闪回能力。值班人员可在 dashboard/FE 或 `codis-admin --pitr-create` 指定当前 product 内一台 Redis 8 Codis Server 和一个秒级时间点，由 dashboard 编排该 server 的 keyspace 恢复到该时间点。复用 Redis 8 原生 `aof-timestamp-enabled` 和 `redis-check-aof --truncate-to-timestamp`，不修改 Redis C 源码；编排状态机为 validate → prereq → feasibility → SHUTDOWN NOSAVE → snapshot → truncate → restart → wait-load → resync replicas，job 只在 dashboard 进程内存，不进 coordinator。核心安全设计：SHUTDOWN 后用新连接探活确认 server 真停才继续；truncate 前快照 manifest + 最后 segment 文件使 ftruncate 可逆，并用 pre/post 双向 stat-diff 检测模型漂移；PITR 不幂等，per-server lock 持续到 operator 显式 Remove 才释放；dashboard 绝不 fork redis-server，靠外部进程管理器拉起 + 轮询 INFO；truncate 失败不自动重启。该进展保持默认关闭，不碰业务 Redis 协议路径、proxy、coordinator 和 Redis C 源码。
 
 ## 边界
 
@@ -78,3 +79,4 @@ dashboard 可以作为当前 product 内 Redis 8 RDB HTTP export 的受控调用
 - RDB HTTP export 只导出 Redis 8 Codis Server 本机当前 `dbfilename` 对应的已有 RDB；它不是 RDB Analysis，不分析 key，不主动上传到 dashboard，不支持客户端指定路径、Range、压缩、加密或独立 HTTP 端口，也不替代网络隔离、TLS 或外层访问控制。`codis-rdb-export-enabled` 和 `codis-rdb-export-auth` 重启生效；`codis-rdb-export-rate-limit` 可运行期调整，0 不限速，正数只限制成功响应 body，多个 export 连接共享总预算但不承诺 per-client fairness 或并发连接上限。该限速不影响普通 Redis 命令执行线程模型，也不限制普通 Redis reply。Dashboard remote fetch 复用该 export 时只使用 dashboard 持久化 auth，目标 server 必须属于当前 product model。
 - Redis 8 已成为默认 Codis Server 构建和包装入口，并已完成本地 Mac 非性能 validation-cutover；当前不承诺 Linux 性能基线、fork/RDB、复制、Docker/部署包装、最终生产 cutover gate 或 Redis 8 持久化文件降级回 Redis 3。跨版本 fragment 仅以本地矩阵记录的方向性结论为准，不能外推为持久化 RDB/AOF 降级能力。
 - HA 能降低 proxy 和 Redis Server 故障影响，但不能替代监控、备份和故障演练。
+- PITR / 数据闪回 默认关闭，只做单 Redis 8 Codis Server 级 AOF point-in-time 截断恢复。它不做跨 group 全局一致性恢复、不做指定 key 子集恢复、不修改 Redis C 源码、不自动开 AOF / aof-timestamp-enabled（运维预先开启，dashboard 只校验）、不做 AOF 保留策略 / 轮转 / 备份管理、不实现跨机 AOF 文件操作、不编排 proxy 只读切换（恢复期间该 group slot 写入失败但不自动切 slot）、不在业务 Redis 协议路径暴露 PITR 命令、不把 job 写入 coordinator。它依赖运维已开 AOF + aof-timestamp-enabled、dashboard 直访目标 server AOF 目录的同机/共享存储、外部进程管理器拉起 redis（dashboard 绝不 fork redis-server）和 `redis-check-aof` 二进制可执行。PITR 不幂等：per-server lock 持续到 operator 显式 Remove；SHUTDOWN 后必须 fresh probe 确认 server 已停才继续；truncate 前快照 manifest + 最后 segment，并用 pre/post 双向 stat-diff 检测 redis-check-aof 行为漂移；truncate 失败不自动重启（AOF 可能损坏，down+告警优于 up+悄悄错）。秒级精度（Redis 8 `#TS:` 注释为 unix 秒）。

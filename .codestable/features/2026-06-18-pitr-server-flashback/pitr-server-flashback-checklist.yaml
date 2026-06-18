@@ -1,0 +1,177 @@
+feature: 2026-06-18-pitr-server-flashback
+created: 2026-06-18
+
+steps:
+  - action: "编排骨架：新建 PitrManager + PitrJob 类型与状态机骨架（每步 stub 返回 ok）；topom_api.go 三件套——server 路由组 /api/topom/pitr/:xauth（create/get/cancel）+ handler + ApiClient 客户端方法 CreatePitr/GetPitrJobs/CancelPitr（cmd/admin/pitr.go 依赖此客户端方法，不直连 dashboard）；Config（config.go struct + 代码默认值 + 校验）+ config/dashboard.toml 默认模板（带注释的 pitr_* key，对齐 RDBAnalysis 段的 committed 模板先例，否则运维发现不了开关）；FE pitr.js + index.html 区域；codis-admin --pitr-* flag 分发；Topom 接入 manager 生命周期"
+    exit_signal: "PUT /pitr/create 能创建 job 并走完状态机（每步 stub），GET /pitr/jobs 返回摘要，cancel 能终止；pitr_enabled=false 时所有 /pitr/* handler 返回 'pitr is disabled'；codis-admin --pitr-create 经 ApiClient 客户端方法走通（不直连 dashboard）；config/dashboard.toml 含全部 5 个 pitr_* key 带注释默认值"
+    status: done
+
+  - action: "计算节点 - 校验阶段：实现 validate（xauth/enabled/server-in-product/is-master/无同 server running job）、prereq（只读 CONFIG GET appendonly/aof-timestamp-enabled/dir/appendfilename/appenddirname 共 5 个，不读 port/bind/*file）、feasibility（读 manifest 定位最后一个文件 + 扫该文件 #TS: 得 [min,max] + 确认 truncate_ts 落在范围内 + best-effort 可用空间检查 ≥ 最后文件大小）"
+    exit_signal: "单测覆盖正常路径 + 未开 AOF + 非 master + ts 越界 + ts 不在最后文件 + 可用空间不足 + 重复 job；校验失败时 server 未被触碰（未发 SHUTDOWN）"
+    status: done
+
+  - action: "计算节点 - 副作用步骤：实现 SHUTDOWN NOSAVE、snapshot（拷 manifest + 最后一个文件到 <aofdir>.pitr-snapshot-<jobid>/，记录 PreStatSnapshot）、exec redis-check-aof --truncate-to-timestamp ts --fix manifest（捕获 stdout/stderr/exit code）、post-truncate stat diff（复查 AOF 目录所有文件 size+mtime，最后一个文件以外任何变化即归不确定失败）、restart（可选 pitr_restart_command kick + 无论是否 kick 都轮询 INFO loading）、wait-load、resync replicas（SetMaster 全量 resync，部分失败记 warning）"
+    exit_signal: "单测覆盖 exit code 解析、snapshot 失败时半成品清理、stat diff 漂移检测、轮询超时、部分副本失败；集成测试用本地 Redis 8 跑通完整 happy path（恢复后 GET key 返回 ts 时间点值）"
+    status: done
+
+  - action: "接通外部依赖与并发：pitr_redis_check_aof_bin 缺失/不可执行时 create 阶段拒绝、pitr_restart_command 可选分支（未配走纯外部拉起 + 轮询）、per-server lock、pitr_max_concurrent_jobs 全局上限、snapshot 在 job remove 或 dashboard 重启前的保留与清理"
+    exit_signal: "bin 缺失时 create 返回明确错误；并发上限触发时拒绝；同 server 重入被 per-server lock 拒；job remove 时 snapshot 目录被清理（删除失败记 warning 不阻塞）"
+    status: done
+
+  - action: "测试覆盖：补齐验收契约剩余场景（snapshot 回退指引、truncate 失败、stat diff 漂移、cancel 中途各阶段、跨 server 并行、FE/admin 端到端、反向核对项 grep）"
+    exit_signal: "所有验收场景（含正常 + 边界 + 错误三层分层）有可观察证据；反向核对项全部通过（C 源码 diff 为空、proxy 无 pitr 符号、不 fork redis-server、snapshot 不拷全目录等）"
+    status: done
+
+checks:
+  # ===== 范围守护（第 1 节"明确不做"）=====
+  - item: "不改 Redis 8 C 源码：git diff extern/redis-8.6.3/src/aof.c extern/redis-8.6.3/src/redis-check-aof.c 为空"
+    source: 范围守护
+    status: passed
+  - item: "不 fork redis-server：代码中无直接拉起 redis-server 进程的 exec.Command（pitr_restart_command 走 sh -c 间接调运维脚本除外）"
+    source: 范围守护
+    status: passed
+  - item: "不做跨 group 全局恢复 / 指定 key 子集恢复：代码中无 GlobalPitr / KeyPitr 类型"
+    source: 范围守护
+    status: passed
+  - item: "PITR job 不进 coordinator：pkg/models/pitr.go 不被创建，pkg/models/store.go 无 pitr 路径常量"
+    source: 范围守护
+    status: passed
+  - item: "不自动开 AOF/aof-timestamp-enabled，不改 config/redis.conf 默认值（仍为 no）"
+    source: 范围守护
+    status: passed
+  - item: "proxy 业务路径无 PITR 分支：pkg/proxy/ 下无 pitr/Pitr 符号，mapper.go 无 pitr FlagNotAllow 变更"
+    source: 范围守护
+    status: passed
+  - item: "不读 restart-prep 的 CONFIG（port/bind/*file）：pkg/topom/topom_pitr*.go 无这些 CONFIG GET 调用，prereq 只读 5 个定位 AOF 的配置"
+    source: 范围守护
+    status: passed
+  - item: "snapshot 不拷整个 AOF 目录：只 cp manifest + manifest 列表最后一个文件（base 或 last incr）"
+    source: 范围守护
+    status: passed
+
+  # ===== 名词契约（第 2.1 节）=====
+  - item: "PitrJob.ID 为 uuid.NewV7()（非 v4 随机）"
+    source: 名词契约
+    status: passed
+  - item: "PitrJob 含 LastSegmentFile / LastSegmentTsRange / SnapshotDir / PreStatSnapshot / RestartKicked 字段，不持有启动命令字段"
+    source: 名词契约
+    status: passed
+  - item: "状态机 state 覆盖 pending/validating/checking_prereq/checking_feasibility/shutting_down/snapshotting/truncating/restarting/waiting_load/resyncing_replicas/succeeded/failed/cancelled"
+    source: 名词契约
+    status: passed
+  - item: "PUT /api/topom/pitr/create/:xauth 接受 server_addr + truncate_ts，错误路径覆盖 xauth 错/enabled=false/非 master/prereq 未满足/同 server 已有 job"
+    source: 名词契约
+    status: passed
+  - item: "GET /api/topom/pitr/jobs/:xauth 返回摘要（id/server_addr/state/steps/snapshotdir/error），不含 AOF 内容/凭据/requirepass"
+    source: 名词契约
+    status: passed
+
+  # ===== 编排骨架 / 流程级约束（第 2.2 节）=====
+  - item: "状态机步骤顺序：validate → prereq → lock → feasibility(server UP) → SHUTDOWN → snapshot → truncate → stat-diff → restart(poll) → wait-load → resync → release lock"
+    source: 编排骨架
+    status: passed
+  - item: "feasibility 在 SHUTDOWN 之前、server 仍 UP 时执行；不满足时 server 未被触碰"
+    source: 编排骨架
+    status: passed
+  - item: "snapshot 时机在 SHUTDOWN 后、truncate 前（SHUTDOWN flush AOF + 关句柄，盘上完整一致）"
+    source: 编排骨架
+    status: passed
+  - item: "truncate 前后做 stat diff：PreStatSnapshot 记录 AOF 目录所有文件 size+mtime，truncate exit 0 后复查，最后一个文件以外任何变化归不确定失败"
+    source: 流程级约束
+    status: passed
+  - item: "错误语义三层分层：未触碰→failed server 未动；snapshot 失败→failed server 已停但 AOF 干净可直重启；truncate/stat-diff 失败→failed 保留 snapshot 给回退指引，不自动重启"
+    source: 流程级约束
+    status: passed
+  - item: "不幂等：per-server lock + terminal job 历史防重入；cancel 后需运维确认才能起新 job"
+    source: 流程级约束
+    status: passed
+  - item: "并发：同 server 同时最多 1 job（per-server lock）；不同 server 受 pitr_max_concurrent_jobs 全局上限"
+    source: 流程级约束
+    status: passed
+  - item: "秒级精度：按 #TS: unix 秒比较，无亚秒级承诺"
+    source: 流程级约束
+    status: passed
+  - item: "不记录 AOF 内容/CONFIG 密码（不读 CONFIG GET requirepass）；日志只记 server addr/ts/bin 路径/exit code/snapshotdir/耗时"
+    source: 流程级约束
+    status: passed
+
+  # ===== 挂载点（第 2.3 节）=====
+  - item: "config/dashboard.toml（committed 默认模板，非 config.go）新增 pitr_enabled/pitr_redis_check_aof_bin/pitr_max_concurrent_jobs/pitr_job_timeout/pitr_restart_command 共 5 个 key，带注释默认值，对齐 RDBAnalysis 段先例；运维由此发现开关"
+    source: 挂载点
+    status: passed
+  - item: "config.go Config struct + 代码默认值 + 校验新增对应 5 个 pitr_* 字段，默认 pitr_enabled=false"
+    source: 挂载点
+    status: passed
+  - item: "pkg/topom/topom_api.go 三件套：server 路由组 /api/topom/pitr/:xauth（create/get/cancel）+ handler + ApiClient 客户端方法 CreatePitr/GetPitrJobs/CancelPitr（cmd/admin/pitr.go 经此客户端方法调 dashboard，不直连）"
+    source: 挂载点
+    status: passed
+  - item: "cmd/fe/assets/pitr.js + index.html 新增 PITR 区域（FE 入口）"
+    source: 挂载点
+    status: passed
+  - item: "cmd/admin/main.go + dashboard.go 新增 --pitr-create/--pitr-get/--pitr-cancel flag 分发"
+    source: 挂载点
+    status: passed
+  - item: "pkg/topom/topom.go 的 Topom struct + setup/Close 接入 pitr *PitrManager"
+    source: 挂载点
+    status: passed
+
+  # ===== 验收场景（第 3 节）=====
+  # NOTE: 所有 handler 错误沿用项目 rpc 800 约定（非字面 HTTP 4xx/5xx）；下述"错误/拒绝"均指
+  # "返回明确可识别的错误文本"。见 design.md "HTTP 状态码约定"。
+  - item: "正常路径：enabled + AOF 已开，PUT create 返回 uuid v7 job_id，state 走完到 succeeded，恢复后 GET key 返回 ts 时间点值"
+    source: 验收场景
+    status: passed
+  - item: "codis-admin --pitr-create 成功只打印 job_id"
+    source: 验收场景
+    status: passed
+  - item: "FE PITR 区域提交后 job 行状态实时刷新到 succeeded"
+    source: 验收场景
+    status: passed
+  - item: "pitr_enabled=false 时 /pitr/* 返回 disabled 错误且不创建 job"
+    source: 验收场景
+    status: passed
+  - item: "server 不在 product → 明确错误不发 Redis 命令；非 master → 明确错误"
+    source: 验收场景
+    status: passed
+  - item: "appendonly=no / aof-timestamp-enabled=no → 明确错误，server 未被改动"
+    source: 验收场景
+    status: passed
+  - item: "feasibility：truncate_ts 落不到最后文件 / 早于全部 #TS: / 注释非法 → 明确错误，server 仍在 UP"
+    source: 验收场景
+    status: passed
+  - item: "feasibility：可用空间 < 最后文件大小 → 明确错误，server 仍在 UP"
+    source: 验收场景
+    status: passed
+  - item: "同 server 已有 job（running 或 terminal 未 Remove）→ 明确错误，error 含 'is locked by pitr job ...; Remove that job first'"
+    source: 验收场景
+    status: passed
+  - item: "pitr_redis_check_aof_bin 不存在/不可执行 → create 阶段明确错误"
+    source: 验收场景
+    status: passed
+  - item: "snapshot 失败（磁盘满/IO）→ failed，server 已停但 AOF 未被 truncate 触碰，半成品 snapshot 已清理，error 标注 just restart"
+    source: 验收场景
+    status: passed
+  - item: "truncate exit !=0 → failed，error 含 stderr 摘要 + 从 snapshot 恢复的显式指引，snapshot 保留，不自动重启"
+    source: 验收场景
+    status: passed
+  - item: "stat diff 漂移（exit 0 但非最后文件变了）→ failed 归不确定类，error 含 model drift + 变化文件列表，保留 snapshot，不自动重启"
+    source: 验收场景
+    status: passed
+  - item: "restart 轮询超时 / wait-load 超时 → failed，不强制 shutdown"
+    source: 验收场景
+    status: passed
+  - item: "resync replicas 部分失败 → succeeded 含 warning 列表"
+    source: 验收场景
+    status: passed
+  - item: "cancel 在 snapshot 前 → cancelled server 仍 UP；snapshot 后/truncate 中 → cancelled server 已停 + 保留 snapshot；terminal job 的 cancel 是 no-op（返回 OK）"
+    source: 验收场景
+    status: passed
+  - item: "两个不同 server 并发 create 都成功，超 pitr_max_concurrent_jobs 时后到的被拒"
+    source: 验收场景
+    status: passed
+  - item: "job succeeded 后 snapshot 保留至 job remove；job remove 时 snapshot 目录被清理（失败记 warning）"
+    source: 验收场景
+    status: passed
+  - item: "snapshot = manifest + 最后一个文件 + pre/post stat 校验，作为 snapshot 步骤的明确验收点"
+    source: 验收场景
+    status: passed

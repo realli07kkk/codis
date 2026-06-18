@@ -87,6 +87,13 @@ func newApiServer(t *Topom) http.Handler {
 			r.Put("/remove/:xauth/:id", api.RDBAnalysisRemove)
 			r.Get("/:xauth/:id", api.RDBAnalysisGet)
 		})
+		r.Group("/pitr", func(r martini.Router) {
+			r.Put("/create/:xauth", api.PitrCreate)
+			r.Get("/jobs/:xauth", api.PitrList)
+			r.Get("/:xauth/:id", api.PitrGet)
+			r.Put("/cancel/:xauth/:id", api.PitrCancel)
+			r.Put("/remove/:xauth/:id", api.PitrRemove)
+		})
 		r.Get("/acl/:xauth", api.GetACL)
 		r.Put("/acl/:xauth", binding.Json(ACLUpdateRequest{}), api.SetACL)
 		r.Put("/acl/sync/:xauth", api.SyncACL)

@@ -614,6 +614,7 @@ dashboard.controller('MainCodisCtrl', ['$scope', '$http', '$uibModal', '$timeout
         initRDBAnalysis($scope, $http, $timeout);
         initACLEditor($scope, $http, $timeout);
         initQPSLimitEditor($scope, $http, $timeout);
+        initPitr($scope, $http, $timeout);
         $scope.resetOverview();
 
         $http.get('/list').then(function (resp) {
@@ -638,6 +639,7 @@ dashboard.controller('MainCodisCtrl', ['$scope', '$http', '$uibModal', '$timeout
                 $scope.updateStats(overview.stats);
                 $scope.loadACL();
                 $scope.loadQPSLimit();
+                $scope.loadPitrJobs();
             });
         }
 

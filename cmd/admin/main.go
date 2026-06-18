@@ -9,8 +9,11 @@ import (
 	"github.com/CodisLabs/codis/pkg/utils/log"
 )
 
-func main() {
-	const usage = `
+// adminUsage is the docopt usage contract. It is package-level so tests can
+// drive the real docopt.Parse against representative argvs, pinning the CLI
+// dispatch contract (e.g. that absent boolean flags parse to false, not nil —
+// the CR-002 regression class).
+var adminUsage = `
 Usage:
 	codis-admin [-v] --proxy=ADDR [--auth=AUTH] [config|model|stats|slots]
 	codis-admin [-v] --proxy=ADDR [--auth=AUTH]  --start
@@ -53,6 +56,11 @@ Usage:
 	codis-admin [-v] --dashboard=ADDR            --acl-set=FILE  [--confirm]
 	codis-admin [-v] --dashboard=ADDR            --acl-sync
 	codis-admin [-v] --dashboard=ADDR            --rdb-analysis-remote-fetch --server=ADDR [--topn=N] [--prefix-sep=SEP] [--max-depth=N] [--regex=REGEX] [--include-expired]
+	codis-admin [-v] --dashboard=ADDR            --pitr-create   --server=ADDR --truncate-ts=TS
+	codis-admin [-v] --dashboard=ADDR            --pitr-list
+	codis-admin [-v] --dashboard=ADDR            --pitr-get      --job=ID
+	codis-admin [-v] --dashboard=ADDR            --pitr-cancel   --job=ID
+	codis-admin [-v] --dashboard=ADDR            --pitr-remove   --job=ID
 	codis-admin [-v] --dashboard=ADDR            --sentinel-add   --addr=ADDR
 	codis-admin [-v] --dashboard=ADDR            --sentinel-del   --addr=ADDR [--force]
 	codis-admin [-v] --dashboard=ADDR            --sentinel-resync
@@ -73,9 +81,12 @@ Options:
 	--max-depth=N
 	--regex=REGEX
 	--acl-set=FILE
+	--truncate-ts=TS
+	--job=ID
 `
 
-	d, err := docopt.Parse(usage, nil, true, "", false)
+func main() {
+	d, err := docopt.Parse(adminUsage, nil, true, "", false)
 	if err != nil {
 		log.PanicError(err, "parse arguments failed")
 	}

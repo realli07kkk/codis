@@ -77,6 +77,7 @@ type Topom struct {
 	}
 
 	rdbAnalysis *RDBAnalysisManager
+	pitr        *PitrManager
 
 	ha struct {
 		redisp *redis.Pool
@@ -120,6 +121,7 @@ func New(client models.Client, config *Config) (*Topom, error) {
 	s.stats.servers = make(map[string]*RedisStats)
 	s.stats.proxies = make(map[string]*ProxyStats)
 	s.rdbAnalysis = NewRDBAnalysisManager(config)
+	s.pitr = NewPitrManager(config)
 
 	if err := s.setup(config); err != nil {
 		s.Close()
@@ -176,6 +178,9 @@ func (s *Topom) Close() error {
 	}
 	if s.rdbAnalysis != nil {
 		s.rdbAnalysis.Close()
+	}
+	if s.pitr != nil {
+		s.pitr.Close()
 	}
 
 	defer s.store.Close()

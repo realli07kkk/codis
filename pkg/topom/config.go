@@ -56,6 +56,15 @@ rdb_analysis_remote_fetch_auth = ""
 rdb_analysis_remote_fetch_timeout = "30m"
 rdb_analysis_remote_fetch_max_concurrent = 1
 
+# Set configs for PITR (point-in-time recovery) jobs.
+# pitr_enabled default false; enable only on a dashboard that shares a
+# filesystem with the target Redis 8 Codis Servers and can run redis-check-aof.
+pitr_enabled = false
+pitr_redis_check_aof_bin = "bin/redis-check-aof"
+pitr_max_concurrent_jobs = 1
+pitr_job_timeout = "30m"
+pitr_restart_command = ""
+
 # Set arguments for data migration (only accept 'sync' & 'semi-async').
 migration_method = "semi-async"
 migration_parallel_slots = 100
@@ -98,6 +107,12 @@ type Config struct {
 	RDBAnalysisRemoteFetchAuth          string            `toml:"rdb_analysis_remote_fetch_auth" json:"-"`
 	RDBAnalysisRemoteFetchTimeout       timesize.Duration `toml:"rdb_analysis_remote_fetch_timeout" json:"rdb_analysis_remote_fetch_timeout"`
 	RDBAnalysisRemoteFetchMaxConcurrent int               `toml:"rdb_analysis_remote_fetch_max_concurrent" json:"rdb_analysis_remote_fetch_max_concurrent"`
+
+	PitrEnabled           bool              `toml:"pitr_enabled" json:"pitr_enabled"`
+	PitrRedisCheckAofBin  string            `toml:"pitr_redis_check_aof_bin" json:"pitr_redis_check_aof_bin"`
+	PitrMaxConcurrentJobs int               `toml:"pitr_max_concurrent_jobs" json:"pitr_max_concurrent_jobs"`
+	PitrJobTimeout        timesize.Duration `toml:"pitr_job_timeout" json:"pitr_job_timeout"`
+	PitrRestartCommand    string            `toml:"pitr_restart_command" json:"pitr_restart_command"`
 
 	MigrationMethod        string            `toml:"migration_method" json:"migration_method"`
 	MigrationParallelSlots int               `toml:"migration_parallel_slots" json:"migration_parallel_slots"`
@@ -188,6 +203,12 @@ func (c *Config) Validate() error {
 	}
 	if c.RDBAnalysisRemoteFetchMaxConcurrent < 0 {
 		return errors.New("invalid rdb_analysis_remote_fetch_max_concurrent")
+	}
+	if c.PitrMaxConcurrentJobs < 0 {
+		return errors.New("invalid pitr_max_concurrent_jobs")
+	}
+	if c.PitrJobTimeout < 0 {
+		return errors.New("invalid pitr_job_timeout")
 	}
 	if _, ok := models.ParseForwardMethod(c.MigrationMethod); !ok {
 		return errors.New("invalid migration_method")
