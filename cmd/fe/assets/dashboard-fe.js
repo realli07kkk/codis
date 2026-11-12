@@ -2,1346 +2,722 @@
 
 var dashboard = angular.module('dashboard-fe', []);
 
-dashboard.directive('highchart', function () {
-    function toHighchartsOptions(config) {
-        var options = angular.extend({}, config.options);
-        angular.forEach(config, function (value, key) {
-            if (key !== 'options') {
-                options[key] = value;
-            }
-        });
-        return options;
-    }
-
-    return {
-        restrict: 'E',
-        scope: {
-            config: '='
-        },
-        link: function (scope, element) {
-            element.css({display: 'block', width: '100%'});
-            var chart = Highcharts.chart(element[0], toHighchartsOptions(scope.config));
-            scope.$watch('config', function (config) {
-                if (config) {
-                    chart.update(toHighchartsOptions(config), true, true, false);
-                }
-            }, true);
-        }
-    };
-});
-
-function genXAuth(name) {
-    return sha256("Codis-XAuth-[" + name + "]").substring(0, 32);
-}
-
-function concatUrl(base, name) {
-    if (name) {
-        return encodeURI(base + "?forward=" + name);
-    } else {
-        return encodeURI(base);
-    }
-}
-
-function padInt2Str(num, size) {
-    var s = num + "";
-    while (s.length < size) s = "0" + s;
-    return s;
-}
-
-function toJsonHtml(obj) {
-    var json = angular.toJson(obj, 4);
-    json = json.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-    json = json.replace(/ /g, '&nbsp;');
-    json = json.replace(/("(\\u[a-zA-Z0-9]{4}|\\[^u]|[^\\"])*"(\s*:)?|\b(true|false|null)\b|-?\d+(?:\.\d*)?(?:[eE][+\-]?\d+)?)/g, function (match) {
-        var cls = 'number';
-        if (/^"/.test(match)) {
-            if (/:$/.test(match)) {
-                cls = 'key';
-            } else {
-                cls = 'string';
-            }
-        } else if (/true|false/.test(match)) {
-            cls = 'boolean';
-        } else if (/null/.test(match)) {
-            cls = 'null';
-        }
-        return '<span class="' + cls + '">' + match + '</span>';
-    });
-    return json;
-}
-
-function humanSize(size) {
-    if (size < 1024) {
-        return size + " B";
-    }
-    size /= 1024;
-    if (size < 1024) {
-        return size.toFixed(2) + " KB";
-    }
-    size /= 1024;
-    if (size < 1024) {
-        return size.toFixed(2) + " MB";
-    }
-    size /= 1024;
-    if (size < 1024) {
-        return size.toFixed(2) + " GB";
-    }
-    size /= 1024;
-    return size.toFixed(2) + " TB";
-}
-
-function newChatsOpsConfig() {
-    return {
-        options: {
-            chart: {
-                useUTC: false,
-                type: 'spline',
-            },
-        },
-        series: [{
-            color: '#d82b28',
-            lineWidth: 1.5,
-            states: {
-                hover: {
-                    enabled: false,
-                }
-            },
-            showInLegend: false,
-            marker: {
-                enabled: true,
-                symbol: 'circle',
-                radius: 2,
-            },
-            name: 'OP/s',
-            data: [],
-        }],
-        title: {
-            style: {
-                display: 'none',
-            }
-        },
-        xAxis: {
-            type: 'datetime',
-            title: {
-                style: {
-                    display: 'none',
-                }
-            },
-            labels: {
-                formatter: function () {
-                    var d = new Date(this.value);
-                    return padInt2Str(d.getHours(), 2) + ":" + padInt2Str(d.getMinutes(), 2) + ":" + padInt2Str(d.getSeconds(), 2);
-                }
-            },
-        },
-        yAxis: {
-            min: 0,
-            title: {
-                style: {
-                    display: 'none',
-                }
-            },
-        },
-    };
-}
-
-function renderSlotsCharts(slots_array) {
-    var groups = {};
-    var counts = {};
-    var n = slots_array.length;
-    for (var i = 0; i < n; i++) {
-        var slot = slots_array[i];
-        groups[slot.group_id] = true;
-        if (slot.action.target_id) {
-            groups[slot.action.target_id] = true;
-        }
-        if (counts[slot.group_id]) {
-            counts[slot.group_id]++;
-        } else {
-            counts[slot.group_id] = 1;
-        }
-    }
-    var series = [];
-    for (var g in groups) {
-        var xaxis = 2;
-        if (g == 0) {
-            xaxis = 0;
-        }
-        var s = {name: 'Group-' + g + ':' + (counts[g] == undefined ? 0 : counts[g]), data: [], group_id: g};
-        for (var beg = 0, end = 0; end <= n; end++) {
-            if (end == n || slots_array[end].group_id != g) {
-                if (beg < end) {
-                    s.data.push({x: xaxis, beg: beg, end: end - 1, low: beg, high: end, group_id: g});
-                }
-                beg = end + 1;
-            }
-        }
-        xaxis = 1;
-        for (var beg = 0, end = 0; end <= n; end++) {
-            if (end == n || !(slots_array[end].action.target_id && slots_array[end].action.target_id == g)) {
-                if (beg < end) {
-                    s.data.push({x: xaxis, beg: beg, end: end - 1, low: beg, high: end, group_id: g});
-                }
-                beg = end + 1;
-            }
-        }
-        s.data.sort(function (a, b) {
-            return a.x - b.x;
-        });
-        series.push(s);
-    }
-    series.sort(function (a, b) {
-        return a.group_id - b.group_id;
-    });
-    new Highcharts.Chart({
-        chart: {
-            renderTo: 'slots_charts',
-            type: 'columnrange',
-            inverted: true,
-        },
-        title: {
-            style: {
-                display: 'none',
-            }
-        },
-        xAxis: {
-            categories: ['Offline', 'Migrating', 'Default'],
-            min: 0,
-            max: 2,
-        },
-        yAxis: {
-            min: 0,
-            max: 1024,
-            tickInterval: 64,
-            title: {
-                style: {
-                    display: 'none',
-                }
-            },
-        },
-        legend: {
-            enabled: true,
-            itemWidth: 140,
-        },
-        plotOptions: {
-            columnrange: {
-                grouping: false
-            },
-            series: {
-                animation: false,
-                events: {
-                    legendItemClick: function () {
-                        return false;
-                    },
-                }
-            },
-        },
-        credits: {
-            enabled: false
-        },
-        tooltip: {
-            formatter: function () {
-                switch (this.point.x) {
-                case 0:
-                    return '<b>Slot-[' + this.point.beg + "," + this.point.end + "]</b> are <b>Offline</b>";
-                case 1:
-                    return '<b>Slot-[' + this.point.beg + "," + this.point.end + "]</b> will be moved to <b>Group-[" + this.point.group_id + "]</b>";
-                case 2:
-                    return '<b>Slot-[' + this.point.beg + "," + this.point.end + "]</b> --> <b>Group-[" + this.point.group_id + "]</b>";
-                }
-            }
-        },
-        series: series,
-    });
-}
-
-function processProxyStats(codis_stats) {
-    var proxy_array = codis_stats.proxy.models;
-    var proxy_stats = codis_stats.proxy.stats;
-    var qps = 0, sessions = 0;
-    for (var i = 0; i < proxy_array.length; i++) {
-        var p = proxy_array[i];
-        var s = proxy_stats[p.token];
-        p.sessions = "NA";
-        p.commands = "NA";
-        p.switched = false;
-        p.primary_only = false;
-        if (!s) {
-            p.status = "PENDING";
-        } else if (s.timeout) {
-            p.status = "TIMEOUT";
-        } else if (s.error) {
-            p.status = "ERROR";
-        } else {
-            if (s.stats.online) {
-                p.sessions = "total=" + s.stats.sessions.total + ",alive=" + s.stats.sessions.alive;
-                p.commands = "total=" + s.stats.ops.total + ",fails=" + s.stats.ops.fails;
-                if (s.stats.ops.redis != undefined) {
-                    p.commands += ",rsp.errs=" + s.stats.ops.redis.errors;
-                }
-                p.commands += ",qps=" + s.stats.ops.qps;
-                p.status = "HEALTHY";
-            } else {
-                p.status = "PENDING";
-            }
-            if (p.admin_addr) {
-                p.proxy_link = p.admin_addr + "/proxy"
-                p.stats_link = p.admin_addr + "/proxy/stats"
-            }
-            if (s.stats.sentinels != undefined) {
-                if (s.stats.sentinels.switched != undefined) {
-                    p.switched = s.stats.sentinels.switched;
-                }
-            }
-            if (s.stats.backend != undefined) {
-                if (s.stats.backend.primary_only != undefined) {
-                    p.primary_only = s.stats.backend.primary_only;
-                }
-            }
-            qps += s.stats.ops.qps;
-            sessions += s.stats.sessions.alive;
-        }
-    }
-    return {proxy_array: proxy_array, qps: qps, sessions: sessions};
-}
-
-function processSentinels(codis_stats, group_stats, codis_name) {
-    var ha = codis_stats.sentinels;
-    var out_of_sync = false;
-    var servers = [];
-    if (ha.model != undefined) {
-        if (ha.model.servers == undefined) {
-            ha.model.servers = []
-        }
-        for (var i = 0; i < ha.model.servers.length; i ++) {
-            var x = {server: ha.model.servers[i]};
-            var s = ha.stats[x.server];
-            x.runid_error = "";
-            if (!s) {
-                x.status = "PENDING";
-            } else if (s.timeout) {
-                x.status = "TIMEOUT";
-            } else if (s.error) {
-                x.status = "ERROR";
-            } else {
-                x.masters = 0;
-                x.masters_down = 0;
-                x.slaves = 0;
-                x.sentinels = 0;
-                var masters = s.stats["sentinel_masters"];
-                if (masters != undefined) {
-                    for (var j = 0; j < masters; j ++) {
-                        var record = s.stats["master" + j];
-                        if (record != undefined) {
-                            var pairs = record.split(",");
-                            var dict = {};
-                            for (var t = 0; t < pairs.length; t ++) {
-                                var ss = pairs[t].split("=");
-                                if (ss.length == 2) {
-                                    dict[ss[0]] = ss[1];
-                                }
-                            }
-                            var name = dict["name"];
-                            if (name == undefined) {
-                                continue;
-                            }
-                            if (name.lastIndexOf(codis_name) != 0) {
-                                continue;
-                            }
-                            if (name.lastIndexOf("-") != codis_name.length) {
-                                continue;
-                            }
-                            x.masters ++;
-                            if (dict["status"] != "ok") {
-                                x.masters_down ++;
-                            }
-                            x.slaves += parseInt(dict["slaves"]);
-                            x.sentinels += parseInt(dict["sentinels"]);
-                        }
-                    }
-                }
-                x.status_text = "masters=" + x.masters;
-                x.status_text += ",down=" + x.masters_down;
-                var avg = 0;
-                if (x.slaves == 0) {
-                    avg = 0;
-                } else {
-                    avg = Number(x.slaves) / x.masters;
-                }
-                x.status_text += ",slaves=" + avg.toFixed(2);
-                if (x.sentinels == 0) {
-                    avg = 0;
-                } else {
-                    avg = Number(x.sentinels) / x.masters;
-                }
-                x.status_text += ",sentinels=" + avg.toFixed(2);
-
-                if (s.sentinel != undefined) {
-                    var group_array = group_stats.group_array;
-                    for (var t in group_array) {
-                        var g = group_array[t];
-                        var d = s.sentinel[codis_name + "-" + g.id];
-                        var runids = {};
-                        if (d != undefined) {
-                            if (d.master != undefined) {
-                                var o = d.master;
-                                runids[o["runid"]] = o["ip"] + ":" + o["port"];
-                            }
-                            if (d.slaves != undefined) {
-                                for (var j = 0; j < d.slaves.length; j ++) {
-                                    var o = d.slaves[j];
-                                    runids[o["runid"]] = o["ip"] + ":" + o["port"];
-                                }
-                            }
-                        }
-                        for (var runid in runids) {
-                            if (g.runids[runid] === undefined) {
-                                x.runid_error = "[+]group=" + g.id + ",server=" + runids[runid] + ",runid="
-                                    + ((runid != "") ? runid : "NA");
-                            }
-                        }
-                        for (var runid in g.runids) {
-                            if (runids[runid] === undefined) {
-                                x.runid_error = "[-]group=" + g.id + ",server=" + g.runids[runid] + ",runid=" + runid;
-                            }
-                        }
-                    }
-                }
-            }
-            servers.push(x);
-        }
-        out_of_sync = ha.model.out_of_sync;
-    }
-    var masters = ha.masters;
-    if (masters == undefined) {
-        masters = {};
-    }
-    return {servers:servers, masters:masters, out_of_sync: out_of_sync}
-}
-
-function alertAction(text, callback) {
-    BootstrapDialog.show({
-        title: "Warning !!",
-        message: text,
-        closable: true,
-        buttons: [{
-            label: "OK",
-            cssClass: "btn-primary",
-            action: function (dialog) {
-                dialog.close();
-                callback();
-            },
-        }, {
-            label: "CANCEL",
-            action: function(dialogItself){
-                dialogItself.close();
-            }
-        }],
-    });
-}
-
-function alertAction2(text, callback) {
-    BootstrapDialog.show({
-        title: "Warning !!",
-        type: "type-danger",
-        message: text,
-        closable: true,
-        buttons: [{
-            label: "JUST DO IT",
-            cssClass: "btn-danger",
-            action: function (dialog) {
-                dialog.close();
-                callback();
-            },
-        }, {
-            label: "CANCEL",
-            action: function(dialogItself){
-                dialogItself.close();
-            }
-        }],
-    });
-}
-
-function alertErrorResp(failedResp) {
-    var text = "error response";
-    if (failedResp.status != 1500 && failedResp.status != 800) {
-        text = failedResp.data.toString();
-    } else {
-        text = toJsonHtml(failedResp.data);
-    }
-    BootstrapDialog.alert({
-        title: "Error !!",
-        type: "type-danger",
-        closable: true,
-        message: text,
-    });
-}
-
-function isValidInput(text) {
-    return text && text != "" && text != "NA";
-}
-
-function processGroupStats(codis_stats) {
-    var group_array = codis_stats.group.models;
-    var group_stats = codis_stats.group.stats;
-    var keys = 0, memory = 0;
-    var dbkeyRegexp = /db\d+/
-    for (var i = 0; i < group_array.length; i++) {
-        var g = group_array[i];
-        if (g.promoting.state) {
-            g.ispromoting = g.promoting.state != "";
-            if (g.promoting.index) {
-                g.ispromoting_index = g.promoting.index;
-            } else {
-                g.ispromoting_index = 0;
-            }
-        } else {
-            g.ispromoting = false;
-            g.ispromoting_index = -1;
-        }
-        g.runids = {}
-        g.canremove = (g.servers.length == 0);
-        for (var j = 0; j < g.servers.length; j++) {
-            var x = g.servers[j];
-            var s = group_stats[x.server];
-            x.keys = [];
-            x.memory = "NA";
-            x.maxmem = "NA";
-            x.master = "NA";
-            if (j == 0) {
-                x.master_expect = "NO:ONE";
-            } else {
-                x.master_expect = g.servers[0].server;
-            }
-            if (!s) {
-                x.status = "PENDING";
-            } else if (s.timeout) {
-                x.status = "TIMEOUT";
-            } else if (s.error) {
-                x.status = "ERROR";
-            } else {
-                for (var field in s.stats) {
-                    if (dbkeyRegexp.test(field)) {
-                        var v = parseInt(s.stats[field].split(",")[0].split("=")[1], 10);
-                        if (j == 0) {
-                            keys += v;
-                        }
-                        x.keys.push(field+ ":" + s.stats[field]);
-                    }
-                }
-                if (s.stats["used_memory"]) {
-                    var v = parseInt(s.stats["used_memory"], 10);
-                    if (j == 0) {
-                        memory += v;
-                    }
-                    x.memory = humanSize(v);
-                }
-                if (s.stats["maxmemory"]) {
-                    var v = parseInt(s.stats["maxmemory"], 10);
-                    if (v == 0) {
-                        x.maxmem = "INF."
-                    } else {
-                        x.maxmem = humanSize(v);
-                    }
-                }
-                if (s.stats["master_addr"]) {
-                    x.master = s.stats["master_addr"] + ":" + s.stats["master_link_status"];
-                } else {
-                    x.master = "NO:ONE";
-                }
-                if (j == 0) {
-                    x.master_status = (x.master == "NO:ONE");
-                } else {
-                    x.master_status = (x.master == g.servers[0].server + ":up");
-                }
-                g.runids[s.stats["run_id"]] = x.server;
-            }
-            if (g.ispromoting) {
-                x.canremove = false;
-                x.canpromote = false;
-                x.ispromoting = (j == g.ispromoting_index);
-            } else {
-                x.canremove = (j != 0 || g.servers.length <= 1);
-                x.canpromote = j != 0;
-                x.ispromoting = false;
-            }
-            if (x.action.state) {
-                if (x.action.state != "pending") {
-                    x.canslaveof = "create";
-                    x.actionstate = x.action.state;
-                } else {
-                    x.canslaveof = "remove";
-                    x.actionstate = x.action.state + ":" + x.action.index;
-                }
-            } else {
-                x.canslaveof = "create";
-                x.actionstate = "";
-            }
-            x.server_text = x.server;
-        }
-    }
-    return {group_array: group_array, keys: keys, memory: memory};
-}
-
-dashboard.config(['$interpolateProvider',
-    function ($interpolateProvider) {
-        $interpolateProvider.startSymbol('[[');
-        $interpolateProvider.endSymbol(']]');
-    }
-]);
-
 dashboard.config(['$httpProvider', function ($httpProvider) {
     $httpProvider.defaults.useXDomain = true;
     delete $httpProvider.defaults.headers.common['X-Requested-With'];
 }]);
 
-dashboard.controller('MainCodisCtrl', ['$scope', '$http', '$timeout',
-    function ($scope, $http, $timeout) {
-        Highcharts.setOptions({
-            global: {
-                useUTC: false,
-            },
-            exporting: {
-                enabled: false,
-            },
+dashboard.run(['$window', function ($window) {
+    if ($window.Highcharts) {
+        $window.Highcharts.setOptions({
+            global: {useUTC: false},
+            time: {useUTC: false},
+            exporting: {enabled: false},
+            credits: {enabled: false},
+            lang: {
+                thousandsSep: ',',
+                noData: '暂无监控数据'
+            }
         });
-        $scope.chart_ops = newChatsOpsConfig();
-
-        $scope.refresh_interval = 3;
-
-        $scope.resetOverview = function () {
-            $scope.codis_name = "NA";
-            $scope.codis_addr = "NA";
-            $scope.codis_coord_name = "Coordinator";
-            $scope.codis_coord_addr = "NA";
-            $scope.codis_qps = "NA";
-            $scope.codis_sessions = "NA";
-            $scope.redis_mem = "NA";
-            $scope.redis_keys = "NA";
-            $scope.slots_array = [];
-            $scope.proxy_array = [];
-            $scope.group_array = [];
-            $scope.slots_actions = [];
-            $scope.chart_ops.series[0].data = [];
-            $scope.slots_action_interval = "NA";
-            $scope.slots_action_disabled = "NA";
-            $scope.slots_action_failed = false;
-            $scope.slots_action_remain = 0;
-            $scope.sentinel_servers = [];
-            $scope.sentinel_out_of_sync = false;
-            if ($scope.resetRDBAnalysis) {
-                $scope.resetRDBAnalysis();
-            }
-            if ($scope.resetACLEditor) {
-                $scope.resetACLEditor();
-            }
-            if ($scope.resetQPSLimitEditor) {
-                $scope.resetQPSLimitEditor();
-            }
-        }
-        initRDBAnalysis($scope, $http, $timeout);
-        initACLEditor($scope, $http, $timeout);
-        initQPSLimitEditor($scope, $http, $timeout);
-        initPitr($scope, $http, $timeout);
-        $scope.resetOverview();
-
-        $http.get('/list').then(function (resp) {
-            $scope.codis_list = resp.data;
-        });
-
-        $scope.selectCodisInstance = function (selected) {
-            if ($scope.codis_name == selected) {
-                return;
-            }
-            $scope.resetOverview();
-            $scope.codis_name = selected;
-            var url = concatUrl("/topom", selected);
-            $http.get(url).then(function (resp) {
-                if ($scope.codis_name != selected) {
-                    return;
-                }
-                var overview = resp.data;
-                $scope.codis_addr = overview.model.admin_addr;
-                $scope.codis_coord_name = "[" + overview.config.coordinator_name.charAt(0).toUpperCase() + overview.config.coordinator_name.slice(1) + "]";
-                $scope.codis_coord_addr = overview.config.coordinator_addr;
-                $scope.updateStats(overview.stats);
-                $scope.loadACL();
-                $scope.loadQPSLimit();
-                $scope.loadPitrJobs();
-            });
-        }
-
-        $scope.updateStats = function (codis_stats) {
-            var proxy_stats = processProxyStats(codis_stats);
-            var group_stats = processGroupStats(codis_stats);
-            var sentinel = processSentinels(codis_stats, group_stats, $scope.codis_name);
-
-            var merge = function(obj1, obj2) {
-                if (obj1 === null || obj2 === null) {
-                    return obj2;
-                }
-                if (Array.isArray(obj1)) {
-                    if (obj1.length != obj2.length) {
-                        return obj2;
-                    }
-                    for (var i = 0; i < obj1.length; i ++) {
-                        obj1[i] = merge(obj1[i], obj2[i]);
-                    }
-                    return obj1;
-                }
-                if (typeof obj1 === "object") {
-                    for (var k in obj1) {
-                        if (obj2[k] === undefined) {
-                            delete obj1[k];
-                        }
-                    }
-                    for (var k in obj2) {
-                        obj1[k] = merge(obj1[k], obj2[k]);
-                    }
-                    return obj1;
-                }
-                return obj2;
-            }
-
-            $scope.codis_qps = proxy_stats.qps;
-            $scope.codis_sessions = proxy_stats.sessions;
-            $scope.redis_mem = humanSize(group_stats.memory);
-            $scope.redis_keys = group_stats.keys.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",");
-            $scope.slots_array = merge($scope.slots_array, codis_stats.slots);
-            $scope.proxy_array = merge($scope.proxy_array, proxy_stats.proxy_array);
-            $scope.group_array = merge($scope.group_array, group_stats.group_array);
-            $scope.slots_actions = [];
-            $scope.slots_action_interval = codis_stats.slot_action.interval;
-            $scope.slots_action_disabled = codis_stats.slot_action.disabled;
-            $scope.slots_action_progress = codis_stats.slot_action.progress.status;
-            $scope.sentinel_servers = merge($scope.sentinel_servers, sentinel.servers);
-            $scope.sentinel_out_of_sync = sentinel.out_of_sync;
-
-            for (var i = 0; i < $scope.slots_array.length; i++) {
-                var slot = $scope.slots_array[i];
-                if (slot.action.state) {
-                    $scope.slots_actions.push(slot);
-                }
-            }
-
-            if ($scope.sentinel_servers.length != 0) {
-                for (var i = 0; i < $scope.group_array.length; i ++) {
-                    var g = $scope.group_array[i];
-                    var ha_master = sentinel.masters[g.id];
-                    var ha_master_ingroup = false;
-                    for (var j = 0; j < g.servers.length; j ++) {
-                        var x = g.servers[j];
-                        if (ha_master == undefined) {
-                            x.ha_status = "ha_undefined";
-                            continue;
-                        }
-                        if (j == 0) {
-                            if (x.server == ha_master) {
-                                x.ha_status = "ha_master";
-                            } else {
-                                x.ha_status = "ha_not_master";
-                            }
-                        } else {
-                            if (x.server == ha_master) {
-                                x.ha_status = "ha_real_master";
-                            } else {
-                                x.ha_status = "ha_slave";
-                            }
-                        }
-                        if (x.server == ha_master) {
-                            x.server_text = x.server + " [HA]";
-                            ha_master_ingroup = true;
-                        }
-                    }
-                    if (ha_master == undefined || ha_master_ingroup) {
-                        g.ha_warning = "";
-                    } else {
-                        g.ha_warning = "[HA: " + ha_master + "]";
-                    }
-                }
-            }
-
-            renderSlotsCharts($scope.slots_array);
-
-            var ops_array = $scope.chart_ops.series[0].data;
-            if (ops_array.length >= 10) {
-                ops_array.shift();
-            }
-            ops_array.push({x: new Date(), y: proxy_stats.qps});
-            $scope.chart_ops.series[0].data = ops_array;
-        }
-
-        $scope.refreshStats = function () {
-            var codis_name = $scope.codis_name;
-            var codis_addr = $scope.codis_addr;
-            if (isValidInput(codis_name) && isValidInput(codis_addr)) {
-                var xauth = genXAuth(codis_name);
-                var url = concatUrl("/api/topom/stats/" + xauth, codis_name);
-                $http.get(url).then(function (resp) {
-                    if ($scope.codis_name != codis_name) {
-                        return;
-                    }
-                    $scope.updateStats(resp.data);
-                });
-            }
-        }
-
-        $scope.createProxy = function (proxy_addr) {
-            var codis_name = $scope.codis_name;
-            if (isValidInput(codis_name) && isValidInput(proxy_addr)) {
-                var xauth = genXAuth(codis_name);
-                var url = concatUrl("/api/topom/proxy/create/" + xauth + "/" + proxy_addr, codis_name);
-                $http.put(url).then(function () {
-                    $scope.refreshStats();
-                }, function (failedResp) {
-                    alertErrorResp(failedResp);
-                });
-            }
-        }
-
-        $scope.removeProxy = function (proxy, force) {
-            var codis_name = $scope.codis_name;
-            if (isValidInput(codis_name)) {
-                var prefix = "";
-                if (force) {
-                    prefix = "[FORCE] ";
-                }
-                alertAction(prefix + "Remove and Shutdown proxy: " + toJsonHtml(proxy), function () {
-                    var xauth = genXAuth(codis_name);
-                    var value = 0;
-                    if (force) {
-                        value = 1;
-                    }
-                    var url = concatUrl("/api/topom/proxy/remove/" + xauth + "/" + proxy.token + "/" + value, codis_name);
-                    $http.put(url).then(function () {
-                        $scope.refreshStats();
-                    }, function (failedResp) {
-                        alertErrorResp(failedResp);
-                    });
-                });
-            }
-        }
-
-        $scope.reinitProxy = function (proxy) {
-            var codis_name = $scope.codis_name;
-            if (isValidInput(codis_name)) {
-                var confused = [];
-                for (var i = 0; i < $scope.group_array.length; i ++) {
-                    var group = $scope.group_array[i];
-                    var ha_real_master = -1;
-                    for (var j = 0; j < group.servers.length; j ++) {
-                        if (group.servers[j].ha_status == "ha_real_master") {
-                            ha_real_master = j;
-                        }
-                    }
-                    if (ha_real_master >= 0) {
-                        confused.push({group: group.id, logical_master: group.servers[0].server, ha_real_master: group.servers[ha_real_master].server});
-                    }
-                }
-                if (confused.length == 0) {
-                    alertAction("Reinit and Start proxy: " + toJsonHtml(proxy), function () {
-                        var xauth = genXAuth(codis_name);
-                        var url = concatUrl("/api/topom/proxy/reinit/" + xauth + "/" + proxy.token, codis_name);
-                        $http.put(url).then(function () {
-                            $scope.refreshStats();
-                        }, function (failedResp) {
-                            alertErrorResp(failedResp);
-                        });
-                    });
-                } else {
-                    var prompts = toJsonHtml(proxy);
-                    prompts += "\n\n";
-                    prompts += "HA: real master & logical master area conflicting: " + toJsonHtml(confused);
-                    prompts += "\n\n";
-                    prompts += "Please fix these before resync proxy-[" + proxy.token + "].";
-                    alertAction2("Reinit and Start proxy: " + prompts, function () {
-                        var xauth = genXAuth(codis_name);
-                        var url = concatUrl("/api/topom/proxy/reinit/" + xauth + "/" + proxy.token, codis_name);
-                        $http.put(url).then(function () {
-                            $scope.refreshStats();
-                        }, function (failedResp) {
-                            alertErrorResp(failedResp);
-                        });
-                    });
-                }
-            }
-        }
-
-        $scope.createGroup = function (group_id) {
-            var codis_name = $scope.codis_name;
-            if (isValidInput(codis_name) && isValidInput(group_id)) {
-                var xauth = genXAuth(codis_name);
-                var url = concatUrl("/api/topom/group/create/" + xauth + "/" + group_id, codis_name);
-                $http.put(url).then(function () {
-                    $scope.refreshStats();
-                }, function (failedResp) {
-                    alertErrorResp(failedResp);
-                });
-            }
-        }
-
-        $scope.removeGroup = function (group_id) {
-            var codis_name = $scope.codis_name;
-            if (isValidInput(codis_name)) {
-                var xauth = genXAuth(codis_name);
-                var url = concatUrl("/api/topom/group/remove/" + xauth + "/" + group_id, codis_name);
-                $http.put(url).then(function () {
-                    $scope.refreshStats();
-                }, function (failedResp) {
-                    alertErrorResp(failedResp);
-                });
-            }
-        }
-
-        $scope.resyncGroup = function (group) {
-            var codis_name = $scope.codis_name;
-            if (isValidInput(codis_name)) {
-                var o = {};
-                o.id = group.id;
-                o.servers = [];
-                var ha_real_master = -1;
-                for (var j = 0; j < group.servers.length; j++) {
-                    o.servers.push(group.servers[j].server);
-                    if (group.servers[j].ha_status == "ha_real_master") {
-                        ha_real_master = j;
-                    }
-                }
-                if (ha_real_master < 0) {
-                    alertAction("Resync Group-[" + group.id + "]: " + toJsonHtml(o), function () {
-                        var xauth = genXAuth(codis_name);
-                        var url = concatUrl("/api/topom/group/resync/" + xauth + "/" + group.id, codis_name);
-                        $http.put(url).then(function () {
-                            $scope.refreshStats();
-                        }, function (failedResp) {
-                            alertErrorResp(failedResp);
-                        });
-                    });
-                } else {
-                    var prompts = toJsonHtml(o);
-                    prompts += "\n\n";
-                    prompts += "HA: server[" + ha_real_master + "]=" + group.servers[ha_real_master].server + " should be the real group master, do you really want to resync group-[" + group.id + "] ??";
-                    alertAction2("Resync Group-[" + group.id + "]: " + prompts, function () {
-                        var xauth = genXAuth(codis_name);
-                        var url = concatUrl("/api/topom/group/resync/" + xauth + "/" + group.id, codis_name);
-                        $http.put(url).then(function () {
-                            $scope.refreshStats();
-                        }, function (failedResp) {
-                            alertErrorResp(failedResp);
-                        });
-                    });
-                }
-            }
-        }
-
-        $scope.resyncGroupAll = function() {
-            var codis_name = $scope.codis_name;
-            if (isValidInput(codis_name)) {
-                var ha_real_master = -1;
-                var gids = [];
-                for (var i = 0; i < $scope.group_array.length; i ++) {
-                    var group = $scope.group_array[i];
-                    for (var j = 0; j < group.servers.length; j++) {
-                        if (group.servers[j].ha_status == "ha_real_master") {
-                            ha_real_master = j;
-                        }
-                    }
-                    gids.push(group.id);
-                }
-                if (ha_real_master < 0) {
-                    alertAction("Resync All Groups: group-[" + gids + "]", function () {
-                        var xauth = genXAuth(codis_name);
-                        var url = concatUrl("/api/topom/group/resync-all/" + xauth, codis_name);
-                        $http.put(url).then(function () {
-                            $scope.refreshStats();
-                        }, function (failedResp) {
-                            alertErrorResp(failedResp);
-                        });
-                    });
-                } else {
-                    alertAction2("Resync All Groups: group-[" + gids + "] (in conflict with HA)", function () {
-                        var xauth = genXAuth(codis_name);
-                        var url = concatUrl("/api/topom/group/resync-all/" + xauth, codis_name);
-                        $http.put(url).then(function () {
-                            $scope.refreshStats();
-                        }, function (failedResp) {
-                            alertErrorResp(failedResp);
-                        });
-                    });
-                }
-            }
-        }
-
-        $scope.resyncSentinels = function () {
-            var codis_name = $scope.codis_name;
-            if (isValidInput(codis_name)) {
-                var servers = [];
-                for (var i = 0; i < $scope.sentinel_servers.length; i ++) {
-                    servers.push($scope.sentinel_servers[i].server);
-                }
-                var confused = [];
-                for (var i = 0; i < $scope.group_array.length; i ++) {
-                    var group = $scope.group_array[i];
-                    var ha_real_master = -1;
-                    for (var j = 0; j < group.servers.length; j ++) {
-                        if (group.servers[j].ha_status == "ha_real_master") {
-                            ha_real_master = j;
-                        }
-                    }
-                    if (ha_real_master >= 0) {
-                        confused.push({group: group.id, logical_master: group.servers[0].server, ha_real_master: group.servers[ha_real_master].server});
-                    }
-                }
-                if (confused.length == 0) {
-                    alertAction("Resync All Sentinels: " + toJsonHtml(servers), function () {
-                        var xauth = genXAuth(codis_name);
-                        var url = concatUrl("/api/topom/sentinels/resync-all/" + xauth, codis_name);
-                        $http.put(url).then(function () {
-                            $scope.refreshStats();
-                        }, function (failedResp) {
-                            alertErrorResp(failedResp);
-                        });
-                    });
-                } else {
-                    var prompts = toJsonHtml(servers);
-                    prompts += "\n\n";
-                    prompts += "HA: real master & logical master area conflicting: " + toJsonHtml(confused);
-                    prompts += "\n\n";
-                    prompts += "Please fix these before resync sentinels.";
-                    alertAction2("Resync All Sentinels: " + prompts, function () {
-                        var xauth = genXAuth(codis_name);
-                        var url = concatUrl("/api/topom/sentinels/resync-all/" + xauth, codis_name);
-                        $http.put(url).then(function () {
-                            $scope.refreshStats();
-                        }, function (failedResp) {
-                            alertErrorResp(failedResp);
-                        });
-                    });
-                }
-            }
-        }
-
-        $scope.addSentinel = function (server_addr) {
-            var codis_name = $scope.codis_name;
-            if (isValidInput(codis_name) && isValidInput(server_addr)) {
-                var xauth = genXAuth(codis_name);
-                var url = concatUrl("/api/topom/sentinels/add/" + xauth + "/" + server_addr, codis_name);
-                $http.put(url).then(function () {
-                    $scope.refreshStats();
-                }, function (failedResp) {
-                    alertErrorResp(failedResp);
-                });
-            }
-        }
-
-        $scope.delSentinel = function (sentinel, force) {
-            var codis_name = $scope.codis_name;
-            if (isValidInput(codis_name)) {
-                var prefix = "";
-                if (force) {
-                    prefix = "[FORCE] ";
-                }
-                alertAction(prefix + "Remove sentinel " + sentinel.server, function () {
-                    var xauth = genXAuth(codis_name);
-                    var value = 0;
-                    if (force) {
-                        value = 1;
-                    }
-                    var url = concatUrl("/api/topom/sentinels/del/" + xauth + "/" + sentinel.server + "/" + value, codis_name);
-                    $http.put(url).then(function () {
-                        $scope.refreshStats();
-                    }, function (failedResp) {
-                        alertErrorResp(failedResp);
-                    });
-                });
-            }
-        }
-
-        $scope.addGroupServer = function (group_id, datacenter, server_addr) {
-            var codis_name = $scope.codis_name;
-            if (isValidInput(codis_name) && isValidInput(group_id) && isValidInput(server_addr)) {
-                var xauth = genXAuth(codis_name);
-                if (datacenter == undefined) {
-                    datacenter = "";
-                } else {
-                    datacenter = datacenter.trim();
-                }
-                var suffix = "";
-                if (datacenter != "") {
-                    suffix = "/" + datacenter;
-                }
-                var url = concatUrl("/api/topom/group/add/" + xauth + "/" + group_id + "/" + server_addr + suffix, codis_name);
-                $http.put(url).then(function () {
-                    $scope.refreshStats();
-                }, function (failedResp) {
-                    alertErrorResp(failedResp);
-                });
-            }
-        }
-
-        $scope.delGroupServer = function (group, server_addr) {
-            var codis_name = $scope.codis_name;
-            if (isValidInput(codis_name) && isValidInput(server_addr)) {
-                var o = {};
-                o.id = group.id;
-                o.servers = [];
-                var ha_real_master = -1;
-                for (var j = 0; j < group.servers.length; j++) {
-                    o.servers.push(group.servers[j].server);
-                    if (group.servers[j].ha_status == "ha_real_master") {
-                        ha_real_master = j;
-                    }
-                }
-                if (ha_real_master < 0 || group.servers[ha_real_master].server != server_addr) {
-                    alertAction("Remove server " + server_addr + " from Group-[" + group.id + "]: " + toJsonHtml(o), function () {
-                        var xauth = genXAuth(codis_name);
-                        var url = concatUrl("/api/topom/group/del/" + xauth + "/" + group.id + "/" + server_addr, codis_name);
-                        $http.put(url).then(function () {
-                            $scope.refreshStats();
-                        }, function (failedResp) {
-                            alertErrorResp(failedResp);
-                        });
-                    });
-                } else {
-                    var prompts = toJsonHtml(o);
-                    prompts += "\n\n";
-                    prompts += "HA: server[" + ha_real_master + "]=" + server_addr + " should be the real group master, do you really want to remove it ??";
-                    alertAction2("Remove server " + server_addr + " from Group-[" + group.id + "]: " + prompts, function () {
-                        var xauth = genXAuth(codis_name);
-                        var url = concatUrl("/api/topom/group/del/" + xauth + "/" + group.id + "/" + server_addr, codis_name);
-                        $http.put(url).then(function () {
-                            $scope.refreshStats();
-                        }, function (failedResp) {
-                            alertErrorResp(failedResp);
-                        });
-                    });
-
-                }
-            }
-        }
-
-        $scope.promoteServer = function (group, server_addr) {
-            var codis_name = $scope.codis_name;
-            if (isValidInput(codis_name) && isValidInput(server_addr)) {
-                var o = {};
-                o.id = group.id;
-                o.servers = [];
-                var ha_real_master = -1;
-                for (var j = 0; j < group.servers.length; j++) {
-                    o.servers.push(group.servers[j].server);
-                    if (group.servers[j].ha_status == "ha_real_master") {
-                        ha_real_master = j;
-                    }
-                }
-                if (ha_real_master < 0 || group.servers[ha_real_master].server == server_addr) {
-                    alertAction("Promote server " + server_addr + " from Group-[" + group.id + "]: " + toJsonHtml(o), function () {
-                        var xauth = genXAuth(codis_name);
-                        var url = concatUrl("/api/topom/group/promote/" + xauth + "/" + group.id + "/" + server_addr, codis_name);
-                        $http.put(url).then(function () {
-                            $scope.refreshStats();
-                        }, function (failedResp) {
-                            alertErrorResp(failedResp);
-                        });
-                    });
-                } else {
-                    var prompts = toJsonHtml(o);
-                    prompts += "\n\n";
-                    prompts += "HA: server[" + ha_real_master + "]=" + group.servers[ha_real_master].server + " should be the real group master, do you really want to promote " + server_addr + " ??";
-                    alertAction2("Promote server " + server_addr + " from Group-[" + group.id + "]: " + prompts, function () {
-                        var xauth = genXAuth(codis_name);
-                        var url = concatUrl("/api/topom/group/promote/" + xauth + "/" + group.id + "/" + server_addr, codis_name);
-                        $http.put(url).then(function () {
-                            $scope.refreshStats();
-                        }, function (failedResp) {
-                            alertErrorResp(failedResp);
-                        });
-                    });
-                }
-            }
-        }
-
-        $scope.enableReplicaGroups = function (group_id, server_addr, replica_group) {
-            var codis_name = $scope.codis_name;
-            if (isValidInput(codis_name) && isValidInput(group_id) && isValidInput(server_addr)) {
-                var xauth = genXAuth(codis_name);
-                var value = 0;
-                if (replica_group) {
-                    value = 1;
-                }
-                var url = concatUrl("/api/topom/group/replica-groups/" + xauth + "/" + group_id + "/" + server_addr + "/" + value, codis_name);
-                $http.put(url).then(function () {
-                    $scope.refreshStats();
-                }, function (failedResp) {
-                    alertErrorResp(failedResp);
-                });
-            }
-        }
-
-        $scope.enableReplicaGroupsAll = function (value) {
-            var codis_name = $scope.codis_name;
-            if (isValidInput(codis_name)) {
-                var xauth = genXAuth(codis_name);
-                var url = concatUrl("/api/topom/group/replica-groups-all/" + xauth + "/" + value, codis_name);
-                $http.put(url).then(function () {
-                    $scope.refreshStats();
-                }, function (failedResp) {
-                    alertErrorResp(failedResp);
-                });
-            }
-        }
-
-        $scope.createSyncAction = function (server_addr) {
-            var codis_name = $scope.codis_name;
-            if (isValidInput(codis_name) && isValidInput(server_addr)) {
-                var xauth = genXAuth(codis_name);
-                var url = concatUrl("/api/topom/group/action/create/" + xauth + "/" + server_addr, codis_name);
-                $http.put(url).then(function () {
-                    $scope.refreshStats();
-                }, function (failedResp) {
-                    alertErrorResp(failedResp);
-                });
-            }
-        }
-
-        $scope.removeSyncAction = function (server_addr) {
-            var codis_name = $scope.codis_name;
-            if (isValidInput(codis_name) && isValidInput(server_addr)) {
-                var xauth = genXAuth(codis_name);
-                var url = concatUrl("/api/topom/group/action/remove/" + xauth + "/" + server_addr, codis_name);
-                $http.put(url).then(function () {
-                    $scope.refreshStats();
-                }, function (failedResp) {
-                    alertErrorResp(failedResp);
-                });
-            }
-        }
-
-        $scope.createSlotActionSome = function (slots_num, group_from, group_to) {
-            var codis_name = $scope.codis_name;
-            if (isValidInput(codis_name) && isValidInput(slots_num) && isValidInput(group_from) && isValidInput(group_to)) {
-                alertAction("Migrate " + slots_num + " Slots from Group-[" + group_from + "] to Group-[" + group_to + "]", function () {
-                    var xauth = genXAuth(codis_name);
-                    var url = concatUrl("/api/topom/slots/action/create-some/" + xauth + "/" + group_from + "/" + group_to + "/" + slots_num, codis_name);
-                    $http.put(url).then(function () {
-                        $scope.refreshStats();
-                    }, function (failedResp) {
-                        alertErrorResp(failedResp);
-                    });
-                });
-            }
-        }
-
-        $scope.createSlotActionRange = function (slot_beg, slot_end, group_id) {
-            var codis_name = $scope.codis_name;
-            if (isValidInput(codis_name) && isValidInput(slot_beg) && isValidInput(slot_end) && isValidInput(group_id)) {
-                alertAction("Migrate Slots-[" + slot_beg + "," + slot_end + "] to Group-[" + group_id + "]", function () {
-                    var xauth = genXAuth(codis_name);
-                    var url = concatUrl("/api/topom/slots/action/create-range/" + xauth + "/" + slot_beg + "/" + slot_end + "/" + group_id, codis_name);
-                    $http.put(url).then(function () {
-                        $scope.refreshStats();
-                    }, function (failedResp) {
-                        alertErrorResp(failedResp);
-                    });
-                });
-            }
-        }
-
-        $scope.removeSlotAction = function (slot_id) {
-            var codis_name = $scope.codis_name;
-            if (isValidInput(codis_name) && isValidInput(slot_id)) {
-                var xauth = genXAuth(codis_name);
-                var url = concatUrl("/api/topom/slots/action/remove/" + xauth + "/" + slot_id, codis_name);
-                $http.put(url).then(function () {
-                    $scope.refreshStats();
-                }, function (failedResp) {
-                    alertErrorResp(failedResp);
-                });
-            }
-        }
-
-        $scope.updateSlotActionDisabled = function (value) {
-            var codis_name = $scope.codis_name;
-            if (isValidInput(codis_name)) {
-                var xauth = genXAuth(codis_name);
-                var url = concatUrl("/api/topom/slots/action/disabled/" + xauth + "/" + value, codis_name);
-                $http.put(url).then(function () {
-                    $scope.refreshStats();
-                }, function (failedResp) {
-                    alertErrorResp(failedResp);
-                });
-            }
-        }
-
-        $scope.updateSlotActionInterval = function (value) {
-            var codis_name = $scope.codis_name;
-            if (isValidInput(codis_name)) {
-                var xauth = genXAuth(codis_name);
-                var url = concatUrl("/api/topom/slots/action/interval/" + xauth + "/" + value, codis_name);
-                $http.put(url).then(function () {
-                    $scope.refreshStats();
-                }, function (failedResp) {
-                    alertErrorResp(failedResp);
-                });
-            }
-        }
-
-        $scope.rebalanceAllSlots = function() {
-            var codis_name = $scope.codis_name;
-            if (isValidInput(codis_name)) {
-                var xauth = genXAuth(codis_name);
-                var url = concatUrl("/api/topom/slots/rebalance/" + xauth + "/0", codis_name);
-                $http.put(url).then(function (resp) {
-                    var actions = []
-                    for (var i = 0; i < $scope.group_array.length; i ++) {
-                        var g = $scope.group_array[i];
-                        var slots = [], beg = 0, end = -1;
-                        for (var sid = 0; sid < 1024; sid ++) {
-                            if (resp.data[sid] == g.id) {
-                                if (beg > end) {
-                                    beg = sid; end = sid;
-                                } else if (end == sid - 1) {
-                                    end = sid;
-                                } else {
-                                    slots.push("[" + beg + "," + end + "]");
-                                    beg = sid; end = sid;
-                                }
-                            }
-                        }
-                        if (beg <= end) {
-                            slots.push("[" + beg + "," + end + "]");
-                        }
-                        if (slots.length == 0) {
-                            continue;
-                        }
-                        actions.push("group-[" + g.id + "] <== " + slots);
-                    }
-                    alertAction("Preview of Auto-Rebalance: " + toJsonHtml(actions), function () {
-                        var xauth = genXAuth(codis_name);
-                        var url = concatUrl("/api/topom/slots/rebalance/" + xauth + "/1", codis_name);
-                        $http.put(url).then(function () {
-                            $scope.refreshStats();
-                        }, function (failedResp) {
-                            alertErrorResp(failedResp);
-                        });
-                    });
-                }, function (failedResp) {
-                    alertErrorResp(failedResp);
-                });
-            }
-        }
-
-        if (window.location.hash) {
-            $scope.selectCodisInstance(window.location.hash.substring(1));
-        }
-
-        var ticker = 0;
-        (function autoRefreshStats() {
-            if (ticker >= $scope.refresh_interval) {
-                ticker = 0;
-                $scope.refreshStats();
-            }
-            ticker++;
-            $timeout(autoRefreshStats, 1000);
-        }());
     }
-])
-;
+}]);
+
+function genXAuth(name) {
+    return sha256('Codis-XAuth-[' + name + ']').substring(0, 32);
+}
+
+function isValidInput(value) {
+    return value !== undefined && value !== null && String(value).trim() !== '' && value !== 'NA';
+}
+
+function humanSize(size) {
+    if (size === undefined || size === null || size === '' || isNaN(Number(size))) {
+        return '—';
+    }
+    var value = Number(size);
+    var negative = value < 0;
+    value = Math.abs(value);
+    var units = ['B', 'KB', 'MB', 'GB', 'TB', 'PB'];
+    var index = 0;
+    while (value >= 1024 && index < units.length - 1) {
+        value /= 1024;
+        index++;
+    }
+    var digits = index === 0 ? 0 : (value >= 100 ? 1 : 2);
+    return (negative ? '-' : '') + value.toFixed(digits) + ' ' + units[index];
+}
+
+function padInt2Str(value, size) {
+    var text = String(value);
+    while (text.length < size) {
+        text = '0' + text;
+    }
+    return text;
+}
+
+dashboard.factory('Format', [function () {
+    function number(value, digits) {
+        if (value === undefined || value === null || value === '' || isNaN(Number(value))) {
+            return '—';
+        }
+        var numeric = Number(value);
+        return numeric.toLocaleString('zh-CN', {
+            minimumFractionDigits: digits || 0,
+            maximumFractionDigits: digits || 0
+        });
+    }
+
+    function date(value, withSeconds) {
+        if (!value) {
+            return '—';
+        }
+        var parsed = angular.isDate(value) ? value : new Date(value);
+        if (isNaN(parsed.getTime())) {
+            return String(value);
+        }
+        var text = parsed.getFullYear() + '-' + padInt2Str(parsed.getMonth() + 1, 2) + '-' +
+            padInt2Str(parsed.getDate(), 2) + ' ' + padInt2Str(parsed.getHours(), 2) + ':' +
+            padInt2Str(parsed.getMinutes(), 2);
+        return withSeconds ? text + ':' + padInt2Str(parsed.getSeconds(), 2) : text;
+    }
+
+    return {
+        number: number,
+        bytes: humanSize,
+        date: date,
+        time: function (value) { return date(value, true).slice(11); },
+        percent: function (value) { return value === undefined || value === null ? '—' : number(value, 1) + '%'; },
+        placeholder: '—'
+    };
+}]);
+
+dashboard.factory('Preferences', ['$window', function ($window) {
+    var prefix = 'codis.console.';
+    function read(key, fallback) {
+        try {
+            var raw = $window.localStorage.getItem(prefix + key);
+            return raw === null ? angular.copy(fallback) : angular.fromJson(raw);
+        } catch (ignore) {
+            return angular.copy(fallback);
+        }
+    }
+    function write(key, value) {
+        try {
+            $window.localStorage.setItem(prefix + key, angular.toJson(value));
+        } catch (ignore) {
+            // Storage can be unavailable in private or restricted browser contexts.
+        }
+        return value;
+    }
+    return {get: read, set: write};
+}]);
+
+dashboard.factory('Activity', ['Preferences', function (Preferences) {
+    function list(product, target) {
+        var items = Preferences.get('activities', []);
+        return items.filter(function (item) {
+            return (!product || item.product === product) && (!target || item.target === target);
+        });
+    }
+    function add(product, action, target, result) {
+        var items = Preferences.get('activities', []);
+        items.unshift({
+            id: Date.now() + '-' + Math.random().toString(16).slice(2),
+            product: product,
+            action: action,
+            target: target || '集群',
+            result: result || 'success',
+            time: new Date().toISOString()
+        });
+        Preferences.set('activities', items.slice(0, 120));
+    }
+    return {list: list, add: add};
+}]);
+
+dashboard.factory('Router', ['$window', '$rootScope', '$timeout', function ($window, $rootScope, $timeout) {
+    var current = {product: '', page: 'overview', id: ''};
+    var scrollPositions = {};
+    var knownPages = {
+        overview: true,
+        proxies: true,
+        groups: true,
+        slots: true,
+        sentinels: true,
+        security: true,
+        analysis: true,
+        recovery: true,
+        'proxy-detail': true,
+        'group-detail': true,
+        'sentinel-detail': true
+    };
+
+    function decode(value) {
+        try {
+            return decodeURIComponent(value || '');
+        } catch (ignore) {
+            return value || '';
+        }
+    }
+
+    function parse() {
+        var hash = $window.location.hash || '';
+        if (/^#[^/]/.test(hash) && hash.length > 1) {
+            return {product: decode(hash.slice(1)), page: 'overview', id: ''};
+        }
+        var parts = hash.replace(/^#\/?/, '').split('/');
+        var product = decode(parts.shift());
+        var page = decode(parts.shift()) || 'overview';
+        var id = decode(parts.join('/'));
+        if (page === 'proxies' && id) {
+            page = 'proxy-detail';
+        } else if (page === 'groups' && id) {
+            page = 'group-detail';
+        } else if (page === 'sentinels' && id) {
+            page = 'sentinel-detail';
+        }
+        if (!knownPages[page]) {
+            page = 'overview';
+            id = '';
+        }
+        return {product: product, page: page, id: id};
+    }
+
+    function publish() {
+        var next = parse();
+        if (current.product && (current.product !== next.product || current.page !== next.page || current.id !== next.id)) {
+            scrollPositions[current.product + '/' + current.page + '/' + current.id] = $window.scrollY;
+        }
+        current = next;
+        $rootScope.$applyAsync(function () {
+            $rootScope.$broadcast('route:changed', angular.copy(current));
+        });
+        $timeout(function () {
+            var key = current.product + '/' + current.page + '/' + current.id;
+            $window.scrollTo(0, scrollPositions[key] || 0);
+        }, 60);
+    }
+
+    function go(product, page, id) {
+        var next = '#/' + encodeURIComponent(product || '') + '/' + encodeURIComponent(page || 'overview');
+        if (id !== undefined && id !== null && id !== '') {
+            next += '/' + encodeURIComponent(id);
+        }
+        if ($window.location.hash === next) {
+            publish();
+        } else {
+            $window.location.hash = next;
+        }
+    }
+
+    angular.element($window).on('hashchange', publish);
+    current = parse();
+
+    return {
+        current: current,
+        parse: parse,
+        go: go,
+        refresh: publish,
+        basePage: function (page) {
+            var detailPages = {
+                'proxy-detail': 'proxies',
+                'group-detail': 'groups',
+                'sentinel-detail': 'sentinels'
+            };
+            return detailPages[page] || page || 'overview';
+        }
+    };
+}]);
+
+dashboard.factory('Api', ['$http', '$window', '$injector', function ($http, $window, $injector) {
+    var params = new URLSearchParams($window.location.search);
+    var mock = params.get('mock') === '1';
+
+    function request(method, product, path, data, config) {
+        if (mock) {
+            return $injector.get('MockApi').request(method, product, path, data, config);
+        }
+        var resolved = path.replace('{xauth}', product ? genXAuth(product) : '');
+        var url = resolved;
+        if (product) {
+            url += (url.indexOf('?') >= 0 ? '&' : '?') + 'forward=' + encodeURIComponent(product);
+        }
+        var options = angular.extend({}, config || {}, {
+            method: method,
+            url: url,
+            data: data
+        });
+        return $http(options).then(function (response) {
+            return response.data;
+        });
+    }
+
+    function errorMessage(response) {
+        if (!response) {
+            return '请求失败，请稍后重试';
+        }
+        if (response.status === -1) {
+            return '无法连接 Dashboard，请检查网络或服务状态';
+        }
+        if (response.status === 403) {
+            return '当前账号没有访问此集群的权限';
+        }
+        var data = response.data;
+        if (data) {
+            if (typeof data === 'string') {
+                return data;
+            }
+            return data.Cause || data.cause || data.message || data.error || angular.toJson(data);
+        }
+        return '请求失败（HTTP ' + (response.status || 'unknown') + '）';
+    }
+
+    return {
+        request: request,
+        list: function () {
+            return mock ? $injector.get('MockApi').list() : request('GET', '', '/list');
+        },
+        overview: function (product) {
+            return request('GET', product, '/topom');
+        },
+        stats: function (product) {
+            return request('GET', product, '/api/topom/stats/{xauth}');
+        },
+        segment: function (value) {
+            return encodeURIComponent(value === undefined || value === null ? '' : String(value));
+        },
+        errorMessage: errorMessage,
+        isForbidden: function (response) { return response && response.status === 403; },
+        isMock: function () { return mock; },
+        scenario: function () { return params.get('scenario') || 'normal'; }
+    };
+}]);
+
+dashboard.factory('ClusterStore', ['Api', '$q', '$rootScope', function (Api, $q, $rootScope) {
+    var cache = {};
+    var sequences = {};
+
+    function emptyState(product) {
+        return {
+            product: product,
+            model: {},
+            config: {},
+            raw: {},
+            proxies: [],
+            groups: [],
+            sentinels: [],
+            slots: [],
+            slotActions: [],
+            slotAction: {},
+            sentinelMasters: {},
+            sentinelOutOfSync: false,
+            totals: {
+                qps: null,
+                sessions: null,
+                memory: null,
+                keys: null,
+                resources: 0,
+                healthy: 0,
+                issues: 0
+            },
+            issues: [],
+            histories: {},
+            loading: true,
+            refreshing: false,
+            error: null,
+            forbidden: false,
+            updatedAt: null
+        };
+    }
+
+    function state(product) {
+        if (!cache[product]) {
+            cache[product] = emptyState(product);
+            sequences[product] = 0;
+        }
+        return cache[product];
+    }
+
+    function proxyStatus(wrapper) {
+        if (!wrapper) { return 'PENDING'; }
+        if (wrapper.timeout) { return 'TIMEOUT'; }
+        if (wrapper.error) { return 'ERROR'; }
+        return wrapper.stats && wrapper.stats.online ? 'HEALTHY' : 'PENDING';
+    }
+
+    function serverStatus(wrapper) {
+        if (!wrapper) { return 'PENDING'; }
+        if (wrapper.timeout) { return 'TIMEOUT'; }
+        if (wrapper.error) { return 'ERROR'; }
+        return 'HEALTHY';
+    }
+
+    function numeric(value) {
+        if (value === undefined || value === null || value === '' || isNaN(Number(value))) {
+            return null;
+        }
+        return Number(value);
+    }
+
+    function dbKeys(stats) {
+        var total = 0;
+        var found = false;
+        angular.forEach(stats || {}, function (value, key) {
+            if (/^db\d+$/.test(key) && typeof value === 'string') {
+                var match = value.match(/keys=(\d+)/);
+                if (match) {
+                    total += Number(match[1]);
+                    found = true;
+                }
+            }
+        });
+        return found ? total : null;
+    }
+
+    function normalizeProxies(raw, target) {
+        var models = raw.proxy && raw.proxy.models ? raw.proxy.models : [];
+        var wrappers = raw.proxy && raw.proxy.stats ? raw.proxy.stats : {};
+        var qps = 0;
+        var sessions = 0;
+        var hasQps = false;
+        var hasSessions = false;
+        var proxies = models.map(function (model) {
+            var wrapper = wrappers[model.token];
+            var stats = wrapper && wrapper.stats ? wrapper.stats : {};
+            var ops = stats.ops || {};
+            var sessionStats = stats.sessions || {};
+            var currentQps = numeric(ops.qps);
+            var alive = numeric(sessionStats.alive);
+            if (currentQps !== null) {
+                qps += currentQps;
+                hasQps = true;
+            }
+            if (alive !== null) {
+                sessions += alive;
+                hasSessions = true;
+            }
+            return angular.extend({}, model, {
+                name: model.token || model.proxy_addr,
+                status: proxyStatus(wrapper),
+                qps: currentQps,
+                sessions: alive,
+                totalSessions: numeric(sessionStats.total),
+                commands: numeric(ops.total),
+                fails: numeric(ops.fails),
+                redisErrors: ops.redis ? numeric(ops.redis.errors) : null,
+                switched: !!(stats.sentinels && stats.sentinels.switched),
+                primaryOnly: !!(stats.backend && stats.backend.primary_only),
+                proxyLink: model.admin_addr ? model.admin_addr + '/proxy' : '',
+                statsLink: model.admin_addr ? model.admin_addr + '/proxy/stats' : ''
+            });
+        });
+        target.totals.qps = hasQps ? qps : null;
+        target.totals.sessions = hasSessions ? sessions : null;
+        return proxies;
+    }
+
+    function normalizeGroups(raw, target) {
+        var models = raw.group && raw.group.models ? raw.group.models : [];
+        var wrappers = raw.group && raw.group.stats ? raw.group.stats : {};
+        var memory = 0;
+        var keys = 0;
+        var hasMemory = false;
+        var hasKeys = false;
+        var groups = models.map(function (model) {
+            var promoting = model.promoting || {};
+            var group = angular.extend({}, model, {
+                name: 'Group-' + model.id,
+                servers: [],
+                runids: {},
+                isPromoting: !!promoting.state,
+                promotingIndex: promoting.index || 0,
+                memory: null,
+                keys: null,
+                status: 'HEALTHY'
+            });
+            var groupMemory = 0;
+            var groupKeys = 0;
+            var hasGroupMemory = false;
+            var hasGroupKeys = false;
+            (model.servers || []).forEach(function (server, index) {
+                var wrapper = wrappers[server.server];
+                var stats = wrapper && wrapper.stats ? wrapper.stats : {};
+                var usedMemory = numeric(stats.used_memory);
+                var maxMemory = numeric(stats.maxmemory);
+                var keyCount = dbKeys(stats);
+                var master = stats.master_addr ? stats.master_addr + ':' + (stats.master_link_status || 'unknown') : 'NO:ONE';
+                var normalized = angular.extend({}, server, {
+                    name: server.server,
+                    status: serverStatus(wrapper),
+                    memory: usedMemory,
+                    maxMemory: maxMemory,
+                    keys: keyCount,
+                    master: master,
+                    runId: stats.run_id || '',
+                    isPrimary: index === 0,
+                    masterHealthy: index === 0 ? master === 'NO:ONE' : master === model.servers[0].server + ':up',
+                    canRemove: !promoting.state && (index !== 0 || model.servers.length <= 1),
+                    canPromote: !promoting.state && index !== 0,
+                    isPromoting: !!promoting.state && index === (promoting.index || 0),
+                    actionState: server.action && server.action.state ? server.action.state : ''
+                });
+                if (stats.run_id) {
+                    group.runids[stats.run_id] = server.server;
+                }
+                if (index === 0) {
+                    if (usedMemory !== null) {
+                        groupMemory = usedMemory;
+                        memory += usedMemory;
+                        hasMemory = true;
+                        hasGroupMemory = true;
+                    }
+                    if (keyCount !== null) {
+                        groupKeys = keyCount;
+                        keys += keyCount;
+                        hasKeys = true;
+                        hasGroupKeys = true;
+                    }
+                }
+                if (normalized.status !== 'HEALTHY' || !normalized.masterHealthy || model.out_of_sync) {
+                    group.status = normalized.status === 'HEALTHY' ? 'WARNING' : normalized.status;
+                }
+                group.servers.push(normalized);
+            });
+            group.memory = hasGroupMemory ? groupMemory : null;
+            group.keys = hasGroupKeys ? groupKeys : null;
+            group.canRemove = group.servers.length === 0;
+            return group;
+        });
+        target.totals.memory = hasMemory ? memory : null;
+        target.totals.keys = hasKeys ? keys : null;
+        return groups;
+    }
+
+    function normalizeSentinels(raw, groups, product, target) {
+        var ha = raw.sentinels || {};
+        var model = ha.model || {};
+        var wrappers = ha.stats || {};
+        var sentinels = (model.servers || []).map(function (address) {
+            var wrapper = wrappers[address];
+            var stats = wrapper && wrapper.stats ? wrapper.stats : {};
+            var item = {
+                name: address,
+                server: address,
+                status: serverStatus(wrapper),
+                masters: null,
+                mastersDown: null,
+                slaves: null,
+                sentinels: null,
+                averageSlaves: null,
+                averageSentinels: null,
+                runidError: ''
+            };
+            if (item.status === 'HEALTHY') {
+                var masters = numeric(stats.sentinel_masters) || 0;
+                var activeMasters = 0;
+                var down = 0;
+                var slaves = 0;
+                var sentinelCount = 0;
+                for (var index = 0; index < masters; index++) {
+                    var record = stats['master' + index];
+                    if (!record) { continue; }
+                    var fields = {};
+                    record.split(',').forEach(function (pair) {
+                        var parts = pair.split('=');
+                        if (parts.length === 2) { fields[parts[0]] = parts[1]; }
+                    });
+                    if (!fields.name || fields.name.lastIndexOf(product + '-') !== 0) { continue; }
+                    activeMasters++;
+                    if (fields.status !== 'ok') { down++; }
+                    slaves += numeric(fields.slaves) || 0;
+                    sentinelCount += numeric(fields.sentinels) || 0;
+                }
+                item.masters = activeMasters;
+                item.mastersDown = down;
+                item.slaves = slaves;
+                item.sentinels = sentinelCount;
+                item.averageSlaves = activeMasters ? slaves / activeMasters : 0;
+                item.averageSentinels = activeMasters ? sentinelCount / activeMasters : 0;
+                if (down > 0) { item.status = 'WARNING'; }
+                if (wrapper.sentinel) {
+                    groups.forEach(function (group) {
+                        var observed = wrapper.sentinel[product + '-' + group.id] || {};
+                        var runids = {};
+                        if (observed.master) {
+                            runids[observed.master.runid] = observed.master.ip + ':' + observed.master.port;
+                        }
+                        (observed.slaves || []).forEach(function (server) {
+                            runids[server.runid] = server.ip + ':' + server.port;
+                        });
+                        angular.forEach(runids, function (addressValue, runid) {
+                            if (group.runids[runid] === undefined) {
+                                item.runidError = 'Group-' + group.id + ' 多出的节点 ' + addressValue;
+                            }
+                        });
+                        angular.forEach(group.runids, function (addressValue, runid) {
+                            if (runids[runid] === undefined) {
+                                item.runidError = 'Group-' + group.id + ' 缺失的节点 ' + addressValue;
+                            }
+                        });
+                    });
+                }
+                if (item.runidError) { item.status = 'WARNING'; }
+            }
+            return item;
+        });
+        target.sentinelMasters = ha.masters || {};
+        target.sentinelOutOfSync = !!model.out_of_sync;
+        return sentinels;
+    }
+
+    function applyHA(target) {
+        if (!target.sentinels.length) { return; }
+        target.groups.forEach(function (group) {
+            var haMaster = target.sentinelMasters[group.id];
+            var found = false;
+            group.haWarning = '';
+            group.servers.forEach(function (server) {
+                if (haMaster === undefined) {
+                    server.haStatus = 'unknown';
+                } else if (server.server === haMaster) {
+                    server.haStatus = server.isPrimary ? 'master' : 'real-master';
+                    found = true;
+                    if (!server.isPrimary) { group.status = 'WARNING'; }
+                } else {
+                    server.haStatus = server.isPrimary ? 'not-master' : 'replica';
+                    if (server.isPrimary) { group.status = 'WARNING'; }
+                }
+            });
+            if (haMaster !== undefined && !found) {
+                group.haWarning = haMaster;
+                group.status = 'WARNING';
+            }
+        });
+    }
+
+    function appendHistory(target, key, metric, value, time) {
+        var id = key + ':' + metric;
+        if (!target.histories[id]) { target.histories[id] = []; }
+        var points = target.histories[id];
+        points.push([time, value === undefined ? null : value]);
+        if (points.length > 180) { points.shift(); }
+    }
+
+    function recordHistory(target) {
+        var time = Date.now();
+        ['qps', 'sessions', 'memory', 'keys'].forEach(function (metric) {
+            appendHistory(target, 'cluster', metric, target.totals[metric], time);
+        });
+        target.proxies.forEach(function (proxy) {
+            appendHistory(target, 'proxy:' + proxy.token, 'qps', proxy.qps, time);
+            appendHistory(target, 'proxy:' + proxy.token, 'sessions', proxy.sessions, time);
+            appendHistory(target, 'proxy:' + proxy.token, 'fails', proxy.fails, time);
+        });
+        target.groups.forEach(function (group) {
+            appendHistory(target, 'group:' + group.id, 'memory', group.memory, time);
+            appendHistory(target, 'group:' + group.id, 'keys', group.keys, time);
+        });
+    }
+
+    function normalize(product, raw, target) {
+        target.raw = raw || {};
+        target.proxies = normalizeProxies(raw || {}, target);
+        target.groups = normalizeGroups(raw || {}, target);
+        target.sentinels = normalizeSentinels(raw || {}, target.groups, product, target);
+        applyHA(target);
+        target.slots = raw.slots || [];
+        target.slotAction = raw.slot_action || {};
+        target.slotActions = target.slots.filter(function (slot) {
+            return slot.action && slot.action.state;
+        });
+        target.issues = [];
+        target.proxies.forEach(function (proxy) {
+            if (proxy.status !== 'HEALTHY') {
+                target.issues.push({type: 'proxy', id: proxy.token, name: proxy.token, status: proxy.status, description: 'Proxy 状态需要检查'});
+            }
+        });
+        target.groups.forEach(function (group) {
+            group.servers.forEach(function (server) {
+                if (server.status !== 'HEALTHY' || !server.masterHealthy) {
+                    target.issues.push({type: 'group', id: group.id, name: server.server, status: server.status === 'HEALTHY' ? 'WARNING' : server.status, description: 'Group-' + group.id + ' 复制或连接状态异常'});
+                }
+            });
+        });
+        target.sentinels.forEach(function (sentinel) {
+            if (sentinel.status !== 'HEALTHY') {
+                target.issues.push({type: 'sentinel', id: sentinel.server, name: sentinel.server, status: sentinel.status, description: sentinel.runidError || 'Sentinel 监控状态需要检查'});
+            }
+        });
+        var all = target.proxies.concat(target.sentinels);
+        target.groups.forEach(function (group) { all = all.concat(group.servers); });
+        target.totals.resources = all.length;
+        target.totals.healthy = all.filter(function (item) { return item.status === 'HEALTHY'; }).length;
+        target.totals.issues = target.issues.length;
+        recordHistory(target);
+        target.updatedAt = new Date();
+        target.loading = false;
+        target.refreshing = false;
+        target.error = null;
+        target.forbidden = false;
+        $rootScope.$broadcast('cluster:updated', {product: product, state: target});
+        return target;
+    }
+
+    function load(product, force) {
+        var target = state(product);
+        if (target.updatedAt && !force) {
+            return $q.when(target);
+        }
+        var sequence = ++sequences[product];
+        if (target.updatedAt) {
+            target.refreshing = true;
+        } else {
+            target.loading = true;
+        }
+        target.error = null;
+        return Api.overview(product).then(function (overview) {
+            if (sequence !== sequences[product]) { return target; }
+            target.model = overview.model || {};
+            target.config = overview.config || {};
+            return normalize(product, overview.stats || {}, target);
+        }).catch(function (response) {
+            if (sequence === sequences[product]) {
+                target.loading = false;
+                target.refreshing = false;
+                target.error = Api.errorMessage(response);
+                target.forbidden = Api.isForbidden(response);
+            }
+            return $q.reject(response);
+        });
+    }
+
+    function refresh(product) {
+        var target = state(product);
+        var sequence = ++sequences[product];
+        target.refreshing = true;
+        target.error = null;
+        return Api.stats(product).then(function (raw) {
+            if (sequence !== sequences[product]) { return target; }
+            return normalize(product, raw, target);
+        }).catch(function (response) {
+            if (sequence === sequences[product]) {
+                target.refreshing = false;
+                target.error = Api.errorMessage(response);
+                target.forbidden = Api.isForbidden(response);
+            }
+            return $q.reject(response);
+        });
+    }
+
+    function history(product, key, metric) {
+        var target = state(product);
+        return target.histories[key + ':' + metric] || [];
+    }
+
+    return {
+        state: state,
+        load: load,
+        refresh: refresh,
+        history: history,
+        clear: function (product) { delete cache[product]; }
+    };
+}]);
