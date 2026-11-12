@@ -1,0 +1,74 @@
+/* *
+ *
+ *  (c) 2010-2026 Highsoft AS
+ *  Author: Hubert Kozik
+ *
+ *  Integration of this software requires a license.
+ *  - For commercial use, see www.highcharts.com/license
+ *  - For non-commercial, see www.highcharts.com/license-eula
+ *
+ *
+ * */
+'use strict';
+import H from '../Core/Globals.js';
+import { defined } from '../Shared/Utilities.js';
+const { doc } = H;
+/* *
+ *
+ *  Functions
+ *
+ * */
+/**
+ * Find color of point based on color axis.
+ *
+ * @internal
+ *
+ * @param {number | null} value
+ *        Value to find corresponding color on the color axis.
+ *
+ * @param {Highcharts.Point} point
+ *        Point to find it's color from color axis.
+ *
+ * @return {number[]}
+ *        Color in RGBa array.
+ */
+function colorFromPoint(value, point) {
+    const colorAxis = point.series.colorAxis;
+    if (colorAxis) {
+        const rgba = (colorAxis.toColor(value || 0, point)
+            .split(')')[0]
+            .split('(')[1]
+            .split(',')
+            .map((s) => (parseFloat(s) ?? parseInt(s, 10))));
+        rgba[3] = (rgba[3] ?? 1.0) * 255;
+        if (!defined(value) || !point.visible) {
+            rgba[3] = 0;
+        }
+        return rgba;
+    }
+    return [0, 0, 0, 0];
+}
+/**
+ * Method responsible for creating a canvas for interpolation image.
+ * @internal
+ */
+function getContext(series) {
+    const { canvas, context } = series;
+    // We can trust that the context is canvas when clearRect is present.
+    if (canvas && context?.clearRect) {
+        context.clearRect(0, 0, canvas.width, canvas.height);
+    }
+    else {
+        series.canvas = doc.createElement('canvas');
+        series.context = series.canvas.getContext('2d', {
+            willReadFrequently: true
+        }) || void 0;
+        return series.context;
+    }
+    return context;
+}
+const InterpolationUtilities = {
+    colorFromPoint,
+    getContext
+};
+export default InterpolationUtilities;

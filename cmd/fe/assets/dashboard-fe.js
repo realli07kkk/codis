@@ -1,6 +1,34 @@
 'use strict';
 
-var dashboard = angular.module('dashboard-fe', ["highcharts-ng", "ui.bootstrap"]);
+var dashboard = angular.module('dashboard-fe', []);
+
+dashboard.directive('highchart', function () {
+    function toHighchartsOptions(config) {
+        var options = angular.extend({}, config.options);
+        angular.forEach(config, function (value, key) {
+            if (key !== 'options') {
+                options[key] = value;
+            }
+        });
+        return options;
+    }
+
+    return {
+        restrict: 'E',
+        scope: {
+            config: '='
+        },
+        link: function (scope, element) {
+            element.css({display: 'block', width: '100%'});
+            var chart = Highcharts.chart(element[0], toHighchartsOptions(scope.config));
+            scope.$watch('config', function (config) {
+                if (config) {
+                    chart.update(toHighchartsOptions(config), true, true, false);
+                }
+            }, true);
+        }
+    };
+});
 
 function genXAuth(name) {
     return sha256("Codis-XAuth-[" + name + "]").substring(0, 32);
@@ -567,8 +595,8 @@ dashboard.config(['$httpProvider', function ($httpProvider) {
     delete $httpProvider.defaults.headers.common['X-Requested-With'];
 }]);
 
-dashboard.controller('MainCodisCtrl', ['$scope', '$http', '$uibModal', '$timeout',
-    function ($scope, $http, $uibModal, $timeout) {
+dashboard.controller('MainCodisCtrl', ['$scope', '$http', '$timeout',
+    function ($scope, $http, $timeout) {
         Highcharts.setOptions({
             global: {
                 useUTC: false,

@@ -1,0 +1,59 @@
+/* *
+ *
+ *  Highcharts funnel module
+ *
+ *  (c) 2010-2026 Highsoft AS
+ *  Author: Torstein Hønsi
+ *
+ *  Integration of this software requires a license.
+ *  - For commercial use, see www.highcharts.com/license
+ *  - For non-commercial, see www.highcharts.com/license-eula
+ *
+ *
+ * */
+'use strict';
+import FunnelSeries from '../Funnel/FunnelSeries.js';
+import PyramidSeriesDefaults from './PyramidSeriesDefaults.js';
+import SeriesRegistry from '../../Core/Series/SeriesRegistry.js';
+import { merge } from '../../Shared/Utilities.js';
+/* *
+ *
+ *  Class
+ *
+ * */
+/**
+ * Pyramid series type.
+ *
+ * @internal
+ * @class
+ * @name Highcharts.seriesTypes.pyramid
+ *
+ * @augments Highcharts.Series
+ */
+class PyramidSeries extends FunnelSeries {
+}
+/* *
+ *
+ *  Static Properties
+ *
+ * */
+/**
+ * A pyramid series is a special type of funnel, without neck and reversed
+ * by default.
+ *
+ * @sample highcharts/demo/pyramid/
+ *         Pyramid chart
+ *
+ * @extends      plotOptions.funnel
+ * @product      highcharts
+ * @requires     modules/funnel
+ * @optionparent plotOptions.pyramid
+ */
+PyramidSeries.defaultOptions = merge(FunnelSeries.defaultOptions, PyramidSeriesDefaults);
+SeriesRegistry.registerSeriesType('pyramid', PyramidSeries);
+/* *
+ *
+ *  Default Export
+ *
+ * */
+export default PyramidSeries;

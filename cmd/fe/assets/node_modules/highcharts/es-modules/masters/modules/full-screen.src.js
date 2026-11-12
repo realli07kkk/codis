@@ -1,0 +1,21 @@
+// SPDX-License-Identifier: LicenseRef-Highcharts
+/**
+ * @license Highstock JS v13.1.1 (2026-09-20)
+ * @module highcharts/modules/full-screen
+ * @requires highcharts
+ *
+ * Advanced Highcharts Stock tools
+ *
+ * (c) 2010-2026 Highsoft AS
+ * Author: Torstein Hønsi
+ *
+ * A commercial license may be required depending on use,
+ * see www.highcharts.com/license
+ */
+'use strict';
+import Highcharts from '../../Core/Globals.js';
+import Fullscreen from '../../Extensions/Exporting/Fullscreen.js';
+const G = Highcharts;
+G.Fullscreen = G.Fullscreen || Fullscreen;
+G.Fullscreen.compose(G.Chart);
+export default Highcharts;

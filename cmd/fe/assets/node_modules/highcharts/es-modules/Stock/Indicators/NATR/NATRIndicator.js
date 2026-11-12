@@ -1,0 +1,98 @@
+/* *
+ *
+ *  Integration of this software requires a license.
+ *  - For commercial use, see www.highcharts.com/license
+ *  - For non-commercial, see www.highcharts.com/license-eula
+ *
+ *
+ * */
+'use strict';
+import SeriesRegistry from '../../../Core/Series/SeriesRegistry.js';
+import { merge } from '../../../Shared/Utilities.js';
+const { atr: ATRIndicator } = SeriesRegistry.seriesTypes;
+/* *
+ *
+ *  Class
+ *
+ * */
+/**
+ * The NATR series type.
+ *
+ * @internal
+ * @class
+ * @name Highcharts.seriesTypes.natr
+ *
+ * @augments Highcharts.Series
+ */
+class NATRIndicator extends ATRIndicator {
+    /* *
+     *
+     *  Functions
+     *
+     * */
+    getValues(series, params) {
+        const atrData = (super.getValues.apply(this, arguments)), atrLength = atrData.values.length, yVal = series.yData;
+        let i = 0, period = params.period - 1;
+        if (!atrData) {
+            return;
+        }
+        for (; i < atrLength; i++) {
+            atrData.yData[i] = (atrData.values[i][1] / yVal[period][3] * 100);
+            atrData.values[i][1] = atrData.yData[i];
+            period++;
+        }
+        return atrData;
+    }
+}
+/* *
+ *
+ *  Static Properties
+ *
+ * */
+/**
+ * Normalized average true range indicator (NATR). This series requires
+ * `linkedTo` option to be set and should be loaded after the
+ * `stock/indicators/indicators.js` and `stock/indicators/atr.js`.
+ *
+ * @sample {highstock} stock/indicators/natr
+ *         NATR indicator
+ *
+ * @extends      plotOptions.atr
+ * @since        7.0.0
+ * @product      highstock
+ * @requires     stock/indicators/indicators
+ * @requires     stock/indicators/atr
+ * @requires     stock/indicators/natr
+ * @optionparent plotOptions.natr
+ */
+NATRIndicator.defaultOptions = merge(ATRIndicator.defaultOptions, {
+    tooltip: {
+        valueSuffix: '%'
+    }
+});
+SeriesRegistry.registerSeriesType('natr', NATRIndicator);
+/* *
+ *
+ *  Default Export
+ *
+ * */
+/** @internal */
+export default NATRIndicator;
+/* *
+ *
+ *  API Options
+ *
+ * */
+/**
+ * A `NATR` series. If the [type](#series.natr.type) option is not specified, it
+ * is inherited from [chart.type](#chart.type).
+ *
+ * @extends   series,plotOptions.natr
+ * @since     7.0.0
+ * @product   highstock
+ * @requires  stock/indicators/indicators
+ * @requires  stock/indicators/atr
+ * @requires  stock/indicators/natr
+ * @apioption series.natr
+ */
+''; // To include the above in the js output

@@ -1,0 +1,65 @@
+/* *
+ *
+ *  (c) 2010-2026 Highsoft AS
+ *  Author: Torstein Hønsi
+ *
+ *  Integration of this software requires a license.
+ *  - For commercial use, see www.highcharts.com/license
+ *  - For non-commercial, see www.highcharts.com/license-eula
+ *
+ *
+ * */
+'use strict';
+import H from '../../Core/Globals.js';
+const { noop } = H;
+import PolygonSeriesDefaults from './PolygonSeriesDefaults.js';
+import SeriesRegistry from '../../Core/Series/SeriesRegistry.js';
+const { area: AreaSeries, line: LineSeries, scatter: ScatterSeries } = SeriesRegistry.seriesTypes;
+import { extend, merge } from '../../Shared/Utilities.js';
+/* *
+ *
+ *  Class
+ *
+ * */
+class PolygonSeries extends ScatterSeries {
+    /* *
+     *
+     *  Functions
+     *
+     * */
+    getGraphPath() {
+        const graphPath = LineSeries.prototype.getGraphPath.call(this);
+        let i = graphPath.length + 1;
+        // Close all segments
+        while (i--) {
+            if ((i === graphPath.length || graphPath[i][0] === 'M') && i > 0) {
+                graphPath.splice(i, 0, ['Z']);
+            }
+        }
+        this.areaPath = graphPath;
+        return graphPath;
+    }
+    drawGraph() {
+        // Borrow the fill logic from area.drawGraph, honoring `fillOpacity`
+        // and an optional `fillColor`
+        AreaSeries.prototype.drawGraph.call(this);
+    }
+}
+/* *
+ *
+ *  Static Properties
+ *
+ * */
+PolygonSeries.defaultOptions = merge(ScatterSeries.defaultOptions, PolygonSeriesDefaults);
+extend(PolygonSeries.prototype, {
+    type: 'polygon',
+    drawTracker: LineSeries.prototype.drawTracker,
+    setStackedPoints: noop // No stacking points on polygons (#5310)
+});
+SeriesRegistry.registerSeriesType('polygon', PolygonSeries);
+/* *
+ *
+ *  Default Export
+ *
+ * */
+export default PolygonSeries;

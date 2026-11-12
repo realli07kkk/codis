@@ -1,0 +1,758 @@
+// SPDX-License-Identifier: LicenseRef-Highcharts
+/**
+ * @license Highcharts JS v13.1.1 (2026-09-20)
+ * @module highcharts/modules/timeline
+ * @requires highcharts
+ *
+ * Timeline series
+ *
+ * (c) 2010-2026 Highsoft AS
+ * Author: Daniel Studencki
+ *
+ * A commercial license may be required depending on use,
+ * see www.highcharts.com/license
+ */
+import * as __WEBPACK_EXTERNAL_MODULE__highcharts_src_js_8202131d__ from "../highcharts.src.js";
+/******/ // The require scope
+/******/ const __webpack_require__ = {};
+/******/ 
+/************************************************************************/
+/******/ /* webpack/runtime/compat get default export */
+/******/ // getDefaultExport function for compatibility with non-harmony modules
+/******/ __webpack_require__.n = (module) => {
+/******/ 	const getter = module && module.__esModule ?
+/******/ 		() => (module['default']) :
+/******/ 		() => (module);
+/******/ 	__webpack_require__.d(getter, { a: getter });
+/******/ 	return getter;
+/******/ };
+/******/ 
+/******/ /* webpack/runtime/define property getters */
+/******/ // define getter/value functions for harmony exports
+/******/ __webpack_require__.d = (exports, definition) => {
+/******/ 	for(var key in definition) {
+/******/ 		if(__webpack_require__.o(definition, key) && !__webpack_require__.o(exports, key)) {
+/******/ 			Object.defineProperty(exports, key, { enumerable: true, get: definition[key] });
+/******/ 		}
+/******/ 	}
+/******/ };
+/******/ 
+/******/ /* webpack/runtime/hasOwnProperty shorthand */
+/******/ __webpack_require__.o = (obj, prop) => (Object.prototype.hasOwnProperty.call(obj, prop));
+/******/ 
+/************************************************************************/
+
+;// external ["../highcharts.src.js","default"]
+const external_highcharts_src_js_default_namespaceObject = __WEBPACK_EXTERNAL_MODULE__highcharts_src_js_8202131d__["default"];
+var external_highcharts_src_js_default_default = /*#__PURE__*/__webpack_require__.n(external_highcharts_src_js_default_namespaceObject);
+;// external ["../highcharts.src.js","default","SeriesRegistry"]
+const external_highcharts_src_js_default_SeriesRegistry_namespaceObject = __WEBPACK_EXTERNAL_MODULE__highcharts_src_js_8202131d__["default"].SeriesRegistry;
+var external_highcharts_src_js_default_SeriesRegistry_default = /*#__PURE__*/__webpack_require__.n(external_highcharts_src_js_default_SeriesRegistry_namespaceObject);
+;// external ["../highcharts.src.js","default","Point"]
+const external_highcharts_src_js_default_Point_namespaceObject = __WEBPACK_EXTERNAL_MODULE__highcharts_src_js_8202131d__["default"].Point;
+var external_highcharts_src_js_default_Point_default = /*#__PURE__*/__webpack_require__.n(external_highcharts_src_js_default_Point_namespaceObject);
+;// ./code/es-modules/Series/Timeline/TimelinePoint.js
+/* *
+ *
+ *  Timeline Series.
+ *
+ *  (c) 2010-2026 Highsoft AS
+ *
+ *  Author: Daniel Studencki
+ *
+ *  Integration of this software requires a license.
+ *  - For commercial use, see www.highcharts.com/license
+ *  - For non-commercial, see www.highcharts.com/license-eula
+ *
+ *
+ * */
+
+
+
+const { line: { prototype: { pointClass: LinePoint } }, pie: { prototype: { pointClass: PiePoint } } } = (external_highcharts_src_js_default_SeriesRegistry_default()).seriesTypes;
+
+/* *
+ *
+ *  Class
+ *
+ * */
+class TimelinePoint extends LinePoint {
+    /* *
+     *
+     *  Functions
+     *
+     * */
+    alignConnector() {
+        const point = this, series = point.series, dataLabel = point.dataLabel, connector = dataLabel.connector, dlOptions = (dataLabel.options || {}), connectorWidth = dlOptions.connectorWidth || 0, chart = point.series.chart, bBox = connector.getBBox(), plotPos = {
+            x: bBox.x + (dataLabel.translateX || 0),
+            y: bBox.y + (dataLabel.translateY || 0)
+        };
+        // Include a half of connector width in order to run animation,
+        // when connectors are aligned to the plot area edge.
+        if (chart.inverted) {
+            plotPos.y -= connectorWidth / 2;
+        }
+        else {
+            plotPos.x += connectorWidth / 2;
+        }
+        const isVisible = chart.isInsidePlot(plotPos.x, plotPos.y);
+        connector[isVisible ? 'animate' : 'attr']({
+            d: point.getConnectorPath()
+        });
+        connector.addClass('highcharts-color-' + point.colorIndex);
+        if (!series.chart.styledMode) {
+            connector.attr({
+                stroke: dlOptions.connectorColor || point.color,
+                'stroke-width': dlOptions.connectorWidth,
+                opacity: dataLabel[(0,external_highcharts_src_js_default_namespaceObject.defined)(dataLabel.newOpacity) ? 'newOpacity' : 'opacity']
+            });
+        }
+    }
+    drawConnector() {
+        const point = this, { dataLabel, series } = point;
+        if (dataLabel) {
+            if (!dataLabel.connector) {
+                dataLabel.connector = series.chart.renderer
+                    .path(point.getConnectorPath())
+                    .attr({
+                    zIndex: -1
+                })
+                    .add(dataLabel);
+            }
+            if (point.series.chart.isInsidePlot(// #10507
+            dataLabel.x || 0, dataLabel.y || 0)) {
+                point.alignConnector();
+            }
+        }
+    }
+    getConnectorPath() {
+        const { plotX = 0, plotY = 0, series, dataLabel } = this, chart = series.chart, xAxisLen = series.xAxis.len, inverted = chart.inverted, direction = inverted ? 'x2' : 'y2';
+        if (dataLabel) {
+            const targetDLPos = dataLabel.targetPosition, negativeDistance = ((dataLabel.alignAttr || dataLabel)[direction[0]] <
+                series.yAxis.len / 2);
+            let coords = {
+                x1: plotX,
+                y1: plotY,
+                x2: plotX,
+                y2: (0,external_highcharts_src_js_default_namespaceObject.isNumber)(targetDLPos.y) ? targetDLPos.y : dataLabel.y
+            };
+            // Recalculate coords when the chart is inverted.
+            if (inverted) {
+                coords = {
+                    x1: plotY,
+                    y1: xAxisLen - plotX,
+                    x2: targetDLPos.x || dataLabel.x,
+                    y2: xAxisLen - plotX
+                };
+            }
+            // Subtract data label width or height from expected coordinate so
+            // that the connector would start from the appropriate edge.
+            if (negativeDistance) {
+                coords[direction] += dataLabel[inverted ? 'width' : 'height'] || 0;
+            }
+            // Change coordinates so that they will be relative to data label.
+            ;(0,external_highcharts_src_js_default_namespaceObject.objectEach)(coords, (_coord, i) => {
+                coords[i] -= (dataLabel.alignAttr || dataLabel)[i[0]];
+            });
+            return chart.renderer.crispLine([
+                ['M', coords.x1, coords.y1],
+                ['L', coords.x2, coords.y2]
+            ], dataLabel.options?.connectorWidth || 0);
+        }
+        return [];
+    }
+    constructor(series, options) {
+        super(series, options);
+        this.name ?? (this.name = 
+        // If options is null, we are dealing with a null point
+        ((options && options.y !== null) ||
+            !series.options.nullInteraction) &&
+            'Event' ||
+            'Null');
+        this.y = 1;
+    }
+    isValid() {
+        return this.options.y !== null;
+    }
+    setState() {
+        const proceed = super.setState;
+        // Prevent triggering the setState method on null points.
+        if (!this.isNull || this.series.options.nullInteraction) {
+            proceed.apply(this, arguments);
+        }
+    }
+    setVisible(visible, redraw) {
+        const point = this, series = point.series;
+        redraw = (redraw ?? series.options.ignoreHiddenPoint);
+        PiePoint.prototype.setVisible.call(point, visible, false);
+        // Process new data
+        series.processData();
+        if (redraw) {
+            series.chart.redraw();
+        }
+    }
+    applyOptions(options, x, isMock) {
+        const series = this.series;
+        if (!x && !options?.x) {
+            if ((0,external_highcharts_src_js_default_namespaceObject.isNumber)(this.x)) {
+                x = this.x;
+            }
+            else if ((0,external_highcharts_src_js_default_namespaceObject.isNumber)(series?.xIncrement) || NaN) {
+                x = series.xIncrement || 0;
+                series.autoIncrement();
+            }
+        }
+        options = external_highcharts_src_js_default_Point_default().prototype.optionsToObject.call(this, options);
+        const p = super.applyOptions(options, x, isMock);
+        if (!isMock) {
+            this.userDLOptions = (0,external_highcharts_src_js_default_namespaceObject.merge)(this.userDLOptions, options.dataLabels);
+        }
+        return p;
+    }
+}
+/* *
+ *
+ *  Default Export
+ *
+ * */
+/* harmony default export */ const Timeline_TimelinePoint = (TimelinePoint);
+
+;// ./code/es-modules/Series/Timeline/TimelineSeriesDefaults.js
+/* *
+ *
+ *  Timeline Series.
+ *
+ *  (c) 2010-2026 Highsoft AS
+ *
+ *  Author: Daniel Studencki
+ *
+ *  Integration of this software requires a license.
+ *  - For commercial use, see www.highcharts.com/license
+ *  - For non-commercial, see www.highcharts.com/license-eula
+ *
+ *
+ * */
+
+/* *
+ *
+ *  API Options
+ *
+ * */
+/**
+ * The timeline series presents given events along a drawn line.
+ *
+ * @sample highcharts/series-timeline/alternate-labels
+ *         Timeline series
+ * @sample highcharts/series-timeline/inverted
+ *         Inverted timeline
+ * @sample highcharts/series-timeline/datetime-axis
+ *         With true datetime axis
+ *
+ * @extends      plotOptions.line
+ * @excluding    animationLimit, boostThreshold, connectEnds, connectNulls,
+ *               cropThreshold, dashStyle, findNearestPointBy,
+ *               getExtremesFromAll, negativeColor, pointInterval,
+ *               pointIntervalUnit, pointPlacement, pointStart,
+ *               softThreshold, stacking, step, threshold, turboThreshold,
+ *               zoneAxis, zones, dataSorting, boostBlending
+ * @product      highcharts
+ * @since        7.0.0
+ * @requires     modules/timeline
+ * @optionparent plotOptions.timeline
+ */
+const TimelineSeriesDefaults = {
+    colorByPoint: true,
+    stickyTracking: false,
+    ignoreHiddenPoint: true,
+    /**
+     * @ignore
+     */
+    legendType: 'point',
+    /**
+     * Pixel width of the graph line.
+     */
+    lineWidth: 4,
+    tooltip: {
+        headerFormat: '<span style="color:{point.color}">\u25CF</span> ' +
+            '<span style="font-size: 0.8em"> {point.key}</span><br/>',
+        pointFormat: '{point.description}'
+    },
+    states: {
+        hover: {
+            lineWidthPlus: 0
+        }
+    },
+    /**
+     * @declare Highcharts.TimelineDataLabelsOptionsObject
+     */
+    dataLabels: {
+        enabled: true,
+        allowOverlap: true,
+        /**
+         * Whether to position data labels alternately. For example, if
+         * [distance](#plotOptions.timeline.dataLabels.distance)
+         * is set equal to `100`, then data labels will be positioned
+         * alternately (on both sides of the point) at a distance of 100px.
+         *
+         * @sample {highcharts} highcharts/series-timeline/alternate-disabled
+         *         Alternate disabled
+         */
+        alternate: true,
+        backgroundColor: 'var(--highcharts-background-color)',
+        borderWidth: 1,
+        borderColor: 'var(--highcharts-neutral-color-40)',
+        borderRadius: 3,
+        color: 'var(--highcharts-neutral-color-80)',
+        /**
+         * The color of the line connecting the data label to the point.
+         * The default color is the same as the point's color.
+         *
+         * In styled mode, the connector stroke is given in the
+         * `.highcharts-data-label-connector` class.
+         *
+         * @sample {highcharts} highcharts/series-timeline/connector-styles
+         *         Custom connector width and color
+         *
+         * @type      {Highcharts.ColorType}
+         * @apioption plotOptions.timeline.dataLabels.connectorColor
+         */
+        /**
+         * The width of the line connecting the data label to the point.
+         *
+         * In styled mode, the connector stroke width is given in the
+         * `.highcharts-data-label-connector` class.
+         *
+         * @sample {highcharts} highcharts/series-timeline/connector-styles
+         *         Custom connector width and color
+         */
+        connectorWidth: 1,
+        /**
+         * A pixel value defining the distance between the data label and
+         * the point. Negative numbers puts the label on top of the point in a
+         * non-inverted chart. Defaults to 100 for horizontal and 20 for
+         * vertical timeline (`chart.inverted: true`).
+         */
+        distance: void 0,
+        // eslint-disable-next-line jsdoc/require-description
+        /**
+         * @default function () {
+         *   let format;
+         *
+         *   if (!this.series.chart.styledMode) {
+         *       format = '<span style="color:' + this.point.color +
+         *           '">● </span>';
+         *   } else {
+         *       format = '<span class="highcharts-color-' +
+         *          this.point.colorIndex + '">● </span>';
+         *   }
+         *   format += '<span>' + (this.key || '') + '</span><br/>' +
+         *       (this.point.label || '');
+         *   return format;
+         * }
+         */
+        formatter: function () {
+            let format;
+            if (!this.series.chart.styledMode) {
+                format = '<span style="color:' + this.point.color +
+                    '">● </span>';
+            }
+            else {
+                format = '<span class="highcharts-color-' +
+                    this.point.colorIndex + '">● </span>';
+            }
+            format += '<span class="highcharts-strong">' +
+                (this.key || '') + '</span><br/>' +
+                (this.label || '');
+            return format;
+        },
+        padding: 5,
+        style: {
+            textOutline: 'none',
+            fontWeight: 'normal',
+            fontSize: '0.8em',
+            textAlign: 'left'
+        },
+        /**
+         * Shadow options for the data label.
+         *
+         * @type {boolean|Highcharts.CSSObject}
+         */
+        shadow: false,
+        /**
+         * @type      {number}
+         * @apioption plotOptions.timeline.dataLabels.width
+         */
+        verticalAlign: 'middle'
+    },
+    marker: {
+        enabledThreshold: 0,
+        symbol: 'square',
+        radius: 6,
+        lineWidth: 2,
+        height: 15
+    },
+    showInLegend: false,
+    colorKey: 'x',
+    legendSymbol: 'rectangle'
+};
+/**
+ * The `timeline` series. If the [type](#series.timeline.type) option is
+ * not specified, it is inherited from [chart.type](#chart.type).
+ *
+ * @extends   series,plotOptions.timeline
+ * @excluding animationLimit, boostThreshold, connectEnds, connectNulls,
+ *            cropThreshold, dashStyle, findNearestPointBy,
+ *            getExtremesFromAll, negativeColor, pointInterval,
+ *            pointIntervalUnit, pointPlacement, pointStart, softThreshold,
+ *            stacking, stack, step, threshold, turboThreshold, zoneAxis, zones,
+ *            dataSorting, boostBlending
+ * @product   highcharts
+ * @requires  modules/timeline
+ * @apioption series.timeline
+ */
+/**
+ * An array of data points for the series. For the `timeline` series type,
+ * points can be given with three general parameters, `name`, `label`,
+ * and `description`:
+ *
+ * Example:
+ *
+ * ```js
+ * series: [{
+ *    type: 'timeline',
+ *    data: [{
+ *        name: 'Jan 2018',
+ *        label: 'Some event label',
+ *        description: 'Description to show in tooltip'
+ *    }]
+ * }]
+ * ```
+ * If all points additionally have the `x` values, and xAxis type is set to
+ * `datetime`, then events are laid out on a true time axis, where their
+ * placement reflects the actual time between them.
+ *
+ * @sample {highcharts} highcharts/series-timeline/alternate-labels
+ *         Alternate labels
+ * @sample {highcharts} highcharts/series-timeline/datetime-axis
+ *         Real time intervals
+ *
+ * @basic
+ * @type      {Array<*>}
+ * @extends   series.line.data
+ * @excluding marker, y
+ * @product   highcharts
+ * @apioption series.timeline.data
+ */
+/**
+ * The name of event.
+ *
+ * @type      {string}
+ * @product   highcharts
+ * @apioption series.timeline.data.name
+ */
+/**
+ * The label of event.
+ *
+ * @type      {string}
+ * @product   highcharts
+ * @apioption series.timeline.data.label
+ */
+/**
+ * The description of event. This description will be shown in tooltip.
+ *
+ * @type      {string}
+ * @product   highcharts
+ * @apioption series.timeline.data.description
+ */
+''; // Adds doclets above to transpiled file
+/* *
+ *
+ *  Default Export
+ *
+ * */
+/* harmony default export */ const Timeline_TimelineSeriesDefaults = (TimelineSeriesDefaults);
+
+;// ./code/es-modules/Series/Timeline/TimelineSeries.js
+/* *
+ *
+ *  Timeline Series.
+ *
+ *  (c) 2010-2026 Highsoft AS
+ *
+ *  Author: Daniel Studencki
+ *
+ *  Integration of this software requires a license.
+ *  - For commercial use, see www.highcharts.com/license
+ *  - For non-commercial, see www.highcharts.com/license-eula
+ *
+ *
+ * */
+
+
+const { column: ColumnSeries, line: LineSeries } = (external_highcharts_src_js_default_SeriesRegistry_default()).seriesTypes;
+
+
+
+/* *
+ *
+ *  Class
+ *
+ * */
+/**
+ * The timeline series type.
+ *
+ * @private
+ * @class
+ * @name Highcharts.seriesTypes.timeline
+ *
+ * @augments Highcharts.Series
+ */
+class TimelineSeries extends LineSeries {
+    /* *
+     *
+     *  Functions
+     *
+     * */
+    alignDataLabel(point, dataLabel, _options, _alignTo) {
+        const series = this, isInverted = series.chart.inverted, visiblePoints = series.visibilityMap.filter((point) => !!point), visiblePointsCount = series.visiblePointsCount || 0, pointIndex = visiblePoints.indexOf(point), isFirstOrLast = (!pointIndex || pointIndex === visiblePointsCount - 1), dataLabelsOptions = series.options.dataLabels, userDLOptions = point.userDLOptions || {}, 
+        // Define multiplier which is used to calculate data label
+        // width. If data labels are alternate, they have two times more
+        // space to adapt (excepting first and last ones, which has only
+        // one and half), than in case of placing all data labels side
+        // by side.
+        multiplier = dataLabelsOptions.alternate ?
+            (isFirstOrLast ? 1.5 : 2) :
+            1, availableSpace = Math.floor(series.xAxis.len / visiblePointsCount), pad = dataLabel.padding;
+        let distance, targetDLWidth, styles;
+        // Adjust data label width to the currently available space.
+        if (point.visible) {
+            distance = Math.abs(userDLOptions.x || point.options.dataLabels.x);
+            if (isInverted) {
+                targetDLWidth = ((distance - pad) * 2 - ((point.itemHeight || 0) / 2));
+                styles = {
+                    width: (dataLabelsOptions.style?.width ?? `${series.yAxis.len * 0.4}px`),
+                    // Apply ellipsis when data label height is exceeded.
+                    textOverflow: (dataLabel.width || 0) / targetDLWidth *
+                        (dataLabel.height || 0) / 2 > availableSpace *
+                        multiplier ?
+                        'ellipsis' : 'none'
+                };
+            }
+            else {
+                styles = {
+                    width: (userDLOptions.width ||
+                        dataLabelsOptions.width ||
+                        availableSpace * multiplier - (pad * 2)) + 'px'
+                };
+            }
+            dataLabel.css(styles);
+            if (!series.chart.styledMode) {
+                dataLabel.shadow(dataLabelsOptions.shadow);
+            }
+        }
+        super.alignDataLabel.apply(series, arguments);
+    }
+    bindAxes() {
+        const series = this;
+        super.bindAxes();
+        // Initially set the linked xAxis type to category.
+        if (!series.xAxis.userOptions.type) {
+            series.xAxis.categories = series.xAxis.hasNames = true;
+        }
+    }
+    distributeDL() {
+        const series = this, dataLabelsOptions = series.options.dataLabels, inverted = series.chart.inverted;
+        let visibilityIndex = 1;
+        if (dataLabelsOptions) {
+            const distance = dataLabelsOptions.distance ??
+                (inverted ? 20 : 100);
+            for (const point of series.points) {
+                const defaults = {
+                    [inverted ? 'x' : 'y']: dataLabelsOptions.alternate && visibilityIndex % 2 ?
+                        -distance : distance
+                };
+                if (inverted) {
+                    defaults.align = (dataLabelsOptions.alternate && visibilityIndex % 2) ? 'right' : 'left';
+                }
+                point.options.dataLabels = (0,external_highcharts_src_js_default_namespaceObject.merge)(defaults, point.userDLOptions, 
+                // Forced. Point level limitations.
+                { zIndex: void 0 });
+                // Delete so it doesn't override anything on merge.
+                delete point.options.dataLabels.zIndex;
+                visibilityIndex++;
+            }
+        }
+    }
+    generatePoints() {
+        super.generatePoints();
+        const series = this, points = series.points, pointsLen = points.length, xData = series.getColumn('x');
+        for (let i = 0, iEnd = pointsLen; i < iEnd; ++i) {
+            points[i].x = xData[i];
+        }
+    }
+    getVisibilityMap() {
+        const series = this, nullInteraction = series.options.nullInteraction, map = ((series.data.length ? series.data : series.options.data) || []).map((point) => (point &&
+            point.visible !== false &&
+            (!point.isNull || nullInteraction) ?
+            point :
+            false));
+        return map;
+    }
+    getXExtremes(xData) {
+        const series = this, filteredData = xData.filter((_x, i) => (series.points[i].isValid() &&
+            series.points[i].visible));
+        return {
+            min: (0,external_highcharts_src_js_default_namespaceObject.arrayMin)(filteredData),
+            max: (0,external_highcharts_src_js_default_namespaceObject.arrayMax)(filteredData)
+        };
+    }
+    init() {
+        const series = this;
+        super.init.apply(series, arguments);
+        series.eventsToUnbind.push((0,external_highcharts_src_js_default_namespaceObject.addEvent)(series, 'afterTranslate', function () {
+            let lastPlotX, closestPointRangePx = Number.MAX_VALUE;
+            for (const point of series.points) {
+                // Set the isInside parameter basing also on the real point
+                // visibility, in order to avoid showing hidden points
+                // in drawPoints method.
+                point.isInside = point.isInside && point.visible;
+                // New way of calculating closestPointRangePx value, which
+                // respects the real point visibility is needed.
+                if (point.visible && (!point.isNull ||
+                    series.options.nullInteraction)) {
+                    if ((0,external_highcharts_src_js_default_namespaceObject.defined)(lastPlotX)) {
+                        closestPointRangePx = Math.min(closestPointRangePx, Math.abs(point.plotX - lastPlotX));
+                    }
+                    lastPlotX = point.plotX;
+                }
+            }
+            series.closestPointRangePx = closestPointRangePx;
+        }));
+        // Distribute data labels before rendering them. Distribution is
+        // based on the 'dataLabels.distance' and 'dataLabels.alternate'
+        // property.
+        series.eventsToUnbind.push((0,external_highcharts_src_js_default_namespaceObject.addEvent)(series, 'drawDataLabels', function () {
+            // Distribute data labels basing on defined algorithm.
+            series.distributeDL(); // @todo use this scope for series
+        }));
+        series.eventsToUnbind.push((0,external_highcharts_src_js_default_namespaceObject.addEvent)(series, 'afterDrawDataLabels', function () {
+            let dataLabel; // @todo use this scope for series
+            // Draw or align connector for each point.
+            for (const point of series.points) {
+                dataLabel = point.dataLabel;
+                if (dataLabel) {
+                    // Within this wrap method is necessary to save the
+                    // current animation params, because the data label
+                    // target position (after animation) is needed to align
+                    // connectors.
+                    dataLabel.animate = function (params) {
+                        if (this.targetPosition) {
+                            this.targetPosition = params;
+                        }
+                        return this.renderer.Element.prototype
+                            .animate.apply(this, arguments);
+                    };
+                    // Initialize the targetPosition field within data label
+                    // object. It's necessary because there is need to know
+                    // expected position of specific data label, when
+                    // aligning connectors. This field is overridden inside
+                    // of SVGElement.animate() wrapped method.
+                    if (!dataLabel.targetPosition) {
+                        dataLabel.targetPosition = {};
+                    }
+                    point.drawConnector();
+                }
+            }
+        }));
+        series.eventsToUnbind.push((0,external_highcharts_src_js_default_namespaceObject.addEvent)(series.chart, 'afterHideOverlappingLabel', function () {
+            for (const p of series.points) {
+                if (p.dataLabel &&
+                    p.dataLabel.connector &&
+                    p.dataLabel.oldOpacity !== p.dataLabel.newOpacity) {
+                    p.alignConnector();
+                }
+            }
+        }));
+    }
+    markerAttribs(point, state) {
+        const series = this, seriesMarkerOptions = series.options.marker, pointMarkerOptions = point.marker || {}, symbol = (pointMarkerOptions.symbol ||
+            seriesMarkerOptions?.symbol), width = (pointMarkerOptions.width ??
+            seriesMarkerOptions?.width ??
+            (series.closestPointRangePx || 0)), height = (pointMarkerOptions.height ??
+            (seriesMarkerOptions?.height || 0));
+        let seriesStateOptions, pointStateOptions, radius = 0;
+        // Call default markerAttribs method, when the xAxis type
+        // is set to datetime.
+        if (series.xAxis.dateTime) {
+            return super.markerAttribs(point, state);
+        }
+        // Handle hover and select states
+        if (state) {
+            seriesStateOptions = seriesMarkerOptions?.states?.[state];
+            pointStateOptions = pointMarkerOptions.states?.[state];
+            radius = (pointStateOptions?.radius ??
+                seriesStateOptions?.radius ??
+                radius + (seriesStateOptions?.radiusPlus || 0));
+        }
+        point.hasImage = !!(symbol && symbol.indexOf('url') === 0);
+        const attribs = {
+            x: Math.floor(point.plotX) - (width / 2) - (radius / 2),
+            y: point.plotY - (height / 2) - (radius / 2),
+            width: width + radius,
+            height: height + radius
+        };
+        return (series.chart.inverted) ? {
+            y: (attribs.x && attribs.width) &&
+                series.xAxis.len - attribs.x - attribs.width,
+            x: attribs.y,
+            width: attribs.height,
+            height: attribs.width
+        } : attribs;
+    }
+}
+/* *
+ *
+ *  Static Properties
+ *
+ * */
+TimelineSeries.defaultOptions = (0,external_highcharts_src_js_default_namespaceObject.merge)(LineSeries.defaultOptions, Timeline_TimelineSeriesDefaults);
+// Add series-specific properties after data is already processed, #17890
+(0,external_highcharts_src_js_default_namespaceObject.addEvent)(TimelineSeries, 'afterProcessData', function () {
+    const series = this, yData = series.getColumn('y');
+    let visiblePoints = 0;
+    series.visibilityMap = series.getVisibilityMap();
+    // Calculate currently visible points.
+    for (const point of series.visibilityMap) {
+        if (point) {
+            visiblePoints++;
+        }
+    }
+    series.visiblePointsCount = visiblePoints;
+    yData.length = series.dataTable.rowCount;
+    for (let i = 0; i < yData.length; ++i) {
+        yData[i] = yData[i] === null ? null : 1;
+    }
+    this.dataTable.setColumn('y', yData);
+});
+(0,external_highcharts_src_js_default_namespaceObject.extend)(TimelineSeries.prototype, {
+    // Use a group of trackers from TrackerMixin
+    drawTracker: ColumnSeries.prototype.drawTracker,
+    pointClass: Timeline_TimelinePoint,
+    trackerGroups: ['markerGroup', 'dataLabelsGroup']
+});
+external_highcharts_src_js_default_SeriesRegistry_default().registerSeriesType('timeline', TimelineSeries);
+/* *
+ *
+ *  Default Export
+ *
+ * */
+/* harmony default export */ const Timeline_TimelineSeries = ((/* unused pure expression or super */ null && (TimelineSeries)));
+
+;// ./code/es-modules/masters/modules/timeline.src.js
+
+
+
+
+/* harmony default export */ const timeline_src = ((external_highcharts_src_js_default_default()));
+
+export { timeline_src as default };

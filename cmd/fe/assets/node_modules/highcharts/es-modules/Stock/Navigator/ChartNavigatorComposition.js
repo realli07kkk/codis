@@ -1,0 +1,187 @@
+/* *
+ *
+ *  (c) 2010-2026 Highsoft AS
+ *  Author: Torstein Hønsi
+ *
+ *  Integration of this software requires a license.
+ *  - For commercial use, see www.highcharts.com/license
+ *  - For non-commercial, see www.highcharts.com/license-eula
+ *
+ *
+ * */
+'use strict';
+import H from '../../Core/Globals.js';
+const { isTouchDevice } = H;
+import { addEvent, merge, pushUnique } from '../../Shared/Utilities.js';
+/* *
+ *
+ *  Constants
+ *
+ * */
+const composedMembers = [];
+/* *
+ *
+ *  Variables
+ *
+ * */
+let NavigatorConstructor;
+/* *
+ *
+ *  Functions
+ *
+ * */
+/** @internal */
+function compose(ChartClass, NavigatorClass) {
+    if (pushUnique(composedMembers, ChartClass)) {
+        const chartProto = ChartClass.prototype;
+        NavigatorConstructor = NavigatorClass;
+        chartProto.callbacks.push(onChartCallback);
+        addEvent(ChartClass, 'afterAddSeries', resetBaseSeries);
+        addEvent(ChartClass, 'afterDrillUp', resetBaseSeries);
+        addEvent(ChartClass, 'afterSetChartSize', onChartAfterSetChartSize);
+        addEvent(ChartClass, 'afterUpdate', onChartAfterUpdate);
+        addEvent(ChartClass, 'beforeRender', onChartBeforeRender);
+        addEvent(ChartClass, 'beforeShowResetZoom', onChartBeforeShowResetZoom);
+        addEvent(ChartClass, 'update', onChartUpdate);
+    }
+}
+/**
+ * Reset the base series.
+ * @internal
+ */
+function resetBaseSeries() {
+    if (this.navigator) {
+        this.navigator.setBaseSeries(void 0, false);
+    }
+}
+/**
+ * For stock charts, extend the Chart.setChartSize method so that we can set the
+ * final top position of the navigator once the height of the chart, including
+ * the legend, is determined. #367. We can't use Chart.getMargins, because
+ * labels offsets are not calculated yet.
+ * @internal
+ */
+function onChartAfterSetChartSize() {
+    const legend = this.legend, navigator = this.navigator;
+    let legendOptions, xAxis, yAxis;
+    if (navigator) {
+        legendOptions = legend && legend.options;
+        xAxis = navigator.xAxis;
+        yAxis = navigator.yAxis;
+        const { scrollbarHeight, scrollButtonSize } = navigator;
+        // Compute the top position
+        if (this.inverted) {
+            navigator.left = navigator.opposite ?
+                this.chartWidth - scrollbarHeight -
+                    navigator.height :
+                this.spacing[3] + scrollbarHeight;
+            navigator.top = this.plotTop + scrollButtonSize;
+        }
+        else {
+            navigator.left = (xAxis.left ?? this.plotLeft + scrollButtonSize);
+            navigator.top = navigator.navigatorOptions.top ||
+                this.chartHeight -
+                    navigator.height -
+                    scrollbarHeight -
+                    (this.scrollbar?.options.margin || 0) -
+                    this.spacing[2] -
+                    (this.rangeSelector && this.extraBottomMargin ?
+                        this.rangeSelector.getHeight() :
+                        0) -
+                    ((legendOptions &&
+                        legendOptions.verticalAlign === 'bottom' &&
+                        legendOptions.layout !== 'proximate' && // #13392
+                        legendOptions.enabled &&
+                        !legendOptions.floating) ?
+                        legend.legendHeight +
+                            (legendOptions.margin ?? 10) :
+                        0) -
+                    (this.titleOffset ? this.titleOffset[2] : 0);
+        }
+        if (xAxis && yAxis) { // False if navigator is disabled (#904)
+            if (this.inverted) {
+                xAxis.options.left = yAxis.options.left = navigator.left;
+            }
+            else {
+                xAxis.options.top = yAxis.options.top = navigator.top;
+            }
+            xAxis.setAxisSize();
+            yAxis.setAxisSize();
+        }
+    }
+}
+/**
+ * Initialize navigator, if no scrolling exists yet.
+ * @internal
+ */
+function onChartAfterUpdate(event) {
+    if (!this.navigator && !this.scroller &&
+        (this.options.navigator.enabled ||
+            this.options.scrollbar.enabled)) {
+        this.scroller = this.navigator = new NavigatorConstructor(this);
+        if (event.redraw ?? true) {
+            this.redraw(event.animation); // #7067
+        }
+    }
+}
+/**
+ * Initialize navigator for stock charts
+ * @internal
+ */
+function onChartBeforeRender() {
+    const options = this.options;
+    if (options.navigator.enabled ||
+        options.scrollbar.enabled) {
+        this.scroller = this.navigator = new NavigatorConstructor(this);
+    }
+}
+/**
+ * For Stock charts. For x only zooming, do not to create the zoom button
+ * because X axis zooming is already allowed by the Navigator and Range
+ * selector. (#9285)
+ * @internal
+ */
+function onChartBeforeShowResetZoom() {
+    const chartOptions = this.options, navigator = chartOptions.navigator, rangeSelector = chartOptions.rangeSelector;
+    if (((navigator && navigator.enabled) ||
+        (rangeSelector && rangeSelector.enabled)) &&
+        ((!isTouchDevice &&
+            this.zooming.type === 'x') ||
+            (isTouchDevice && this.zooming.pinchType === 'x'))) {
+        return false;
+    }
+}
+/** @internal */
+function onChartCallback(chart) {
+    const navigator = chart.navigator;
+    // Initialize the navigator
+    if (navigator && chart.xAxis[0]) {
+        const extremes = chart.xAxis[0].getExtremes();
+        navigator.render(extremes.min, extremes.max);
+    }
+}
+/**
+ * Merge options, if no scrolling exists yet
+ * @internal
+ */
+function onChartUpdate(e) {
+    const navigatorOptions = (e.options.navigator || {}), scrollbarOptions = (e.options.scrollbar || {});
+    if (!this.navigator && !this.scroller &&
+        (navigatorOptions.enabled || scrollbarOptions.enabled)) {
+        merge(true, this.options.navigator, navigatorOptions);
+        merge(true, this.options.scrollbar, scrollbarOptions);
+        delete e.options.navigator;
+        delete e.options.scrollbar;
+    }
+}
+/* *
+ *
+ *  Default Export
+ *
+ * */
+/** @internal */
+const ChartNavigatorComposition = {
+    compose
+};
+/** @internal */
+export default ChartNavigatorComposition;

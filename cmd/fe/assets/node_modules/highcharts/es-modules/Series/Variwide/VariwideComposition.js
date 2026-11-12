@@ -1,0 +1,118 @@
+/* *
+ *
+ *  Highcharts variwide module
+ *
+ *  (c) 2010-2026 Highsoft AS
+ *  Author: Torstein Hønsi
+ *
+ *  Integration of this software requires a license.
+ *  - For commercial use, see www.highcharts.com/license
+ *  - For non-commercial, see www.highcharts.com/license-eula
+ *
+ *
+ * */
+'use strict';
+import H from '../../Core/Globals.js';
+const { composed } = H;
+import { addEvent, pushUnique, wrap } from '../../Shared/Utilities.js';
+/* *
+ *
+ *  Functions
+ *
+ * */
+/**
+ * @private
+ */
+function compose(AxisClass, TickClass) {
+    if (pushUnique(composed, 'Variwide')) {
+        const tickProto = TickClass.prototype;
+        addEvent(AxisClass, 'afterDrawCrosshair', onAxisAfterDrawCrosshair);
+        addEvent(AxisClass, 'afterRender', onAxisAfterRender);
+        addEvent(TickClass, 'afterGetPosition', onTickAfterGetPosition);
+        tickProto.postTranslate = tickPostTranslate;
+        wrap(tickProto, 'getLabelPosition', wrapTickGetLabelPosition);
+    }
+}
+/**
+ * Same width as the category (#8083)
+ * @private
+ */
+function onAxisAfterDrawCrosshair(e) {
+    if (this.variwide && this.cross) {
+        this.cross.attr('stroke-width', e.point?.crosshairWidth);
+    }
+}
+/**
+ * On a vertical axis, apply anti-collision logic to the labels.
+ * @private
+ */
+function onAxisAfterRender() {
+    const axis = this;
+    this.chart.labelCollectors.push(function () {
+        return axis.variwide ? axis.tickPositions
+            .filter((pos) => !!axis.ticks[pos].label)
+            .map((pos, i) => {
+            const label = axis.ticks[pos].label;
+            label.labelrank = axis.zData?.[i];
+            return label;
+        }) : [];
+    });
+}
+/**
+ * @private
+ */
+function onTickAfterGetPosition(e) {
+    const axis = this.axis, xOrY = axis.horiz ? 'x' : 'y';
+    if (axis.variwide) {
+        this[xOrY + 'Orig'] = e.pos[xOrY];
+        this.postTranslate(e.pos, xOrY, this.pos);
+    }
+}
+/**
+ * @private
+ */
+function tickPostTranslate(xy, xOrY, index) {
+    const axis = this.axis;
+    if (axis.variwide) {
+        let pos = xy[xOrY] - axis.pos;
+        if (!axis.horiz) {
+            pos = axis.len - pos;
+        }
+        pos = axis.series[0]
+            ?.postTranslate?.(index, pos) ?? pos;
+        if (!axis.horiz) {
+            pos = axis.len - pos;
+        }
+        xy[xOrY] = axis.pos + pos;
+    }
+}
+/**
+ * @private
+ */
+function wrapTickGetLabelPosition(proceed, _x, _y, _label, horiz, 
+/* eslint-disable @typescript-eslint/no-unused-vars */
+_labelOptions, _tickmarkOffset, _index
+/* eslint-enable @typescript-eslint/no-unused-vars */
+) {
+    const args = Array.prototype.slice.call(arguments, 1), xOrY = horiz ? 'x' : 'y';
+    // Replace the x with the original x
+    if (this.axis.variwide &&
+        typeof this[xOrY + 'Orig'] === 'number') {
+        args[horiz ? 0 : 1] = this[xOrY + 'Orig'];
+    }
+    const xy = proceed.apply(this, args);
+    // Post-translate
+    if (this.axis.variwide && this.axis.categories) {
+        this.postTranslate(xy, xOrY, this.pos);
+    }
+    return xy;
+}
+/* *
+ *
+ *  Default Export
+ *
+ * */
+const VariwideComposition = {
+    compose
+};
+export default VariwideComposition;

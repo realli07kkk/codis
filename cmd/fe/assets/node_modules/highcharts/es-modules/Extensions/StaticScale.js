@@ -1,0 +1,105 @@
+/* *
+ *
+ *  (c) 2016-2026 Highsoft AS
+ *  Author: Torstein Hønsi, Lars Cabrera
+ *
+ *  Integration of this software requires a license.
+ *  - For commercial use, see www.highcharts.com/license
+ *  - For non-commercial, see www.highcharts.com/license-eula
+ *
+ *
+ * */
+'use strict';
+import { addEvent, defined, isNumber, pushUnique } from '../Shared/Utilities.js';
+import H from '../Core/Globals.js';
+const { composed } = H;
+/* *
+ *
+ *  Composition
+ *
+ * */
+/** @internal */
+export function composeStaticScale(AxisClass, ChartClass) {
+    if (pushUnique(composed, 'StaticScale')) {
+        const chartProto = ChartClass.prototype;
+        addEvent(AxisClass, 'afterSetOptions', onAxisAfterSetOptions);
+        chartProto.adjustHeight = chartAdjustHeight;
+        addEvent(ChartClass, 'render', chartProto.adjustHeight);
+    }
+}
+/** @internal */
+function onAxisAfterSetOptions() {
+    const chartOptions = this.chart.userOptions.chart;
+    if (!this.horiz &&
+        isNumber(this.options.staticScale) &&
+        (!chartOptions?.height ||
+            chartOptions.scrollablePlotArea?.minHeight)) {
+        this.staticScale = this.options.staticScale;
+    }
+}
+/** @internal */
+function chartAdjustHeight() {
+    const chart = this;
+    if (chart.redrawTrigger !== 'adjustHeight') {
+        for (const axis of (chart.axes || [])) {
+            const chart = axis.chart, staticScale = axis.options.staticScale;
+            if (axis.staticScale &&
+                staticScale &&
+                defined(axis.min) &&
+                defined(axis.max)) {
+                let height = (axis.brokenAxis?.unitLength ??
+                    (axis.max + axis.tickInterval - axis.min)) * staticScale;
+                // Minimum height is 1 x staticScale.
+                height = Math.max(height, staticScale);
+                const diff = height - chart.plotHeight;
+                if (!chart.scrollablePixelsY && Math.abs(diff) >= 1) {
+                    chart.plotHeight = height;
+                    chart.redrawTrigger = 'adjustHeight';
+                    chart.setSize(void 0, chart.chartHeight + diff, chart.initiatedScale ? void 0 : false);
+                }
+                // Make sure clip rects have the right height before initial
+                // animation.
+                if (!chart.initiatedScale) {
+                    axis.series.forEach((series) => {
+                        const clipRect = series.sharedClipKey &&
+                            chart.sharedClips[series.sharedClipKey];
+                        if (clipRect) {
+                            clipRect.attr(chart.inverted ? {
+                                width: chart.plotHeight
+                            } : {
+                                height: chart.plotHeight
+                            });
+                        }
+                    });
+                }
+            }
+        }
+        this.initiatedScale = true;
+    }
+    this.redrawTrigger = void 0;
+}
+/* *
+ *
+ *  API Options
+ *
+ * */
+/**
+ * For vertical axes only. Setting the static scale ensures that each tick unit
+ * is translated into a fixed pixel height. For example, setting the static
+ * scale to 24 results in each Y axis category taking up 24 pixels, and the
+ * height of the chart adjusts. Adding or removing items will make the chart
+ * resize.
+ *
+ * @sample {gantt} gantt/xrange-series/demo/
+ *         X-range series with static scale
+ * @sample {highcharts} highcharts/xaxis/staticscale
+ *         Static scale on X axis (horizontal bar chart)
+ *
+ * @requires  modules/static-scale
+ * @type      {number}
+ * @default   50
+ * @since     6.2.0
+ * @product   highcharts highstock gantt
+ * @apioption xAxis.staticScale
+ */
+''; // Keeps doclets above in JS file

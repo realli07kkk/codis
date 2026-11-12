@@ -1,0 +1,57 @@
+/* *
+ *
+ *  (c) 2010-2026 Highsoft AS
+ *
+ *  Authors: Magdalena Gut, Piotr Madej
+ *
+ *  Integration of this software requires a license.
+ *  - For commercial use, see www.highcharts.com/license
+ *  - For non-commercial, see www.highcharts.com/license-eula
+ *
+ *
+ * */
+'use strict';
+import SeriesRegistry from '../../Core/Series/SeriesRegistry.js';
+import { isNumber } from '../../Shared/Utilities.js';
+const { map: { prototype: { pointClass: MapPoint } } } = SeriesRegistry.seriesTypes;
+/* *
+ *
+ *  Class
+ *
+ * */
+class GeoHeatmapPoint extends MapPoint {
+    /* *
+     *
+     *  Functions
+     *
+     * */
+    /**
+     * @private
+     */
+    applyOptions(options, x) {
+        const point = super.applyOptions.call(this, options, x), { lat, lon } = point.options;
+        if (isNumber(lon) && isNumber(lat)) {
+            const { colsize = 1, rowsize = 1 } = this.series.options, x1 = lon - colsize / 2, y1 = lat - rowsize / 2;
+            point.geometry = point.options.geometry = {
+                type: 'Polygon',
+                // A rectangle centered in lon/lat
+                coordinates: [
+                    [
+                        [x1, y1],
+                        [x1 + colsize, y1],
+                        [x1 + colsize, y1 + rowsize],
+                        [x1, y1 + rowsize],
+                        [x1, y1]
+                    ]
+                ]
+            };
+        }
+        return point;
+    }
+}
+/* *
+ *
+ *  Default Export
+ *
+ * */
+export default GeoHeatmapPoint;

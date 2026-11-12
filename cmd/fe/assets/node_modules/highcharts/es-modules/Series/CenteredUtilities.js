@@ -1,0 +1,131 @@
+/* *
+ *
+ *  (c) 2010-2026 Highsoft AS
+ *  Author: Torstein Hønsi
+ *
+ *  Integration of this software requires a license.
+ *  - For commercial use, see www.highcharts.com/license
+ *  - For non-commercial, see www.highcharts.com/license-eula
+ *
+ *
+ * */
+'use strict';
+import H from '../Core/Globals.js';
+const { deg2rad } = H;
+import { fireEvent, isNumber, relativeLength } from '../Shared/Utilities.js';
+/**
+ * @internal
+ */
+var CenteredUtilities;
+(function (CenteredUtilities) {
+    /* *
+     *
+     *  Declarations
+     *
+     * */
+    /* *
+     *
+     *  Functions
+     *
+     * */
+    /**
+     * Get the center of the pie based on the size and center options relative
+     * to the plot area. Borrowed by the polar and gauge series types.
+     *
+     * @internal
+     * @function Highcharts.CenteredSeriesMixin.getCenter
+     */
+    function getCenter() {
+        const options = this.options, chart = this.chart, slicingRoom = 2 * (options.slicedOffset || 0), plotWidth = chart.plotWidth - 2 * slicingRoom, plotHeight = chart.plotHeight - 2 * slicingRoom, centerOption = options.center, smallestSize = Math.min(plotWidth, plotHeight), thickness = options.thickness;
+        let handleSlicingRoom, size = options.size, innerSize = options.innerSize || 0, i, value;
+        if (typeof size === 'string') {
+            size = parseFloat(size);
+        }
+        if (typeof innerSize === 'string') {
+            innerSize = parseFloat(innerSize);
+        }
+        const positions = [
+            (centerOption?.[0] ?? '50%'),
+            (centerOption?.[1] ?? '50%'),
+            // Prevent from negative values
+            ((size && size < 0 ? void 0 : options.size) ?? '100%'),
+            ((innerSize && innerSize < 0 ?
+                void 0 :
+                options.innerSize || 0) ?? '0%')
+        ];
+        for (i = 0; i < 4; ++i) {
+            value = positions[i];
+            handleSlicingRoom = i < 2 || (i === 2 && /%$/.test(value));
+            // I == 0: centerX, relative to width
+            // i == 1: centerY, relative to height
+            // i == 2: size, relative to smallestSize
+            // i == 3: innerSize, relative to size
+            positions[i] = relativeLength(value, [plotWidth, plotHeight, smallestSize, positions[2]][i]) + (handleSlicingRoom ? slicingRoom : 0);
+        }
+        // Inner size cannot be larger than size (#3632)
+        if (positions[3] > positions[2]) {
+            positions[3] = positions[2];
+        }
+        // Thickness overrides innerSize, need to be less than pie size (#6647)
+        if (isNumber(thickness) &&
+            thickness * 2 < positions[2] && thickness > 0) {
+            positions[3] = positions[2] - thickness * 2;
+        }
+        fireEvent(this, 'afterGetCenter', { positions });
+        return positions;
+    }
+    CenteredUtilities.getCenter = getCenter;
+    /**
+     * GetStartAndEndRadians - Calculates start and end angles in radians.
+     * Used in series types such as pie and sunburst.
+     *
+     * @internal
+     * @function Highcharts.CenteredSeriesMixin.getStartAndEndRadians
+     *
+     * @param {number} [start]
+     *        Start angle in degrees.
+     *
+     * @param {number} [end]
+     *        Start angle in degrees.
+     *
+     * @return {Highcharts.RadianAngles}
+     *         Returns an object containing start and end angles as radians.
+     */
+    function getStartAndEndRadians(start, end) {
+        const startAngle = isNumber(start) ? start : 0, // Must be a number
+        endAngle = ((isNumber(end) && // Must be a number
+            end > startAngle && // Must be larger than the start angle
+            // difference must be less than 360 degrees
+            (end - startAngle) < 360) ?
+            end :
+            startAngle + 360), correction = -90;
+        return {
+            start: deg2rad * (startAngle + correction),
+            end: deg2rad * (endAngle + correction)
+        };
+    }
+    CenteredUtilities.getStartAndEndRadians = getStartAndEndRadians;
+})(CenteredUtilities || (CenteredUtilities = {}));
+/* *
+ *
+ *  Default Export
+ *
+ * */
+/** @internal */
+export default CenteredUtilities;
+/* *
+ *
+ *  API Declarations
+ *
+ * */
+/**
+ * @internal
+ * @interface Highcharts.RadianAngles
+ */ /**
+* @name Highcharts.RadianAngles#end
+* @type {number}
+*/ /**
+* @name Highcharts.RadianAngles#start
+* @type {number}
+*/
+''; // Keeps doclets above in JS file

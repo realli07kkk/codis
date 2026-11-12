@@ -1,0 +1,47 @@
+/* *
+ *
+ *  Tilemap module
+ *
+ *  (c) 2010-2026 Highsoft AS
+ *  Author: Øystein Moseng
+ *
+ *  Integration of this software requires a license.
+ *  - For commercial use, see www.highcharts.com/license
+ *  - For non-commercial, see www.highcharts.com/license-eula
+ *
+ *
+ * */
+'use strict';
+import ColorAxisComposition from '../../Core/Axis/Color/ColorAxisComposition.js';
+import SeriesRegistry from '../../Core/Series/SeriesRegistry.js';
+import { extend } from '../../Shared/Utilities.js';
+const { series: { prototype: { pointClass: Point } }, seriesTypes: { heatmap: { prototype: { pointClass: HeatmapPoint } } } } = SeriesRegistry;
+/* *
+ *
+ *  Class
+ *
+ * */
+class TilemapPoint extends HeatmapPoint {
+    /* *
+     *
+     *  Functions
+     *
+     * */
+    /**
+     * @private
+     * @function Highcharts.Point#haloPath
+     */
+    haloPath() {
+        return this.series.tileShape.haloPath.apply(this, arguments);
+    }
+}
+extend(TilemapPoint.prototype, {
+    setState: Point.prototype.setState,
+    setVisible: ColorAxisComposition.pointSetVisible
+});
+/* *
+ *
+ *  Default Export
+ *
+ * */
+export default TilemapPoint;

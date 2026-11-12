@@ -1,0 +1,42 @@
+/* *
+ *
+ *  (c) 2010-2026 Highsoft AS
+ *  Author: Torstein Hønsi
+ *
+ *  Scatter 3D series.
+ *
+ *  Integration of this software requires a license.
+ *  - For commercial use, see www.highcharts.com/license
+ *  - For non-commercial, see www.highcharts.com/license-eula
+ *
+ *
+ * */
+'use strict';
+import ScatterSeries from '../Scatter/ScatterSeries.js';
+import { defined } from '../../Shared/Utilities.js';
+const { pointClass: ScatterPoint } = ScatterSeries.prototype;
+/* *
+ *
+ *  Class
+ *
+ * */
+class Scatter3DPoint extends ScatterPoint {
+    /* *
+     *
+     *  Functions
+     *
+     * */
+    applyOptions() {
+        super.applyOptions.apply(this, arguments);
+        if (!defined(this.z)) {
+            this.z = 0;
+        }
+        return this;
+    }
+}
+/* *
+ *
+ *  Default Export
+ *
+ * */
+export default Scatter3DPoint;

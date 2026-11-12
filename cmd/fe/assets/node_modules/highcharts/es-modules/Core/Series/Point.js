@@ -1,0 +1,1425 @@
+/* *
+ *
+ *  (c) 2010-2026 Highsoft AS
+ *  Author: Torstein Hønsi
+ *
+ *  Integration of this software requires a license.
+ *  - For commercial use, see www.highcharts.com/license
+ *  - For non-commercial, see www.highcharts.com/license-eula
+ *
+ *
+ * */
+'use strict';
+import AST from '../Renderer/HTML/AST.js';
+import { animObject } from '../Animation/AnimationUtilities.js';
+import D from '../Defaults.js';
+const { defaultOptions } = D;
+import F from '../Templating.js';
+const { format } = F;
+import { addEvent, crisp, erase, extend, fireEvent, getNestedProperty, isArray, isFunction, isNumber, isObject, isString, merge, removeEvent } from '../../Shared/Utilities.js';
+import { uniqueKey } from '../Utilities.js';
+/* eslint-disable no-invalid-this, valid-jsdoc */
+/* *
+ *
+ *  Class
+ *
+ * */
+/**
+ * The Point object. The point objects are generated from the `series.data`
+ * configuration objects or raw numbers. They can be accessed from the
+ * `Series.points` array. Other ways to instantiate points are through {@link
+ * Highcharts.Series#addPoint} or {@link Highcharts.Series#setData}.
+ *
+ * @class
+ * @name Highcharts.Point
+ *
+ * @param {Highcharts.Series} series
+ *        The series object containing this point.
+ *
+ * @param {Highcharts.PointOptionsType} options
+ *        The data in either number, array or object format.
+ *
+ * @param {number} [x]
+ *        Optionally, the X value of the point.
+ *
+ * @emits Highcharts.Point#event:afterInit
+ */
+class Point {
+    /* *
+     *
+     *  Constructor
+     *
+     * */
+    constructor(series, options, x) {
+        /** @internal */
+        this.formatPrefix = 'point';
+        /**
+         * For certain series types, like pie charts, where individual points can
+         * be shown or hidden.
+         *
+         * @name Highcharts.Point#visible
+         * @type {boolean}
+         * @default true
+         */
+        this.visible = true;
+        // For tooltip and data label formatting
+        this.point = this;
+        this.series = series;
+        this.applyOptions(options, x);
+        // Add a unique ID to the point if none is assigned
+        this.id ?? (this.id = uniqueKey());
+        this.resolveColor();
+        this.dataLabelOnNull ?? (this.dataLabelOnNull = series.options.nullInteraction);
+        series.chart.pointCount++;
+        // Set point properties for convenient access in tooltip and data labels
+        this.category = series.xAxis?.categories?.[this.x] ?? this.x;
+        this.key = this.name ?? this.category;
+        fireEvent(this, 'afterInit');
+    }
+    /* *
+     *
+     *  API JSDoc doclet copies for uninitialized properties
+     *
+     * */
+    /**
+     * For categorized axes this property holds the category name for the
+     * point. For other axes it holds the X value.
+     *
+     * @name Highcharts.Point#category
+     * @type {number|string}
+     */
+    /**
+     * The point's current color.
+     *
+     * @name Highcharts.Point#color
+     * @type {Highcharts.ColorType|undefined}
+     */
+    /**
+     * The point's current color index, used in styled mode instead of
+     * `color`. The color index is inserted in class names used for styling.
+     *
+     * @name Highcharts.Point#colorIndex
+     * @type {number|undefined}
+     */
+    /**
+     * SVG graphic representing the point in the chart. In some cases it may be
+     * a hidden graphic to improve accessibility.
+     *
+     * Typically this is a simple shape, like a `rect` for column charts or
+     * `path` for line markers, but for some complex series types like boxplot
+     * or 3D charts, the graphic may be a `g` element containing other shapes.
+     * The graphic is generated the first time {@link Series#drawPoints} runs,
+     * and updated and moved on subsequent runs.
+     *
+     * @see Highcharts.Point#graphics
+     *
+     * @name Highcharts.Point#graphic
+     * @type {Highcharts.SVGElement|undefined}
+     */
+    /**
+     * Array for multiple SVG graphics representing the point in the
+     * chart. Only used in cases where the point can not be represented
+     * by a single graphic.
+     *
+     * @see Highcharts.Point#graphic
+     *
+     * @name Highcharts.Point#graphics
+     * @type {Array<Highcharts.SVGElement>|undefined}
+     */
+    /**
+     * The point's name if it is defined, or its category in case of a category,
+     * otherwise the x value. Convenient for tooltip and data label formatting.
+     *
+     * @name Highcharts.Point#key
+     * @type {number|string}
+     */
+    /**
+     * The name of the point. The name can be given as the first position of the
+     * point configuration array, or as a `name` property in the configuration:
+     *
+     * @example
+     * // Array config
+     * data: [
+     *     ['John', 1],
+     *     ['Jane', 2]
+     * ]
+     *
+     * // Object config
+     * data: [{
+     *     name: 'John',
+     *     y: 1
+     * }, {
+     *     name: 'Jane',
+     *     y: 2
+     * }]
+     *
+     * @name Highcharts.Point#name
+     * @type {string}
+     */
+    /**
+     * The point's options as applied in the initial configuration, or
+     * extended through `Point.update`.
+     *
+     * In TypeScript you have to extend `PointOptionsObject` via an
+     * additional interface to allow custom data options:
+     *
+     * ```
+     * declare interface PointOptionsObject {
+     *     customProperty: string;
+     * }
+     * ```
+     *
+     * @name Highcharts.Point#options
+     * @type {Highcharts.PointOptionsObject}
+     */
+    /**
+     * The percentage for points in a stacked series, pies or gauges.
+     *
+     * @name Highcharts.Point#percentage
+     * @type {number|undefined}
+     */
+    /**
+     * Array of all hovered points when using shared tooltips.
+     *
+     * @name Highcharts.Point#points
+     * @type {Array<Highcharts.Point>|undefined}
+     */
+    /**
+     * Whether the point is selected or not.
+     *
+     * @see Point#select
+     * @see Chart#getSelectedPoints
+     *
+     * @name Highcharts.Point#selected
+     * @type {boolean}
+     */
+    /**
+     * The series object associated with the point.
+     *
+     * @name Highcharts.Point#series
+     * @type {Highcharts.Series}
+     */
+    /**
+     * The attributes of the rendered SVG shape like in `column` or `pie`
+     * series.
+     *
+     * @readonly
+     * @name Highcharts.Point#shapeArgs
+     * @type {Readonly<Highcharts.SVGAttributes>|undefined}
+     */
+    /**
+     * Defines the tooltip's position for a data point in a chart. It is an
+     * array of numbers representing the coordinates for the tooltip's
+     * placement, allowing for precise control over its location.
+     *
+     * @readonly
+     * @name Highcharts.Point#tooltipPos
+     * @type {Readonly<Array<number>>|undefined}
+     */
+    /**
+     * The total of values in either a stack for stacked series, or a pie in a
+     * pie series.
+     *
+     * @name Highcharts.Point#total
+     * @type {number|undefined}
+     */
+    /**
+     * The x value of the point.
+     *
+     * @name Highcharts.Point#x
+     * @type {number}
+     */
+    /**
+     * The y value of the point.
+     *
+     * @name Highcharts.Point#y
+     * @type {number|undefined}
+     */
+    /* *
+     *
+     *  Functions
+     *
+     * */
+    /**
+     * Apply the options containing the x and y data and possible some extra
+     * properties. Called on point init or from point.update.
+     *
+     * @internal
+     * @function Highcharts.Point#applyOptions
+     *
+     * @param {Highcharts.PointOptionsType} options
+     *        The point options as defined in series.data.
+     *
+     * @param {number} [x]
+     *        Optionally, the x value.
+     *
+     * @param {boolean} [isMock]
+     *        If true, the point is not a real instance, but a mock object
+     *        created for handling data. Avoid some logic.
+     *
+     * @return {Highcharts.Point}
+     *         The Point instance.
+     */
+    applyOptions(options, x, isMock) {
+        const point = this, series = point.series, pointValKey = series.options.pointValKey || series.pointValKey;
+        options = Point.prototype.optionsToObject.call(this, options);
+        // Copy options directly to point
+        extend(point, options);
+        // If we're updating, extend or merge existing options
+        if (point.options) {
+            // If we're not allowed to mutate, merge new data into existing and
+            // return a copy, because `point.options` is a reference to
+            // `options.data[i]`
+            point.options = series.chart.options.chart.allowMutatingData ?
+                extend(point.options, options) :
+                merge(point.options, options);
+        }
+        else {
+            point.options = options;
+        }
+        // For higher dimension series types. For instance, for ranges, point.y
+        // is mapped to point.low.
+        if (pointValKey) {
+            point.y = Point.prototype.getNestedProperty.call(point, pointValKey);
+        }
+        if (isNumber(x)) {
+            point.x = x;
+        }
+        if (!isMock) {
+            // The point is initially selected by options (#5777)
+            if (point.selected) {
+                point.state = 'select';
+            }
+            // Since options are copied into the Point instance, some accidental
+            // options must be shielded (#5681)
+            if (options.group) {
+                delete point.group;
+            }
+            if (options.dataLabels) {
+                delete point.dataLabels;
+            }
+            point.isNull = point.isValid && !point.isValid();
+            // #9233, #10874
+            point.formatPrefix = point.isNull ? 'null' : 'point';
+        }
+        return point;
+    }
+    /**
+     * Get the origin position for entrance animation of new points. Modifies
+     * the given x and y based on the chart orientation and shape dimensions.
+     * Adds an opacity of 0 to make the point fade in.
+     *
+     * To disable entrance animation, return an empty object.
+     *
+     * @param {Highcharts.PositionObject} position
+     *      The initial x and y position in terms of plot area coordinates.
+     * @param {Highcharts.SVGAttributes} shape
+     *      The shape arguments, containing width and height and more.
+     * @return {Highcharts.SVGAttributes}
+     *      The modified attributes with x and y adjusted for the shape.
+     *
+     * @internal
+     * @function Highcharts.Point#getOrigin
+     */
+    getOrigin({ x = 0, y = 0 }, shape = {}) {
+        const { graphic, series } = this;
+        // The chart is inverted, but the marker group is not, like a scatter
+        // series in an inverted chart.
+        if (series.chart.inverted &&
+            graphic?.parentGroup &&
+            !graphic?.parentGroup?.rotation) {
+            const pos = this.pos(false, x, y);
+            if (pos) {
+                x = pos[0];
+                y = pos[1];
+            }
+        }
+        x -= (shape.width || 0) / 2;
+        y -= (shape.height || 0) / 2;
+        const attribs = { x };
+        // To avoid having to deal with stacking, column height etc, we only set
+        // y for non-column series. Range series (having this.plotHigh) also
+        // have their own logic, with two markers per point.
+        if (!series.is('column') && !this.plotHigh) {
+            attribs.y = y;
+        }
+        return attribs;
+    }
+    /**
+     * Destroy a point to clear memory. Its reference still stays in
+     * `series.data`.
+     *
+     * @internal
+     * @function Highcharts.Point#destroy
+     *
+     * @param {boolean} [sync]
+     *        Whether to destroy the point synchronously. Used internally from
+     *        series.destroy, where condemned points may cause animation errors
+     *        (#24976).
+     */
+    destroy(sync) {
+        if (!this.destroyed && !this.condemned) {
+            const point = this, series = point.series, chart = series.chart, hoverPoints = chart.hoverPoints, globalAnimation = point.series.chart.renderer.globalAnimation, { duration } = animObject(globalAnimation);
+            /**
+             * Allow to call after animation.
+             * @internal
+             */
+            const destroyPoint = () => {
+                // Remove all events and elements
+                if (point.graphic ||
+                    point.graphics ||
+                    point.dataLabel ||
+                    point.dataLabels) {
+                    removeEvent(point);
+                    point.destroyElements();
+                }
+                for (const prop in point) { // eslint-disable-line guard-for-in
+                    delete point[prop];
+                }
+                this.destroyed = true;
+            };
+            if (point.legendItem) {
+                // Pies have legend items
+                chart.legend.destroyItem(point);
+            }
+            if (hoverPoints) {
+                point.setState();
+                erase(hoverPoints, point);
+                if (!hoverPoints.length) {
+                    chart.hoverPoints = void 0;
+                }
+            }
+            if (point === chart.hoverPoint) {
+                point.onMouseOut();
+            }
+            // Remove properties after animation
+            if (duration && !sync && series.condemnedPoints) {
+                series.condemnedPoints.push(this);
+                this.graphic?.addClass('highcharts-point-condemned');
+                setTimeout(destroyPoint, duration);
+            }
+            else {
+                destroyPoint();
+            }
+            chart.pointCount--;
+        }
+        this.condemned = true;
+    }
+    /**
+     * Destroy SVG elements associated with the point.
+     *
+     * @internal
+     * @function Highcharts.Point#destroyElements
+     *
+     * @param {Highcharts.Dictionary<number>} [kinds]
+     * Kinds of elements to destroy
+     */
+    destroyElements(kinds = { graphic: 1, dataLabel: 1 }) {
+        const point = this, props = [];
+        let prop, i;
+        if (kinds.graphic) {
+            props.push('graphic', 'connector');
+        }
+        if (kinds.dataLabel) {
+            props.push('dataLabel', 'dataLabelPath', 'dataLabelUpper');
+        }
+        i = props.length;
+        while (i--) {
+            prop = props[i];
+            if (point[prop]) {
+                point[prop] = point[prop].destroy();
+            }
+        }
+        ['graphic', 'dataLabel'].forEach((prop) => {
+            const plural = `${prop}s`;
+            if (kinds[prop] && point[plural]) {
+                point[plural].forEach((item) => {
+                    if (item?.element) {
+                        item.destroy();
+                    }
+                });
+                delete point[plural];
+            }
+        });
+    }
+    /**
+     * Fire an event on the Point object.
+     *
+     * @internal
+     * @function Highcharts.Point#firePointEvent
+     *
+     * @param {string} eventType
+     *        Type of the event.
+     *
+     * @param {Highcharts.Dictionary<any>|Event} [eventArgs]
+     *        Additional event arguments.
+     *
+     * @param {Highcharts.EventCallbackFunction<Highcharts.Point>|Function} [defaultFunction]
+     *        Default event handler.
+     *
+     * @emits Highcharts.Point#event:*
+     */
+    firePointEvent(eventType, eventArgs, defaultFunction) {
+        const point = this, series = this.series, seriesOptions = series.options;
+        // Load event handlers on demand to save time on mouseover/out
+        point.manageEvent(eventType);
+        // Add default handler if in selection mode
+        if (eventType === 'click' && seriesOptions.allowPointSelect) {
+            defaultFunction = function (event) {
+                // Control key is for Windows, meta (= Cmd key) for Mac, Shift
+                // for Opera.
+                if (!point.condemned && point.select) { // #2911, #19075
+                    point.select(null, event.ctrlKey || event.metaKey || event.shiftKey);
+                }
+            };
+        }
+        fireEvent(point, eventType, eventArgs, defaultFunction);
+    }
+    /**
+     * Get the CSS class names for individual points. Used internally where the
+     * returned value is set on every point.
+     *
+     * @function Highcharts.Point#getClassName
+     *
+     * @return {string}
+     *         The class names.
+     */
+    getClassName() {
+        const point = this;
+        return 'highcharts-point' +
+            (point.selected ? ' highcharts-point-select' : '') +
+            (point.negative && point.series.options.negativeColor !== false ?
+                ' highcharts-negative' : '') +
+            (point.isNull ? ' highcharts-null-point' : '') +
+            (typeof point.colorIndex !== 'undefined' ?
+                ' highcharts-color-' + point.colorIndex : '') +
+            (point.options.className ? ' ' + point.options.className : '') +
+            (point.zone?.className ?
+                ' ' + point.zone.className.replace('highcharts-negative', '') :
+                '');
+    }
+    /**
+     * Returns the value of the point property for a given value.
+     * @internal
+     */
+    getNestedProperty(key) {
+        if (!key) {
+            return;
+        }
+        if (key.indexOf('custom.') === 0) {
+            return getNestedProperty(key, this.options);
+        }
+        return this[key];
+    }
+    /**
+     * In a series with `zones`, return the zone that the point belongs to.
+     *
+     * @function Highcharts.Point#getZone
+     *
+     * @return {Highcharts.SeriesZonesOptionsObject|undefined}
+     *         The zone item, or `undefined` if the series has no zones.
+     */
+    getZone() {
+        const series = this.series, zones = series.zones, zoneAxis = series.zoneAxis || 'y';
+        let zone, i = 0;
+        zone = zones[i];
+        while (i < zones.length &&
+            this[zoneAxis] >= zone.value) {
+            zone = zones[++i];
+        }
+        // For resetting or reusing the point (#8100)
+        if (!this.nonZonedColor) {
+            this.nonZonedColor = this.color;
+        }
+        if (zone?.color && !this.options.color) {
+            this.color = zone.color;
+        }
+        else {
+            this.color = this.nonZonedColor;
+        }
+        return zone;
+    }
+    /**
+     * Utility to check if point has new shape type. Used in column series and
+     * all others that are based on column series.
+     * @internal
+     */
+    hasNewShapeType() {
+        const point = this;
+        const oldShapeType = point.graphic &&
+            (point.graphic.symbolName || point.graphic.element.nodeName);
+        return oldShapeType !== this.shapeType;
+    }
+    /**
+     * Determine if point is valid.
+     *
+     * @internal
+     * @function Highcharts.Point#isValid
+     */
+    isValid() {
+        return ((isNumber(this.x) ||
+            this.x instanceof Date) &&
+            isNumber(this.y));
+    }
+    /**
+     * Transform number or array configs into objects. Also called for object
+     * configs. Used internally to unify the different configuration formats for
+     * points. For example, a simple number `10` in a line series will be
+     * transformed to `{ y: 10 }`, and an array config like `[1, 10]` in a
+     * scatter series will be transformed to `{ x: 1, y: 10 }`.
+     *
+     * @function Highcharts.Point#optionsToObject
+     *
+     * @param {Highcharts.PointOptionsType} options
+     * Series data options.
+     *
+     * @return {Highcharts.Dictionary<*>}
+     * Transformed point options.
+     */
+    optionsToObject(options) {
+        const series = this.series, keys = series.options.keys, pointArrayMap = keys || series.pointArrayMap || ['y'], valueCount = pointArrayMap.length;
+        let ret = {}, firstItemType, i = 0, j = 0;
+        if (isNumber(options) || options === null) {
+            ret[pointArrayMap[0]] = options;
+        }
+        else if (isArray(options)) {
+            // With leading x value
+            if (!keys && options.length > valueCount) {
+                firstItemType = typeof options[0];
+                if (firstItemType === 'string') {
+                    if (series.xAxis?.dateTime) {
+                        ret.x = series.chart.time.parse(options[0]);
+                    }
+                    else {
+                        ret[series.tupleKey || 'name'] = options[0];
+                    }
+                }
+                else if (firstItemType === 'number') {
+                    ret.x = options[0];
+                }
+                i++;
+            }
+            while (j < valueCount) {
+                // Skip undefined positions for keys
+                if (!keys || typeof options[i] !== 'undefined') {
+                    ret[pointArrayMap[j]] = options[i];
+                }
+                i++;
+                j++;
+            }
+        }
+        else if (typeof options === 'object') {
+            ret = options;
+            // This is the fastest way to detect if there are individual point
+            // dataLabels that need to be considered in drawDataLabels. These
+            // can only occur in object configs.
+            if (options.dataLabels) {
+                // Override the prototype function to always return true,
+                // regardless of whether data labels are enabled series-wide
+                series.hasDataLabels = () => true;
+            }
+            // Same approach as above for markers
+            if (options.marker) {
+                series._hasPointMarkers = true;
+            }
+        }
+        // Handle nested keys, e.g. ['color.pattern.image'], but only if we're
+        // using keys or `dataTable`
+        if (keys || !series.options.data) {
+            Object.keys(ret).forEach((key) => {
+                if (key.indexOf('.') > 0) {
+                    Point.prototype.setNestedProperty(ret, ret[key], key);
+                    // Delete the literal nested key
+                    delete ret[key];
+                }
+            });
+        }
+        return ret;
+    }
+    /**
+     * Get the pixel position of the point relative to the plot area.
+     *
+     * @function Highcharts.Point#pos
+     *
+     * @sample highcharts/point/position
+     *         Get point's position in pixels.
+     *
+     * @param {boolean} chartCoordinates
+     * If true, the returned position is relative to the full chart area.
+     * If false, it is relative to the plot area determined by the axes.
+     *
+     * @param {number|undefined} plotX
+     * A custom plot x position to be computed. Used internally for getting the
+     * starting point of an animation.
+     *
+     * @param {number|undefined} plotY
+     * A custom plot y position to be computed. Used internally for getting the
+     * starting point of an animation, and for some series types that have
+     * multiple `y` positions, like area range (low and high values).
+     *
+     * @return {Array<number>|undefined}
+     * Coordinates of the point if the point exists.
+     */
+    pos(chartCoordinates, plotX = this.plotX, plotY = this.plotY) {
+        const { series } = this, { chart, xAxis, yAxis } = series || {};
+        let posX = 0, posY = 0;
+        if (chart && isNumber(plotX) && isNumber(plotY)) {
+            if (chartCoordinates) {
+                posX = xAxis ? xAxis.pos : chart.plotLeft;
+                posY = yAxis ? yAxis.pos : chart.plotTop;
+            }
+            return chart.inverted && xAxis && yAxis ?
+                [yAxis.len - plotY + posY, xAxis.len - plotX + posX] :
+                [plotX + posX, plotY + posY];
+        }
+    }
+    /**
+     * Resolve the color of a point.
+     *
+     * @internal
+     * @function Highcharts.Point#resolveColor
+     */
+    resolveColor() {
+        const { options, series } = this, chart = series.chart, optionsChart = chart.options.chart, styledMode = chart.styledMode;
+        let color, colorCount = optionsChart.colorCount, colorIndex;
+        // Remove points nonZonedColor for later recalculation
+        delete this.nonZonedColor;
+        if (series.options.colorByPoint) {
+            if (!styledMode) {
+                const colors = series.options.colors ||
+                    chart.options.colors;
+                color = colors?.[series.colorCounter];
+                colorCount = colors?.length;
+            }
+            colorIndex = series.colorCounter;
+            series.colorCounter++;
+            // Loop back to zero
+            if (series.colorCounter === colorCount) {
+                series.colorCounter = 0;
+            }
+        }
+        else {
+            if (!styledMode) {
+                color = series.color;
+            }
+            colorIndex = series.colorIndex;
+        }
+        this.colorIndex = options.colorIndex ?? colorIndex;
+        this.color = options.color ?? color;
+    }
+    /**
+     * Set a value in an object, on the property defined by key. The key
+     * supports nested properties using dot notation. The function modifies the
+     * input object and does not make a copy. Paths containing `__proto__` or
+     * `constructor` are ignored.
+     *
+     * @function Highcharts.Point#setNestedProperty<T>
+     *
+     * @param {T} object
+     *        The object to set the value on.
+     *
+     * @param {*} value
+     *        The value to set.
+     *
+     * @param {string} key
+     *        Key to the property to set.
+     *
+     * @return {T}
+     *         The modified object.
+     */
+    setNestedProperty(object, value, key) {
+        const nestedKeys = key.split('.');
+        // Reject nested keys that would allow prototype pollution
+        if (nestedKeys.some((nestedKey) => (nestedKey === '__proto__' || nestedKey === 'constructor'))) {
+            return object;
+        }
+        nestedKeys.reduce(function (result, key, i, arr) {
+            const isLastKey = arr.length - 1 === i;
+            result[key] = (isLastKey ?
+                value :
+                // Inherited objects are shared with everything else on
+                // that prototype, so start a fresh one instead
+                isObject(result[key], true) &&
+                    Object.hasOwnProperty.call(result, key) ?
+                    result[key] :
+                    {});
+            return result[key];
+        }, object);
+        return object;
+    }
+    /** @internal */
+    shouldDraw() {
+        return !this.isNull;
+    }
+    /**
+     * Extendable method for formatting each point's tooltip line.
+     *
+     * @function Highcharts.Point#tooltipFormatter
+     *
+     * @param {string} pointFormat
+     *        The point format.
+     *
+     * @return {string}
+     *         A string to be concatenated in to the common tooltip text.
+     */
+    tooltipFormatter(pointFormat) {
+        // Insert options for valueDecimals, valuePrefix, and valueSuffix
+        const { chart, pointArrayMap = ['y'], tooltipOptions } = this.series, { valueDecimals = '', valuePrefix = '', valueSuffix = '' } = tooltipOptions;
+        // Replace default point style with class name
+        if (chart.styledMode) {
+            pointFormat = chart.tooltip?.styledModeFormat(pointFormat) ||
+                pointFormat;
+        }
+        // Loop over the point array map and replace unformatted values with
+        // sprintf formatting markup
+        pointArrayMap.forEach((key) => {
+            key = '{point.' + key; // Without the closing bracket
+            if (valuePrefix || valueSuffix) {
+                pointFormat = pointFormat.replace(RegExp(key + '}', 'g'), valuePrefix + key + '}' + valueSuffix);
+            }
+            pointFormat = pointFormat.replace(RegExp(key + '}', 'g'), key + ':,.' + valueDecimals + 'f}');
+        });
+        return format(pointFormat, this, chart);
+    }
+    /**
+     * Update point with new options (typically x/y data) and optionally redraw
+     * the series.
+     *
+     * @sample highcharts/members/point-update-column/
+     *         Update column value
+     * @sample highcharts/members/point-update-pie/
+     *         Update pie slice
+     * @sample maps/members/point-update/
+     *         Update map area value in Highmaps
+     *
+     * @function Highcharts.Point#update
+     *
+     * @param {Highcharts.PointOptionsType} options
+     *        The point options. Point options are handled as described under
+     *        the `series.type.data` item for each series type. For example
+     *        for a line series, if options is a single number, the point will
+     *        be given that number as the marin y value. If it is an array, it
+     *        will be interpreted as x and y values respectively. If it is an
+     *        object, advanced options are applied.
+     *
+     * @param {boolean} [redraw=true]
+     *        Whether to redraw the chart after the point is updated. If doing
+     *        more operations on the chart, it is best practice to set
+     *        `redraw` to false and call `chart.redraw()` after.
+     *
+     * @param {boolean|Partial<Highcharts.AnimationOptionsObject>} [animation=true]
+     *        Whether to apply animation, and optionally animation
+     *        configuration.
+     *
+     * @emits Highcharts.Point#event:update
+     */
+    update(options, redraw = true, animation, runEvent) {
+        const point = this, series = point.series, graphic = point.graphic, chart = series.chart, seriesOptions = series.options, dataOptions = seriesOptions.data;
+        /**
+         * Perform the actual update of the point.
+         *
+         * @internal
+         */
+        function update() {
+            point.applyOptions(options);
+            // Update visuals, #4146. The a11y mock graphic is exempt, it is
+            // maintained by the accessibility module, #12718.
+            if (graphic && point.y === null && !point.hasMockGraphic) {
+                point.graphic = graphic.destroy();
+            }
+            if (isObject(options, true)) {
+                // Destroy so we can get new elements
+                if (graphic?.element) {
+                    // "null" is also a valid symbol
+                    if (options?.marker &&
+                        typeof options.marker.symbol !== 'undefined') {
+                        point.graphic = graphic.destroy();
+                    }
+                }
+                if (options?.dataLabels && point.dataLabel) {
+                    point.dataLabel = point.dataLabel.destroy(); // #2468
+                }
+            }
+            const index = point.index, pointOptions = point.optionsToObject(options);
+            if (!series.hasProcessedDataTable) {
+                // Record changes in the data table (#24451)
+                series.dataTable.setRow(pointOptions, index);
+                // Record the options to options.data. If the old or the new
+                // config is an object, use point options, otherwise use raw
+                // options (#4701, #4916).
+                if (dataOptions) {
+                    dataOptions[index] = (isObject(dataOptions[index], true) ||
+                        isObject(options, true)) ?
+                        point.options :
+                        options ?? dataOptions[index];
+                }
+            }
+            // Redraw
+            series.isDirty = series.isDirtyData = true;
+            if ('x' in pointOptions) {
+                if (isString(pointOptions.x)) {
+                    // Clear cache and force recalc in getColumn
+                    series.xColumnIsNumbers = void 0;
+                }
+                point.x = series.getX(pointOptions.x);
+                point.isNull = point.isValid && !point.isValid();
+                if (series.xColumn) {
+                    series.xColumn[index] = point.x;
+                }
+            }
+            if (!series.fixedBox && series.hasCartesianSeries) { // #1906, #2320
+                chart.isDirtyBox = true;
+            }
+            if (seriesOptions.legendType === 'point') { // #1831, #1885
+                chart.isDirtyLegend = true;
+            }
+            if (redraw) {
+                chart.redraw(animation);
+            }
+        }
+        // Fire the event with a default handler of doing the update
+        if (runEvent === false) { // When called from setData
+            update();
+        }
+        else {
+            point.firePointEvent('update', { options: options }, update);
+        }
+    }
+    /**
+     * Remove a point and optionally redraw the series and if necessary the axes
+     *
+     * @sample highcharts/plotoptions/series-point-events-remove/
+     *         Remove point and confirm
+     * @sample highcharts/members/point-remove/
+     *         Remove pie slice
+     * @sample maps/members/point-remove/
+     *         Remove selected points in Highmaps
+     *
+     * @function Highcharts.Point#remove
+     *
+     * @param {boolean} [redraw=true]
+     *        Whether to redraw the chart or wait for an explicit call. When
+     *        doing more operations on the chart, for example running
+     *        `point.remove()` in a loop, it is best practice to set `redraw`
+     *        to false and call `chart.redraw()` after.
+     *
+     * @param {boolean|Partial<Highcharts.AnimationOptionsObject>} [animation=false]
+     *        Whether to apply animation, and optionally animation
+     *        configuration.
+     */
+    remove(redraw, animation) {
+        this.series.removePoint(this.series.data.indexOf(this), redraw, animation);
+    }
+    /**
+     * Toggle the selection status of a point.
+     *
+     * @see Highcharts.Chart#getSelectedPoints
+     *
+     * @sample highcharts/members/point-select/
+     *         Select a point from a button
+     * @sample highcharts/members/point-select-lasso/
+     *         Lasso selection
+     * @sample highcharts/chart/events-selection-points/
+     *         Rectangle selection
+     * @sample maps/series/data-id/
+     *         Select a point in Highmaps
+     *
+     * @function Highcharts.Point#select
+     *
+     * @param {boolean} [selected]
+     * When `true`, the point is selected. When `false`, the point is
+     * unselected. When `null` or `undefined`, the selection state is toggled.
+     *
+     * @param {boolean} [accumulate=false]
+     * When `true`, the selection is added to other selected points.
+     * When `false`, other selected points are deselected. Internally in
+     * Highcharts, when
+     * [allowPointSelect](https://api.highcharts.com/highcharts/plotOptions.series.allowPointSelect)
+     * is `true`, selected points are accumulated on Control, Shift or Cmd
+     * clicking the point.
+     *
+     * @emits Highcharts.Point#event:select
+     * @emits Highcharts.Point#event:unselect
+     */
+    select(selected, accumulate) {
+        const point = this, series = point.series, chart = series.chart;
+        selected = (selected ?? !point.selected);
+        this.selectedStaging = selected;
+        // Fire the event with the default handler
+        point.firePointEvent(selected ? 'select' : 'unselect', { accumulate: accumulate }, function () {
+            point.selected = point.options.selected = selected;
+            if (series.options.data) {
+                series.options.data[series.data.indexOf(point)] =
+                    point.options;
+            }
+            point.setState(selected && 'select');
+            // Unselect all other points unless Ctrl or Cmd + click
+            if (!accumulate) {
+                chart.getSelectedPoints().forEach(function (loopPoint) {
+                    const loopSeries = loopPoint.series, loopSeriesOptions = loopSeries.options;
+                    if (loopPoint.selected && loopPoint !== point) {
+                        loopPoint.selected = loopPoint.options.selected =
+                            false;
+                        if (loopSeriesOptions.data) {
+                            loopSeriesOptions.data[loopSeries.data.indexOf(loopPoint)] = loopPoint.options;
+                        }
+                        // Programmatically selecting a point should restore
+                        // normal state, but when click happened on other
+                        // point, set inactive state to match other points
+                        loopPoint.setState(chart.hoverPoints &&
+                            loopSeriesOptions.inactiveOtherPoints ?
+                            'inactive' : '');
+                        loopPoint.firePointEvent('unselect');
+                    }
+                });
+            }
+        });
+        delete this.selectedStaging;
+    }
+    /**
+     * Runs on mouse over the point. Called internally from mouse and touch
+     * events.
+     *
+     * @function Highcharts.Point#onMouseOver
+     *
+     * @param {Highcharts.PointerEventObject} [e]
+     *        The event arguments.
+     */
+    onMouseOver(e) {
+        const point = this, series = point.series, { inverted, pointer } = series.chart;
+        if (pointer) {
+            e = e ?
+                pointer.normalize(e) :
+                // In cases where onMouseOver is called directly without an
+                // event
+                pointer.getChartCoordinatesFromPoint(point, inverted);
+            pointer.runPointActions(e, point);
+        }
+    }
+    /**
+     * Runs on mouse out from the point. Called internally from mouse and touch
+     * events.
+     *
+     * @function Highcharts.Point#onMouseOut
+     * @emits Highcharts.Point#event:mouseOut
+     */
+    onMouseOut() {
+        const point = this;
+        if (!point.series) {
+            return;
+        }
+        const chart = point.series.chart;
+        point.firePointEvent('mouseOut');
+        if (!point.series.options.inactiveOtherPoints) {
+            (chart.hoverPoints || []).forEach(function (p) {
+                p.setState();
+            });
+        }
+        chart.hoverPoints = chart.hoverPoint = null;
+    }
+    /**
+     * Manage specific event from the series' and point's options. Only do it on
+     * demand, to save processing time on hovering.
+     *
+     * @internal
+     * @function Highcharts.Point#importEvents
+     */
+    manageEvent(eventType) {
+        const point = this, options = merge(point.series.options.point, point.options), userEvent = options.events?.[eventType];
+        if (isFunction(userEvent) &&
+            (!point.hcEvents?.[eventType] ||
+                // Some HC modules, like marker-clusters, draggable-points etc.
+                // use events in their logic, so we need to be sure, that
+                // callback function is different
+                point.hcEvents?.[eventType]?.map((el) => el.fn)
+                    .indexOf(userEvent) === -1)) {
+            // While updating the existing callback event the old one should be
+            // removed
+            point.importedUserEvent?.();
+            point.importedUserEvent = addEvent(point, eventType, userEvent);
+            if (point.hcEvents) {
+                point.hcEvents[eventType].userEvent = true;
+            }
+        }
+        else if (point.importedUserEvent &&
+            !userEvent &&
+            point.hcEvents?.[eventType] &&
+            point.hcEvents?.[eventType].userEvent) {
+            removeEvent(point, eventType);
+            delete point.hcEvents[eventType];
+            if (!Object.keys(point.hcEvents)) {
+                delete point.importedUserEvent;
+            }
+        }
+    }
+    /**
+     * Set the point's state.
+     *
+     * @function Highcharts.Point#setState
+     *
+     * @param {Highcharts.PointStateValue|""} [state]
+     *        The new state, can be one of `'hover'`, `'select'`, `'inactive'`,
+     *        or `''` (an empty string), `'normal'` or `undefined` to set to
+     *        normal state.
+     * @param {boolean} [move]
+     *        State for animation.
+     *
+     * @emits Highcharts.Point#event:afterSetState
+     */
+    setState(state, move) {
+        const point = this, series = point.series, previousState = point.state, stateOptions = series.options.states?.[state || 'normal'] || {}, markerOptions = (defaultOptions.plotOptions?.[series.type]?.marker &&
+            series.options.marker), normalDisabled = markerOptions?.enabled === false, markerStateOptions = markerOptions?.states?.[state || 'normal'] ||
+            {}, stateDisabled = markerStateOptions.enabled === false, pointMarker = point.marker || {}, chart = series.chart, hasMarkers = (markerOptions && series.markerAttribs);
+        let halo = series.halo, markerAttribs, pointAttribs, pointAttribsAnimation, stateMarkerGraphic = series.stateMarkerGraphic, newSymbol;
+        state = state || ''; // Empty string
+        if (
+        // Already has this state
+        (state === point.state && !move) ||
+            // Selected points don't respond to hover
+            (point.selected && state !== 'select') ||
+            // Series' state options is disabled
+            (stateOptions.enabled === false) ||
+            // General point marker's state options is disabled
+            (state && (stateDisabled ||
+                (normalDisabled && markerStateOptions.enabled === false))) ||
+            // Individual point marker's state options is disabled
+            (state &&
+                pointMarker.states?.[state]?.enabled === false) // #1610
+        ) {
+            return;
+        }
+        point.state = state;
+        if (hasMarkers) {
+            markerAttribs = series.markerAttribs(point, state);
+        }
+        // Apply hover styles to the existing point
+        // Prevent from mocked null points (#14966)
+        if (point.graphic && !point.hasMockGraphic) {
+            if (previousState) {
+                point.graphic.removeClass('highcharts-point-' + previousState);
+            }
+            if (state) {
+                point.graphic.addClass('highcharts-point-' + state);
+            }
+            if (!chart.styledMode) {
+                pointAttribs = series.pointAttribs(point, state);
+                pointAttribsAnimation = (chart.options.chart.animation ??
+                    stateOptions.animation);
+                const opacity = pointAttribs.opacity;
+                // Some inactive points (e.g. slices in pie) should apply
+                // opacity also for their labels
+                if (series.options.inactiveOtherPoints && isNumber(opacity)) {
+                    (point.dataLabels || []).forEach(function (label) {
+                        if (label &&
+                            !label.hasClass('highcharts-data-label-hidden')) {
+                            label.animate({ opacity }, pointAttribsAnimation);
+                            if (label.connector) {
+                                label.connector.animate({ opacity }, pointAttribsAnimation);
+                            }
+                        }
+                    });
+                }
+                point.graphic.animate(pointAttribs, pointAttribsAnimation);
+            }
+            if (markerAttribs) {
+                point.graphic.animate(markerAttribs, (
+                // Turn off globally:
+                chart.options.chart.animation ??
+                    markerStateOptions.animation ??
+                    markerOptions.animation));
+            }
+            // Zooming in from a range with no markers to a range with markers
+            if (stateMarkerGraphic) {
+                stateMarkerGraphic.hide();
+            }
+        }
+        else {
+            // If a graphic is not applied to each point in the normal state,
+            // create a shared graphic for the hover state
+            if (state && markerStateOptions) {
+                newSymbol = pointMarker.symbol || series.symbol;
+                // If the point has another symbol than the previous one, throw
+                // away the state marker graphic and force a new one (#1459)
+                if (stateMarkerGraphic &&
+                    stateMarkerGraphic.currentSymbol !== newSymbol) {
+                    stateMarkerGraphic = stateMarkerGraphic.destroy();
+                }
+                // Add a new state marker graphic
+                if (markerAttribs) {
+                    if (!stateMarkerGraphic) {
+                        if (newSymbol) {
+                            series.stateMarkerGraphic = stateMarkerGraphic =
+                                chart.renderer
+                                    .symbol(newSymbol, markerAttribs.x, markerAttribs.y, markerAttribs.width, markerAttribs.height, merge(markerOptions, markerStateOptions))
+                                    .add(series.markerGroup);
+                            stateMarkerGraphic.currentSymbol = newSymbol;
+                        }
+                        // Move the existing graphic
+                    }
+                    else {
+                        stateMarkerGraphic[move ? 'animate' : 'attr']({
+                            x: markerAttribs.x,
+                            y: markerAttribs.y
+                        });
+                    }
+                }
+                if (!chart.styledMode && stateMarkerGraphic &&
+                    point.state !== 'inactive') {
+                    stateMarkerGraphic.attr(series.pointAttribs(point, state));
+                }
+            }
+            if (stateMarkerGraphic) {
+                stateMarkerGraphic[state && point.isInside ? 'show' : 'hide'](); // #2450
+                stateMarkerGraphic.element.point = point; // #4310
+                stateMarkerGraphic.addClass(point.getClassName(), true);
+            }
+        }
+        // Show me your halo
+        const haloOptions = isObject(stateOptions.halo) ?
+            stateOptions.halo :
+            {};
+        const markerGraphic = (point.graphic || stateMarkerGraphic);
+        const markerVisibility = markerGraphic?.visibility || 'inherit';
+        if (haloOptions.size &&
+            markerGraphic &&
+            markerVisibility !== 'hidden' &&
+            !point.isCluster) {
+            if (!halo) {
+                series.halo = halo = chart.renderer.path()
+                    // #5818, #5903, #6705
+                    .add(markerGraphic.parentGroup);
+            }
+            halo.show()[move ? 'animate' : 'attr']({
+                d: point.haloPath(haloOptions.size)
+            });
+            halo.attr({
+                'class': 'highcharts-halo highcharts-color-' +
+                    (point.colorIndex ?? series.colorIndex) +
+                    (point.className ? ' ' + point.className : ''),
+                'visibility': markerVisibility,
+                'zIndex': -1 // #4929, #8276
+            });
+            halo.point = point; // #6055
+            if (!chart.styledMode) {
+                halo.attr(extend({
+                    'fill': point.color || series.color,
+                    'fill-opacity': haloOptions.opacity
+                }, AST.filterUserAttributes(haloOptions.attributes || {})));
+            }
+        }
+        else if (halo?.point?.haloPath &&
+            !halo.point.destroyed) {
+            // Animate back to 0 on the current halo point (#6055)
+            halo.animate({ d: halo.point.haloPath(0) }, null, 
+            // Hide after unhovering. The `complete` callback runs in the
+            // halo's context (#7681).
+            halo.hide);
+        }
+        fireEvent(point, 'afterSetState', { state });
+    }
+    /**
+     * Get the path definition for the halo, which is usually a shadow-like
+     * circle around the currently hovered point.
+     *
+     * @function Highcharts.Point#haloPath
+     *
+     * @param {number} size
+     *        The radius of the circular halo.
+     *
+     * @return {Highcharts.SVGPathArray}
+     *         The path definition.
+     */
+    haloPath(size) {
+        const pos = this.pos();
+        return pos ? this.series.chart.renderer.symbols.circle(crisp(pos[0], 1) - size, pos[1] - size, size * 2, size * 2) : [];
+    }
+}
+/* *
+ *
+ *  Default Export
+ *
+ * */
+export default Point;
+/* *
+ *
+ *  API Declarations
+ *
+ * */
+/**
+ * Function callback when a series point is clicked. Return false to cancel the
+ * action.
+ *
+ * @callback Highcharts.PointClickCallbackFunction
+ *
+ * @param {Highcharts.Point} this
+ *        The point where the event occurred.
+ *
+ * @param {Highcharts.PointClickEventObject} event
+ *        Event arguments.
+ *
+ * @param {Highcharts.Point} [ctx]
+ *        Since v12.6.0, the point context passed as an extra argument for
+ *        arrow functions.
+ */
+/**
+ * Common information for a click event on a series point.
+ *
+ * @interface Highcharts.PointClickEventObject
+ * @extends Highcharts.PointerEventObject
+ */ /**
+* Clicked point.
+* @name Highcharts.PointClickEventObject#point
+* @type {Highcharts.Point}
+*/
+/**
+ * Gets fired when the mouse leaves the area close to the point.
+ *
+ * @callback Highcharts.PointMouseOutCallbackFunction
+ *
+ * @param {Highcharts.Point} this
+ *        Point where the event occurred.
+ *
+ * @param {global.PointerEvent} event
+ *        Event that occurred.
+ *
+ * @param {Highcharts.Point} [ctx]
+ *        Since v12.6.0, the point context passed as an extra argument for
+ *        arrow functions.
+ */
+/**
+ * Gets fired when the mouse enters the area close to the point.
+ *
+ * @callback Highcharts.PointMouseOverCallbackFunction
+ *
+ * @param {Highcharts.Point} this
+ *        Point where the event occurred.
+ *
+ * @param {global.Event} event
+ *        Event that occurred.
+ *
+ * @param {Highcharts.Point} [ctx]
+ *        Since v12.6.0, the point context passed as an extra argument for
+ *        arrow functions.
+ */
+/**
+ * The generic point options for all series.
+ *
+ * In TypeScript you have to extend `PointOptionsObject` with an additional
+ * declaration to allow custom data options:
+ *
+ * ```
+ * declare interface PointOptionsObject {
+ *     customProperty: string;
+ * }
+ * ```
+ *
+ * @interface Highcharts.PointOptionsObject
+ */
+/**
+ * Possible option types for a data point. Use `null` to indicate a gap.
+ *
+ * @typedef {number|string|Highcharts.PointOptionsObject|Array<(number|string|null)>|null} Highcharts.PointOptionsType
+ */
+/**
+ * Gets fired when the point is removed using the `.remove()` method.
+ *
+ * @callback Highcharts.PointRemoveCallbackFunction
+ *
+ * @param {Highcharts.Point} this
+ *        Point where the event occurred.
+ *
+ * @param {global.Event} event
+ *        Event that occurred.
+ *
+ * @param {Highcharts.Point} [ctx]
+ *        Since v12.6.0, the point context passed as an extra argument for
+ *        arrow functions.
+ */
+/**
+ * Possible key values for the point state options.
+ *
+ * @typedef {"hover"|"inactive"|"normal"|"select"} Highcharts.PointStateValue
+ */
+/**
+ * Gets fired when the point is updated programmatically through the `.update()`
+ * method.
+ *
+ * @callback Highcharts.PointUpdateCallbackFunction
+ *
+ * @param {Highcharts.Point} this
+ *        Point where the event occurred.
+ *
+ * @param {Highcharts.PointUpdateEventObject} event
+ *        Event that occurred.
+ *
+ * @param {Highcharts.Point} [ctx]
+ *        Since v12.6.0, the point context passed as an extra argument for
+ *        arrow functions.
+ */
+/**
+ * Information about the update event.
+ *
+ * @interface Highcharts.PointUpdateEventObject
+ * @extends global.Event
+ */ /**
+* Options data of the update event.
+* @name Highcharts.PointUpdateEventObject#options
+* @type {Highcharts.PointOptionsType}
+*/
+/**
+ * @interface Highcharts.PointEventsOptionsObject
+ */ /**
+* Fires when the point is selected either programmatically or following a click
+* on the point. One parameter, `event`, is passed to the function. Returning
+* `false` cancels the operation.
+* @name Highcharts.PointEventsOptionsObject#select
+* @type {Highcharts.PointSelectCallbackFunction|undefined}
+*/ /**
+* Fires when the point is unselected either programmatically or following a
+* click on the point. One parameter, `event`, is passed to the function.
+* Returning `false` cancels the operation.
+* @name Highcharts.PointEventsOptionsObject#unselect
+* @type {Highcharts.PointUnselectCallbackFunction|undefined}
+*/
+/**
+ * Information about the select/unselect event.
+ *
+ * @interface Highcharts.PointInteractionEventObject
+ * @extends global.Event
+ */ /**
+* @name Highcharts.PointInteractionEventObject#accumulate
+* @type {boolean}
+*/
+/**
+ * Gets fired when the point is selected either programmatically or following a
+ * click on the point.
+ *
+ * @callback Highcharts.PointSelectCallbackFunction
+ *
+ * @param {Highcharts.Point} this
+ *        Point where the event occurred.
+ *
+ * @param {Highcharts.PointInteractionEventObject} event
+ *        Event that occurred.
+ *
+ * @param {Highcharts.Point} [ctx]
+ *        Since v12.6.0, the point context passed as an extra argument for
+ *        arrow functions.
+ */
+/**
+ * Fires when the point is unselected either programmatically or following a
+ * click on the point.
+ *
+ * @callback Highcharts.PointUnselectCallbackFunction
+ *
+ * @param {Highcharts.Point} this
+ *        Point where the event occurred.
+ *
+ * @param {Highcharts.PointInteractionEventObject} event
+ *        Event that occurred.
+ *
+ * @param {Highcharts.Point} [ctx]
+ *        Since v12.6.0, the point context passed as an extra argument for
+ *        arrow functions.
+ */
+''; // Keeps doclets above in JS file.

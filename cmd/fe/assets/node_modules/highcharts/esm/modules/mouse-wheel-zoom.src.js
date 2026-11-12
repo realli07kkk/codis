@@ -1,0 +1,393 @@
+// SPDX-License-Identifier: LicenseRef-Highcharts
+/**
+ * @license Highcharts JS v13.1.1 (2026-09-20)
+ * @module highcharts/modules/mouse-wheel-zoom
+ * @requires highcharts
+ *
+ * Mousewheel zoom module
+ *
+ * (c) 2023-2026 Highsoft AS
+ * Author: Askel Eirik Johansson
+ *
+ * A commercial license may be required depending on use,
+ * see www.highcharts.com/license
+ */
+import * as __WEBPACK_EXTERNAL_MODULE__highcharts_src_js_8202131d__ from "../highcharts.src.js";
+/******/ // The require scope
+/******/ const __webpack_require__ = {};
+/******/ 
+/************************************************************************/
+/******/ /* webpack/runtime/compat get default export */
+/******/ // getDefaultExport function for compatibility with non-harmony modules
+/******/ __webpack_require__.n = (module) => {
+/******/ 	const getter = module && module.__esModule ?
+/******/ 		() => (module['default']) :
+/******/ 		() => (module);
+/******/ 	__webpack_require__.d(getter, { a: getter });
+/******/ 	return getter;
+/******/ };
+/******/ 
+/******/ /* webpack/runtime/define property getters */
+/******/ // define getter/value functions for harmony exports
+/******/ __webpack_require__.d = (exports, definition) => {
+/******/ 	for(var key in definition) {
+/******/ 		if(__webpack_require__.o(definition, key) && !__webpack_require__.o(exports, key)) {
+/******/ 			Object.defineProperty(exports, key, { enumerable: true, get: definition[key] });
+/******/ 		}
+/******/ 	}
+/******/ };
+/******/ 
+/******/ /* webpack/runtime/hasOwnProperty shorthand */
+/******/ __webpack_require__.o = (obj, prop) => (Object.prototype.hasOwnProperty.call(obj, prop));
+/******/ 
+/************************************************************************/
+
+;// external ["../highcharts.src.js","default"]
+const external_highcharts_src_js_default_namespaceObject = __WEBPACK_EXTERNAL_MODULE__highcharts_src_js_8202131d__["default"];
+var external_highcharts_src_js_default_default = /*#__PURE__*/__webpack_require__.n(external_highcharts_src_js_default_namespaceObject);
+;// ./code/es-modules/Extensions/Annotations/NavigationBindingsUtilities.js
+/* *
+ *
+ *  (c) 2009-2026 Highsoft AS
+ *  Author: Highsoft, Black Label
+ *
+ *  Integration of this software requires a license.
+ *  - For commercial use, see www.highcharts.com/license
+ *  - For non-commercial, see www.highcharts.com/license-eula
+ *
+ *
+ * */
+
+
+/* *
+ *
+ *  Constants
+ *
+ * */
+/**
+ * Define types for editable fields per annotation. There is no need to define
+ * numbers, because they won't change their type to string.
+ * @internal
+ */
+const annotationsFieldsTypes = {
+    backgroundColor: 'color',
+    backgroundColors: 'color',
+    borderColor: 'color',
+    borderRadius: 'string',
+    color: 'color',
+    fill: 'color',
+    fontSize: 'string',
+    labels: 'string',
+    name: 'string',
+    stroke: 'color',
+    title: 'string'
+};
+/* *
+ *
+ *  Functions
+ *
+ * */
+/**
+ * Returns the first xAxis or yAxis that was clicked with its value.
+ *
+ * @internal
+ *
+ * @param {Array<Highcharts.PointerAxisCoordinateObject>} coords
+ *        All the chart's x or y axes with a current pointer's axis value.
+ *
+ * @return {Highcharts.PointerAxisCoordinateObject}
+ *         Object with a first found axis and its value that pointer
+ *         is currently pointing.
+ */
+function getAssignedAxis(coords) {
+    return coords.filter((coord) => {
+        const extremes = coord.axis.getExtremes(), axisMin = extremes.min, axisMax = extremes.max, 
+        // Correct axis edges when axis has series
+        // with pointRange (like column)
+        minPointOffset = (coord.axis.minPointOffset ?? 0);
+        return (0,external_highcharts_src_js_default_namespaceObject.isNumber)(axisMin) && (0,external_highcharts_src_js_default_namespaceObject.isNumber)(axisMax) &&
+            coord.value >= (axisMin - minPointOffset) &&
+            coord.value <= (axisMax + minPointOffset) &&
+            // Don't count navigator axis
+            !coord.axis.options.isInternal;
+    })[0]; // If the axes overlap, return the first axis that was found.
+}
+/**
+ * Resolve an axis from an annotation option that can reference it either by its
+ * index (number) or by its id (string).
+ *
+ * @internal
+ *
+ * @param {Highcharts.Chart} chart
+ *        The chart instance.
+ *
+ * @param {'xAxis'|'yAxis'} coll
+ *        The axis collection to look in.
+ *
+ * @param {number|string|undefined} idOrIndex
+ *        The axis index or id.
+ *
+ * @return {Highcharts.Axis|undefined}
+ *         The matching axis, or `undefined` if none was found.
+ */
+function getAxisFromOptions(chart, coll, idOrIndex) {
+    if ((0,external_highcharts_src_js_default_namespaceObject.isNumber)(idOrIndex)) {
+        return chart[coll][idOrIndex];
+    }
+    return (0,external_highcharts_src_js_default_namespaceObject.defined)(idOrIndex) ?
+        (0,external_highcharts_src_js_default_namespaceObject.find)(chart[coll], (axis) => axis.options.id === idOrIndex) :
+        void 0;
+}
+/**
+ * Get field type according to value
+ *
+ * @internal
+ *
+ * @return {'checkbox'|'color'|'number'|'text'}
+ * Field type (one of: text, number, checkbox, color)
+ */
+function getFieldType(key, value) {
+    const predefinedType = annotationsFieldsTypes[key];
+    let fieldType = typeof value;
+    if ((0,external_highcharts_src_js_default_namespaceObject.defined)(predefinedType)) {
+        fieldType = predefinedType;
+    }
+    return {
+        'string': 'text',
+        'number': 'number',
+        'boolean': 'checkbox',
+        'color': 'color'
+    }[fieldType];
+}
+/* *
+ *
+ *  Default Export
+ *
+ * */
+/** @internal */
+const NavigationBindingsUtilities = {
+    annotationsFieldsTypes,
+    getAssignedAxis,
+    getAxisFromOptions,
+    getFieldType
+};
+/** @internal */
+/* harmony default export */ const Annotations_NavigationBindingsUtilities = (NavigationBindingsUtilities);
+
+;// ./code/es-modules/Extensions/MouseWheelZoom/MouseWheelZoom.js
+/* *
+ *
+ *  (c) 2023-2026 Highsoft AS
+ *  Author: Torstein Hønsi, Askel Eirik Johansson
+ *
+ *  Integration of this software requires a license.
+ *  - For commercial use, see www.highcharts.com/license
+ *  - For non-commercial, see www.highcharts.com/license-eula
+ *
+ *
+ * */
+
+
+
+const { getAssignedAxis: MouseWheelZoom_getAssignedAxis } = Annotations_NavigationBindingsUtilities;
+/* *
+ *
+ *  Constants
+ *
+ * */
+const composedClasses = [], defaultOptions = {
+    enabled: true,
+    sensitivity: 1.1,
+    showResetButton: false
+};
+let wheelTimer;
+/* *
+ *
+ *  Functions
+ *
+ * */
+/** @internal */
+const optionsToObject = (options) => {
+    if (!(0,external_highcharts_src_js_default_namespaceObject.isObject)(options)) {
+        options = {
+            enabled: options ?? true
+        };
+    }
+    return (0,external_highcharts_src_js_default_namespaceObject.merge)(defaultOptions, options);
+};
+/** @internal */
+const zoomBy = function (chart, howMuch, xAxis, yAxis, mouseX, mouseY, options) {
+    const type = (options.type ?? chart.zooming.type ?? '');
+    let axes = [];
+    if (type === 'x') {
+        axes = xAxis;
+    }
+    else if (type === 'y') {
+        axes = yAxis;
+    }
+    else if (type === 'xy') {
+        axes = chart.axes;
+    }
+    const hasZoomed = chart.transform({
+        axes,
+        // Create imaginary reference and target rectangles around the mouse
+        // point that scales up or down with `howMuch`;
+        to: {
+            x: mouseX - 5,
+            y: mouseY - 5,
+            // Must use 10 to get passed the limit for too small reference.
+            // Below this, the transform will default to a pan.
+            width: 10,
+            height: 10
+        },
+        from: {
+            x: mouseX - 5 * howMuch,
+            y: mouseY - 5 * howMuch,
+            width: 10 * howMuch,
+            height: 10 * howMuch
+        },
+        trigger: 'mousewheel',
+        allowResetButton: options.showResetButton
+    });
+    if (hasZoomed) {
+        if ((0,external_highcharts_src_js_default_namespaceObject.defined)(wheelTimer)) {
+            (0,external_highcharts_src_js_default_namespaceObject.internalClearTimeout)(wheelTimer);
+        }
+        // Some time after the last mousewheel event, run drop. In case any of
+        // the affected axes had `startOnTick` or `endOnTick`, they will be
+        // re-adjusted now.
+        wheelTimer = setTimeout(() => {
+            chart.pointer?.drop();
+        }, 400);
+    }
+    return hasZoomed;
+};
+/** @internal */
+function onAfterGetContainer() {
+    const wheelZoomOptions = optionsToObject(this.zooming.mouseWheel);
+    if (wheelZoomOptions.enabled) {
+        (0,external_highcharts_src_js_default_namespaceObject.addEvent)(this.container, 'wheel', (e) => {
+            e = this.pointer?.normalize(e) || e;
+            const { pointer } = this, allowZoom = pointer && !pointer.inClass(e.target, 'highcharts-no-mousewheel');
+            // Firefox uses e.detail, WebKit and IE uses deltaX, deltaY, deltaZ.
+            if (this.isInsidePlot(e.chartX - this.plotLeft, e.chartY - this.plotTop) && allowZoom) {
+                const wheelSensitivity = wheelZoomOptions.sensitivity || 1.1, delta = e.detail || ((e.deltaY || 0) / 120), xAxisCoords = MouseWheelZoom_getAssignedAxis(pointer.getCoordinates(e).xAxis), yAxisCoords = MouseWheelZoom_getAssignedAxis(pointer.getCoordinates(e).yAxis);
+                const hasZoomed = zoomBy(this, Math.pow(wheelSensitivity, delta), xAxisCoords ? [xAxisCoords.axis] : this.xAxis, yAxisCoords ? [yAxisCoords.axis] : this.yAxis, e.chartX, e.chartY, wheelZoomOptions);
+                // Prevent page scroll
+                if (hasZoomed) {
+                    e.preventDefault?.();
+                }
+            }
+        });
+    }
+}
+/** @internal */
+function compose(ChartClass) {
+    if (composedClasses.indexOf(ChartClass) === -1) {
+        composedClasses.push(ChartClass);
+        (0,external_highcharts_src_js_default_namespaceObject.addEvent)(ChartClass, 'afterGetContainer', onAfterGetContainer);
+    }
+}
+/* *
+ *
+ *  Default Export
+ *
+ * */
+/** @internal */
+const MouseWheelZoomComposition = {
+    compose
+};
+/** @internal */
+/* harmony default export */ const MouseWheelZoom = (MouseWheelZoomComposition);
+/* *
+ *
+ *  API Options
+ *
+ * */
+/**
+ * The mouse wheel zoom is a feature included in Highcharts Stock, but is also
+ * available for Highcharts Core as a module. Zooming with the mouse wheel is
+ * enabled by default in Highcharts Stock. In Highcharts Core it is enabled if
+ * [chart.zooming.type](chart.zooming.type) is set. It can be disabled by
+ * setting this option to `false`.
+ *
+ * @type      {boolean|object}
+ * @since 11.1.0
+ * @requires  modules/mouse-wheel-zoom
+ * @sample    {highcharts} highcharts/mouse-wheel-zoom/enabled
+ *            Enable or disable
+ * @sample    {highstock} stock/mouse-wheel-zoom/enabled
+ *            Enable or disable
+ * @apioption chart.zooming.mouseWheel
+ */
+/**
+ * Zooming with the mouse wheel can be disabled by setting this option to
+ * `false`.
+ *
+ * @type      {boolean}
+ * @default   true
+ * @since 11.1.0
+ * @requires  modules/mouse-wheel-zoom
+ * @apioption chart.zooming.mouseWheel.enabled
+ */
+/**
+ * Adjust the sensitivity of the zoom. Sensitivity of mouse wheel or trackpad
+ * scrolling. `1` is no sensitivity, while with `2`, one mouse wheel delta will
+ * zoom in `50%`.
+ *
+ * @type      {number}
+ * @default   1.1
+ * @since 11.1.0
+ * @requires  modules/mouse-wheel-zoom
+ * @sample    {highcharts} highcharts/mouse-wheel-zoom/sensitivity
+ *            Change mouse wheel zoom sensitivity
+ * @sample    {highstock} stock/mouse-wheel-zoom/sensitivity
+ *            Change mouse wheel zoom sensitivity
+ * @apioption chart.zooming.mouseWheel.sensitivity
+ */
+/**
+ * Decides in what dimensions the user can zoom scrolling the wheel. Can be one
+ * of `x`, `y` or `xy`. In Highcharts Core, if not specified here, it will
+ * inherit the type from [chart.zooming.type](chart.zooming.type). In Highcharts
+ * Stock, it defaults to `x`.
+ *
+ * Note that particularly with mouse wheel in the y direction, the zoom is
+ * affected by the default [yAxis.startOnTick](#yAxis.startOnTick) and
+ * [endOnTick]((#yAxis.endOnTick)) settings. In order to respect these settings,
+ * the zoom level will adjust after the user has stopped zooming. To prevent
+ * this, consider setting `startOnTick` and `endOnTick` to `false`.
+ *
+ * @type      {string}
+ * @default   {highcharts} undefined
+ * @default   {highstock} x
+ * @validvalue ["x", "y", "xy"]
+ * @since 11.1.0
+ * @requires  modules/mouse-wheel-zoom
+ * @apioption chart.zooming.mouseWheel.type
+ */
+/**
+ * Whether to enable the reset zoom button when zooming with the mouse wheel.
+ *
+ * @type      {boolean}
+ * @default   false
+ * @since     12.5.0
+ * @requires  modules/mouse-wheel-zoom
+ * @sample    {highcharts} highcharts/mouse-wheel-zoom/reset-zoom-button
+ *            Enable reset zoom button for mouse wheel zooming
+ * @sample    {highstock} stock/mouse-wheel-zoom/reset-zoom-button
+ *            Enable reset zoom button for mouse wheel zooming
+ * @apioption chart.zooming.mouseWheel.showResetButton
+ */
+(''); // Keeps doclets above in JS file
+
+;// ./code/es-modules/masters/modules/mouse-wheel-zoom.src.js
+
+
+
+
+const G = (external_highcharts_src_js_default_default());
+G.MouseWheelZoom = G.MouseWheelZoom || MouseWheelZoom;
+G.MouseWheelZoom.compose(G.Chart);
+/* harmony default export */ const mouse_wheel_zoom_src = ((external_highcharts_src_js_default_default()));
+
+export { mouse_wheel_zoom_src as default };

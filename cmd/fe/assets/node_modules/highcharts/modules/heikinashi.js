@@ -1,0 +1,14 @@
+!/**
+ * Highstock JS v13.1.1 (2026-09-20)
+ * @module highcharts/modules/heikinashi
+ * @requires highcharts
+ * @requires highcharts/modules/stock
+ *
+ * HeikinAshi series type for Highcharts Stock
+ *
+ * (c) 2010-2026 Highsoft AS
+ * Author: Karol Kołodziej
+ *
+ * A commercial license may be required depending on use,
+ * see www.highcharts.com/license
+ */function(t,e){"object"==typeof exports&&"object"==typeof module?module.exports=e(t._Highcharts.SeriesRegistry,t._Highcharts):"function"==typeof define&&define.amd?define("highcharts/modules/heikinashi",["highcharts/highcharts"],function(t){return e(t.SeriesRegistry,t)}):"object"==typeof exports?exports["highcharts/modules/heikinashi"]=e(t._Highcharts.SeriesRegistry,t._Highcharts):t.Highcharts=e(t.Highcharts.SeriesRegistry,t.Highcharts)}("u"<typeof window?this:window,(t,e)=>(()=>{"use strict";var i={512(e){e.exports=t},944(t){t.exports=e}};let s={};function a(t){let e=s[t];if(void 0!==e)return e.exports;let h=s[t]={exports:{}};return i[t](h,h.exports,a),h.exports}a.n=t=>{let e=t&&t.__esModule?()=>t.default:()=>t;return a.d(e,{a:e}),e},a.d=(t,e)=>{for(var i in e)a.o(e,i)&&!a.o(t,i)&&Object.defineProperty(t,i,{enumerable:!0,get:e[i]})},a.o=(t,e)=>Object.prototype.hasOwnProperty.call(t,e);let h={};a.d(h,{default:()=>D});var o=a(944),n=a.n(o),r=a(512),l=a.n(r);let{candlestick:{prototype:{pointClass:p}},hlc:{prototype:{pointClass:c}}}=l().seriesTypes,{composed:d}=n(),{candlestick:u}=l().seriesTypes;function g(){this.series.forEach(t=>{t.is("heikinashi")&&(t.heikinashiData.length=0,t.getHeikinashiData())})}function f(){let t=this.points,e=this.heikinashiData,i=this.cropStart||0;for(let s=0;s<t.length;s++){let a=t[s],h=e[s+i];a.open=h[0],a.high=h[1],a.low=h[2],a.close=h[3]}}function y(){this.heikinashiData.length&&(this.heikinashiData.length=0)}class k extends u{constructor(){super(...arguments),this.heikinashiData=[]}static compose(t,e){u.compose(t),(0,o.pushUnique)(d,"HeikinAshi")&&((0,o.addEvent)(e,"postProcessData",g),(0,o.addEvent)(k,"afterTranslate",f),(0,o.addEvent)(k,"updatedData",y))}getHeikinashiData(){let t=this.allGroupedTable||this.dataTable,e=t.rowCount,i=this.heikinashiData;if(!i.length&&e){this.modifyFirstPointValue(t.getRowObject(0,this.pointArrayMap));for(let s=1;s<e;s++)this.modifyDataPoint(t.getRowObject(s,this.pointArrayMap),i[s-1])}this.heikinashiData=i}init(){super.init.apply(this,arguments),this.heikinashiData=[]}modifyFirstPointValue(t){let e=(t.open+t.high+t.low+t.close)/4,i=(t.open+t.close)/2;this.heikinashiData.push([e,t.high,t.low,i])}modifyDataPoint(t,e){let i=(e[0]+e[3])/2,s=(t.open+t.high+t.low+t.close)/4,a=Math.max(t.high,s,i),h=Math.min(t.low,s,i);this.heikinashiData.push([i,a,h,s])}}k.defaultOptions=(0,o.merge)(u.defaultOptions,{dataGrouping:{groupAll:!0}}),k.prototype.pointClass=class extends p{},l().registerSeriesType("heikinashi",k);let m=n();k.compose(m.Series,m.Axis);let D=n();return h.default})());

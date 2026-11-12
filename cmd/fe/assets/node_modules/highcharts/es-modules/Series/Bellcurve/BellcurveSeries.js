@@ -1,0 +1,125 @@
+/* *
+ *
+ *  (c) 2010-2026 Highsoft AS
+ *
+ *  Author: Sebastian Domas
+ *
+ *  Integration of this software requires a license.
+ *  - For commercial use, see www.highcharts.com/license
+ *  - For non-commercial, see www.highcharts.com/license-eula
+ *
+ *
+ * */
+'use strict';
+import BellcurveSeriesDefaults from './BellcurveSeriesDefaults.js';
+import DerivedComposition from '../DerivedComposition.js';
+import SeriesRegistry from '../../Core/Series/SeriesRegistry.js';
+const { areaspline: AreaSplineSeries } = SeriesRegistry.seriesTypes;
+import { correctFloat, isNumber, merge } from '../../Shared/Utilities.js';
+/* *
+ *
+ *  Class
+ *
+ * */
+/**
+ * Bell curve class
+ *
+ * @internal
+ * @class
+ * @name Highcharts.seriesTypes.bellcurve
+ *
+ * @augments Highcharts.Series
+ */
+class BellcurveSeries extends AreaSplineSeries {
+    /* *
+     *
+     *  Static Functions
+     *
+     * */
+    /** @internal */
+    static mean(data) {
+        const length = data.length, sum = data.reduce(function (sum, value) {
+            return (sum += value);
+        }, 0);
+        return length > 0 && sum / length;
+    }
+    /** @internal */
+    static standardDeviation(data, average) {
+        const len = data.length;
+        average = isNumber(average) ?
+            average : BellcurveSeries.mean(data);
+        const sum = data.reduce((sum, value) => {
+            const diff = value - average;
+            return (sum += diff * diff);
+        }, 0);
+        return len > 1 && Math.sqrt(sum / (len - 1));
+    }
+    /** @internal */
+    static normalDensity(x, mean, standardDeviation) {
+        const translation = x - mean;
+        return Math.exp(-(translation * translation) /
+            (2 * standardDeviation * standardDeviation)) / (standardDeviation * Math.sqrt(2 * Math.PI));
+    }
+    /* *
+     *
+     *  Functions
+     *
+     * */
+    setData(data, redraw = true, animation, updatePoints) {
+        let alteredData = [];
+        if (typeof data !== 'undefined' && data.length > 0) {
+            // Support data array of objects (#24073).
+            data = data
+                .map(function (item) {
+                return isNumber(item) ? item : item?.y;
+            })
+                .filter(isNumber);
+            this.setMean(data);
+            this.setStandardDeviation(data);
+            if (isNumber(this.mean) &&
+                isNumber(this.standardDeviation) &&
+                this.standardDeviation > 0) {
+                alteredData = this.derivedData(this.mean, this.standardDeviation);
+            }
+        }
+        super.setData.call(this, alteredData, redraw, animation, updatePoints);
+    }
+    derivedData(mean, standardDeviation) {
+        const options = this.options, intervals = options.intervals, pointsInInterval = options.pointsInInterval, stop = intervals * pointsInInterval * 2 + 1, increment = standardDeviation / pointsInInterval, data = [];
+        let x = mean - intervals * standardDeviation;
+        for (let i = 0; i < stop; i++) {
+            data.push([x, BellcurveSeries.normalDensity(x, mean, standardDeviation)]);
+            x += increment;
+        }
+        return data;
+    }
+    setDerivedData() {
+        const series = this;
+        if (series.baseSeries?.getColumn('y').length) {
+            series.setData(series.baseSeries?.getColumn('y'), false, void 0, false);
+        }
+    }
+    setMean(data) {
+        const mean = BellcurveSeries.mean(data || []);
+        this.mean = isNumber(mean) ? correctFloat(mean) : void 0;
+    }
+    setStandardDeviation(data) {
+        const sd = BellcurveSeries.standardDeviation(data || [], this.mean);
+        this.standardDeviation = isNumber(sd) ? correctFloat(sd) : void 0;
+    }
+}
+/* *
+ *
+ *  Static Properties
+ *
+ * */
+BellcurveSeries.defaultOptions = merge(AreaSplineSeries.defaultOptions, BellcurveSeriesDefaults);
+DerivedComposition.compose(BellcurveSeries);
+SeriesRegistry.registerSeriesType('bellcurve', BellcurveSeries);
+/* *
+ *
+ *  Default Export
+ *
+ * */
+/** @internal */
+export default BellcurveSeries;

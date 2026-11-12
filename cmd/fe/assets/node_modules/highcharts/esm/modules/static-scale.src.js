@@ -1,0 +1,164 @@
+// SPDX-License-Identifier: LicenseRef-Highcharts
+/**
+ * @license Highcharts Gantt JS v13.1.1 (2026-09-20)
+ * @module highcharts/modules/static-scale
+ * @requires highcharts
+ *
+ * StaticScale
+ *
+ * (c) 2016-2026 Highsoft AS
+ * Author: Torstein Hønsi, Lars A. V. Cabrera
+ *
+ * A commercial license may be required depending on use,
+ * see www.highcharts.com/license
+ */
+import * as __WEBPACK_EXTERNAL_MODULE__highcharts_src_js_8202131d__ from "../highcharts.src.js";
+/******/ // The require scope
+/******/ const __webpack_require__ = {};
+/******/ 
+/************************************************************************/
+/******/ /* webpack/runtime/compat get default export */
+/******/ // getDefaultExport function for compatibility with non-harmony modules
+/******/ __webpack_require__.n = (module) => {
+/******/ 	const getter = module && module.__esModule ?
+/******/ 		() => (module['default']) :
+/******/ 		() => (module);
+/******/ 	__webpack_require__.d(getter, { a: getter });
+/******/ 	return getter;
+/******/ };
+/******/ 
+/******/ /* webpack/runtime/define property getters */
+/******/ // define getter/value functions for harmony exports
+/******/ __webpack_require__.d = (exports, definition) => {
+/******/ 	for(var key in definition) {
+/******/ 		if(__webpack_require__.o(definition, key) && !__webpack_require__.o(exports, key)) {
+/******/ 			Object.defineProperty(exports, key, { enumerable: true, get: definition[key] });
+/******/ 		}
+/******/ 	}
+/******/ };
+/******/ 
+/******/ /* webpack/runtime/hasOwnProperty shorthand */
+/******/ __webpack_require__.o = (obj, prop) => (Object.prototype.hasOwnProperty.call(obj, prop));
+/******/ 
+/************************************************************************/
+
+;// external ["../highcharts.src.js","default"]
+const external_highcharts_src_js_default_namespaceObject = __WEBPACK_EXTERNAL_MODULE__highcharts_src_js_8202131d__["default"];
+var external_highcharts_src_js_default_default = /*#__PURE__*/__webpack_require__.n(external_highcharts_src_js_default_namespaceObject);
+;// ./code/es-modules/Extensions/StaticScale.js
+/* *
+ *
+ *  (c) 2016-2026 Highsoft AS
+ *  Author: Torstein Hønsi, Lars Cabrera
+ *
+ *  Integration of this software requires a license.
+ *  - For commercial use, see www.highcharts.com/license
+ *  - For non-commercial, see www.highcharts.com/license-eula
+ *
+ *
+ * */
+
+
+
+const { composed } = (external_highcharts_src_js_default_default());
+/* *
+ *
+ *  Composition
+ *
+ * */
+/** @internal */
+function composeStaticScale(AxisClass, ChartClass) {
+    if ((0,external_highcharts_src_js_default_namespaceObject.pushUnique)(composed, 'StaticScale')) {
+        const chartProto = ChartClass.prototype;
+        (0,external_highcharts_src_js_default_namespaceObject.addEvent)(AxisClass, 'afterSetOptions', onAxisAfterSetOptions);
+        chartProto.adjustHeight = chartAdjustHeight;
+        (0,external_highcharts_src_js_default_namespaceObject.addEvent)(ChartClass, 'render', chartProto.adjustHeight);
+    }
+}
+/** @internal */
+function onAxisAfterSetOptions() {
+    const chartOptions = this.chart.userOptions.chart;
+    if (!this.horiz &&
+        (0,external_highcharts_src_js_default_namespaceObject.isNumber)(this.options.staticScale) &&
+        (!chartOptions?.height ||
+            chartOptions.scrollablePlotArea?.minHeight)) {
+        this.staticScale = this.options.staticScale;
+    }
+}
+/** @internal */
+function chartAdjustHeight() {
+    const chart = this;
+    if (chart.redrawTrigger !== 'adjustHeight') {
+        for (const axis of (chart.axes || [])) {
+            const chart = axis.chart, staticScale = axis.options.staticScale;
+            if (axis.staticScale &&
+                staticScale &&
+                (0,external_highcharts_src_js_default_namespaceObject.defined)(axis.min) &&
+                (0,external_highcharts_src_js_default_namespaceObject.defined)(axis.max)) {
+                let height = (axis.brokenAxis?.unitLength ??
+                    (axis.max + axis.tickInterval - axis.min)) * staticScale;
+                // Minimum height is 1 x staticScale.
+                height = Math.max(height, staticScale);
+                const diff = height - chart.plotHeight;
+                if (!chart.scrollablePixelsY && Math.abs(diff) >= 1) {
+                    chart.plotHeight = height;
+                    chart.redrawTrigger = 'adjustHeight';
+                    chart.setSize(void 0, chart.chartHeight + diff, chart.initiatedScale ? void 0 : false);
+                }
+                // Make sure clip rects have the right height before initial
+                // animation.
+                if (!chart.initiatedScale) {
+                    axis.series.forEach((series) => {
+                        const clipRect = series.sharedClipKey &&
+                            chart.sharedClips[series.sharedClipKey];
+                        if (clipRect) {
+                            clipRect.attr(chart.inverted ? {
+                                width: chart.plotHeight
+                            } : {
+                                height: chart.plotHeight
+                            });
+                        }
+                    });
+                }
+            }
+        }
+        this.initiatedScale = true;
+    }
+    this.redrawTrigger = void 0;
+}
+/* *
+ *
+ *  API Options
+ *
+ * */
+/**
+ * For vertical axes only. Setting the static scale ensures that each tick unit
+ * is translated into a fixed pixel height. For example, setting the static
+ * scale to 24 results in each Y axis category taking up 24 pixels, and the
+ * height of the chart adjusts. Adding or removing items will make the chart
+ * resize.
+ *
+ * @sample {gantt} gantt/xrange-series/demo/
+ *         X-range series with static scale
+ * @sample {highcharts} highcharts/xaxis/staticscale
+ *         Static scale on X axis (horizontal bar chart)
+ *
+ * @requires  modules/static-scale
+ * @type      {number}
+ * @default   50
+ * @since     6.2.0
+ * @product   highcharts highstock gantt
+ * @apioption xAxis.staticScale
+ */
+''; // Keeps doclets above in JS file
+
+;// ./code/es-modules/masters/modules/static-scale.src.js
+
+
+
+
+const G = (external_highcharts_src_js_default_default());
+composeStaticScale(G.Axis, G.Chart);
+/* harmony default export */ const static_scale_src = ((external_highcharts_src_js_default_default()));
+
+export { static_scale_src as default };

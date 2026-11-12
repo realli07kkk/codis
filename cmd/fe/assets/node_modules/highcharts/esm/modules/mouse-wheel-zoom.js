@@ -1,0 +1,13 @@
+let e;/**
+ * Highcharts JS v13.1.1 (2026-09-20)
+ * @module highcharts/modules/mouse-wheel-zoom
+ * @requires highcharts
+ *
+ * Mousewheel zoom module
+ *
+ * (c) 2023-2026 Highsoft AS
+ * Author: Askel Eirik Johansson
+ *
+ * A commercial license may be required depending on use,
+ * see www.highcharts.com/license
+ */import*as t from"../highcharts.js";let o={};o.n=e=>{let t=e&&e.__esModule?()=>e.default:()=>e;return o.d(t,{a:t}),t},o.d=(e,t)=>{for(var i in t)o.o(t,i)&&!o.o(e,i)&&Object.defineProperty(e,i,{enumerable:!0,get:t[i]})},o.o=(e,t)=>Object.prototype.hasOwnProperty.call(e,t);let i=t.default;var r=o.n(i);let s={backgroundColor:"color",backgroundColors:"color",borderColor:"color",borderRadius:"string",color:"color",fill:"color",fontSize:"string",labels:"string",name:"string",stroke:"color",title:"string"},{getAssignedAxis:n}={annotationsFieldsTypes:s,getAssignedAxis:function(e){return e.filter(e=>{let t=e.axis.getExtremes(),o=t.min,r=t.max,s=e.axis.minPointOffset??0;return(0,i.isNumber)(o)&&(0,i.isNumber)(r)&&e.value>=o-s&&e.value<=r+s&&!e.axis.options.isInternal})[0]},getAxisFromOptions:function(e,t,o){return(0,i.isNumber)(o)?e[t][o]:(0,i.defined)(o)?(0,i.find)(e[t],e=>e.options.id===o):void 0},getFieldType:function(e,t){let o=s[e],r=typeof t;return(0,i.defined)(o)&&(r=o),({string:"text",number:"number",boolean:"checkbox",color:"color"})[r]}},l=[],a={enabled:!0,sensitivity:1.1,showResetButton:!1},h=function(t,o,r,s,n,l,a){let h=a.type??t.zooming.type??"",u=[];"x"===h?u=r:"y"===h?u=s:"xy"===h&&(u=t.axes);let d=t.transform({axes:u,to:{x:n-5,y:l-5,width:10,height:10},from:{x:n-5*o,y:l-5*o,width:10*o,height:10*o},trigger:"mousewheel",allowResetButton:a.showResetButton});return d&&((0,i.defined)(e)&&(0,i.internalClearTimeout)(e),e=setTimeout(()=>{t.pointer?.drop()},400)),d};function u(){var e;let t=(e=this.zooming.mouseWheel,(0,i.isObject)(e)||(e={enabled:e??!0}),(0,i.merge)(a,e));t.enabled&&(0,i.addEvent)(this.container,"wheel",e=>{e=this.pointer?.normalize(e)||e;let{pointer:o}=this,i=o&&!o.inClass(e.target,"highcharts-no-mousewheel");if(this.isInsidePlot(e.chartX-this.plotLeft,e.chartY-this.plotTop)&&i){let i=t.sensitivity||1.1,r=e.detail||(e.deltaY||0)/120,s=n(o.getCoordinates(e).xAxis),l=n(o.getCoordinates(e).yAxis);h(this,Math.pow(i,r),s?[s.axis]:this.xAxis,l?[l.axis]:this.yAxis,e.chartX,e.chartY,t)&&e.preventDefault?.()}})}let d=r();d.MouseWheelZoom=d.MouseWheelZoom||{compose:function(e){-1===l.indexOf(e)&&(l.push(e),(0,i.addEvent)(e,"afterGetContainer",u))}},d.MouseWheelZoom.compose(d.Chart);let c=r();export{c as default};

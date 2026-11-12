@@ -1,0 +1,14 @@
+/**
+ * Highstock JS v13.1.1 (2026-09-20)
+ * @module highcharts/modules/hollowcandlestick
+ * @requires highcharts
+ * @requires highcharts/modules/stock
+ *
+ * Hollow Candlestick series type for Highcharts Stock
+ *
+ * (c) 2010-2026 Highsoft AS
+ * Author: Karol Kołodziej
+ *
+ * A commercial license may be required depending on use,
+ * see www.highcharts.com/license
+ */import*as t from"../highcharts.js";let e={};e.n=t=>{let i=t&&t.__esModule?()=>t.default:()=>t;return e.d(i,{a:i}),i},e.d=(t,i)=>{for(var o in i)e.o(i,o)&&!e.o(t,o)&&Object.defineProperty(t,o,{enumerable:!0,get:i[o]})},e.o=(t,e)=>Object.prototype.hasOwnProperty.call(t,e);let i=t.default;var o=e.n(i);let s=t.default.SeriesRegistry;var l=e.n(s);let{seriesTypes:{candlestick:r}}=l();class a extends r.prototype.pointClass{getClassName(){let t=super.getClassName.apply(this),e=this.index,i=this.series.hollowCandlestickData[e];return i.isBullish||"up"!==i.trendDirection||(t+="-bearish-up"),t}}let n=t.default.Axis;var h=e.n(n);let{seriesTypes:{candlestick:c}}=l();class p extends c{constructor(){super(...arguments),this.hollowCandlestickData=[]}getPriceMovement(){let t,e=this.allGroupedTable||this.dataTable,i=e.rowCount,o=this.hollowCandlestickData;o.length=0;for(let s=0;s<i;s++){let i=e.getRowObject(s,this.pointArrayMap);o.push(this.isBullish(i,s?t:i)),t=i}}getLineColor(t){return"up"===t?this.options.upColor||"var(--highcharts-positive-color)":this.options.color||"var(--highcharts-negative-color)"}getPointFill(t){return t.isBullish?"transparent":"up"===t.trendDirection?this.options.upColor||"var(--highcharts-positive-color)":this.options.color||"var(--highcharts-negative-color)"}init(){super.init.apply(this,arguments),this.hollowCandlestickData=[]}isBullish(t,e){return{isBullish:(t.open||0)<=(t.close||0),trendDirection:(t.close||0)<(e?.close||0)?"down":"up"}}pointAttribs(t,e){let i,o=super.pointAttribs.call(this,t,e),s=t?.index,l=this.hollowCandlestickData[s||0]||{};return o.fill=this.getPointFill(l)||o.fill,o.stroke=this.getLineColor(l.trendDirection)||o.stroke,e&&(o.fill=(i=this.options.states?.[e]||{}).color||o.fill,o.stroke=i.lineColor||o.stroke,o["stroke-width"]=i.lineWidth||o["stroke-width"]),o}}p.defaultOptions=(0,i.merge)(c.defaultOptions,{color:"var(--highcharts-negative-color)",dataGrouping:{groupAll:!0,groupPixelWidth:10},lineColor:"var(--highcharts-negative-color)",upColor:"var(--highcharts-positive-color)",upLineColor:"var(--highcharts-positive-color)"}),(0,i.addEvent)(p,"updatedData",function(){this.hollowCandlestickData.length&&(this.hollowCandlestickData.length=0)}),(0,i.addEvent)(h(),"postProcessData",function(){this.series.forEach(function(t){t.is("hollowcandlestick")&&t.getPriceMovement()})}),p.prototype.pointClass=a,l().registerSeriesType("hollowcandlestick",p);let d=o();export{d as default};

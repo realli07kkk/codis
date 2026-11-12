@@ -1,0 +1,148 @@
+/* *
+ *
+ *  X-range series module
+ *
+ *  (c) 2010-2026 Highsoft AS
+ *  Author: Torstein Hønsi, Lars A. V. Cabrera
+ *
+ *  Integration of this software requires a license.
+ *  - For commercial use, see www.highcharts.com/license
+ *  - For non-commercial, see www.highcharts.com/license-eula
+ *
+ *
+ * */
+'use strict';
+import SeriesRegistry from '../../Core/Series/SeriesRegistry.js';
+const { column: { prototype: { pointClass: ColumnPoint } } } = SeriesRegistry.seriesTypes;
+import { extend } from '../../Shared/Utilities.js';
+/* *
+ *
+ *  Class
+ *
+ * */
+class XRangePoint extends ColumnPoint {
+    /* *
+     *
+     *  Static Functions
+     *
+     * */
+    /**
+     * Return color of a point based on its category.
+     *
+     * @private
+     * @function getColorByCategory
+     *
+     * @param {object} series
+     *        The series which the point belongs to.
+     *
+     * @param {object} point
+     *        The point to calculate its color for.
+     *
+     * @return {object}
+     *         Returns an object containing the properties color and colorIndex.
+     */
+    static getColorByCategory(series, point) {
+        const chart = series.chart, colors = series.options.colors ||
+            chart.options.colors, colorCount = colors ?
+            colors.length :
+            (chart.options.chart.colorCount || 1), colorIndex = (point.y || 0) % colorCount, color = colors?.[colorIndex];
+        return {
+            colorIndex: colorIndex,
+            color: color
+        };
+    }
+    /* *
+     *
+     *  Functions
+     *
+     * */
+    /**
+     * @private
+     */
+    resolveColor() {
+        const series = this.series;
+        if (series.options.colorByPoint && !this.options.color) {
+            const colorByPoint = XRangePoint.getColorByCategory(series, this);
+            if (!series.chart.styledMode) {
+                this.color = colorByPoint.color;
+            }
+            if (typeof this.options.colorIndex === 'undefined' ||
+                this.options.colorIndex === null) {
+                this.colorIndex = colorByPoint.colorIndex;
+            }
+        }
+        else {
+            this.color = this.options.color || series.color;
+        }
+    }
+    /**
+     * Extend init to have y default to 0.
+     *
+     * @private
+     */
+    constructor(series, options, x) {
+        super(series, options, x);
+        this.y || (this.y = 0);
+    }
+    /**
+     * Extend applyOptions to handle time strings for x2
+     *
+     * @private
+     */
+    applyOptions(options, x) {
+        super.applyOptions(options, x);
+        this.x2 = this.series.chart.time.parse(this.x2);
+        this.isNull = !this.isValid?.();
+        this.formatPrefix = this.isNull ? 'null' : 'point'; // #23605
+        return this;
+    }
+    /**
+     * @private
+     */
+    setState() {
+        super.setState.apply(this, arguments);
+        this.series.drawPoint(this, this.series.getAnimationVerb());
+    }
+    /**
+     * @private
+     */
+    isValid() {
+        return typeof this.x === 'number' &&
+            typeof this.x2 === 'number';
+    }
+}
+extend(XRangePoint.prototype, {
+    ttBelow: false,
+    tooltipDateKeys: ['x', 'x2']
+});
+/* *
+ *
+ *  Class Namespace
+ *
+ * */
+/* *
+ *
+ *  Default Export
+ *
+ * */
+export default XRangePoint;
+/* *
+ *
+ *  API Declarations
+ *
+ * */
+/**
+ * The ending X value of the range point.
+ * @name Highcharts.Point#x2
+ * @type {number|undefined}
+ * @requires modules/xrange
+ */
+/**
+ * @interface Highcharts.PointOptionsObject in parts/Point.ts
+ */ /**
+* The ending X value of the range point.
+* @name Highcharts.PointOptionsObject#x2
+* @type {number|undefined}
+* @requires modules/xrange
+*/
+(''); // Keeps doclets above in JS file

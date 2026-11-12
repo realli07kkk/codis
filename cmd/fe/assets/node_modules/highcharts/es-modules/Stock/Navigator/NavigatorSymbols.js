@@ -1,0 +1,46 @@
+/* *
+ *
+ *  (c) 2010-2026 Highsoft AS
+ *  Author: Torstein Hønsi
+ *
+ *  Integration of this software requires a license.
+ *  - For commercial use, see www.highcharts.com/license
+ *  - For non-commercial, see www.highcharts.com/license-eula
+ *
+ *
+ * */
+'use strict';
+import { borderRadiusObject } from '../../Extensions/BorderRadius.js';
+import rect from '../../Core/Renderer/SVG/Symbols.js';
+import { relativeLength } from '../../Shared/Utilities.js';
+/* *
+ *
+ *  Constants
+ *
+ * */
+/**
+ * Draw one of the handles on the side of the zoomed range in the navigator.
+ * @internal
+ */
+function navigatorHandle(_x, _y, width, height, options = {}) {
+    const halfWidth = options.width ? options.width / 2 : width, markerPosition = 1.5, r = relativeLength(borderRadiusObject(options.borderRadius).radius, Math.min(halfWidth * 2, height));
+    height = options.height || height;
+    return [
+        ['M', -markerPosition, height / 2 - 3.5],
+        ['L', -markerPosition, height / 2 + 4.5],
+        ['M', markerPosition - 1, height / 2 - 3.5],
+        ['L', markerPosition - 1, height / 2 + 4.5],
+        ...rect.rect(-halfWidth - 1, 0.5, halfWidth * 2 + 1, height, { r })
+    ];
+}
+/* *
+ *
+ *  Default Export
+ *
+ * */
+/** @internal */
+const NavigatorSymbols = {
+    'navigator-handle': navigatorHandle
+};
+/** @internal */
+export default NavigatorSymbols;

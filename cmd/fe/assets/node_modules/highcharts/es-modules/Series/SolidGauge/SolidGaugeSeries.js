@@ -1,0 +1,175 @@
+/* *
+ *
+ *  Solid angular gauge module
+ *
+ *  (c) 2010-2026 Highsoft AS
+ *  Author: Torstein Hønsi
+ *
+ *  Integration of this software requires a license.
+ *  - For commercial use, see www.highcharts.com/license
+ *  - For non-commercial, see www.highcharts.com/license-eula
+ *
+ *
+ * */
+'use strict';
+import { borderRadiusObject } from '../../Extensions/BorderRadius.js';
+import SeriesRegistry from '../../Core/Series/SeriesRegistry.js';
+const { gauge: GaugeSeries, pie: PieSeries } = SeriesRegistry.seriesTypes;
+import SolidGaugeAxis from '../../Core/Axis/SolidGaugeAxis.js';
+import SolidGaugeSeriesDefaults from './SolidGaugeSeriesDefaults.js';
+import { clamp, extend, isNumber, merge, relativeLength } from '../../Shared/Utilities.js';
+/* *
+ *
+ *  Class
+ *
+ * */
+/**
+ * SolidGauge series type.
+ *
+ * @private
+ * @class
+ * @name Highcharts.seriesTypes.solidgauge
+ *
+ * @augments Highcharts.Series
+ */
+class SolidGaugeSeries extends GaugeSeries {
+    /* *
+     *
+     *  Functions
+     *
+     * */
+    // Extend the translate function to extend the Y axis with the necessary
+    // decoration (#5895).
+    translate() {
+        const axis = this.yAxis;
+        SolidGaugeAxis.init(axis);
+        // Prepare data classes
+        if (!axis.dataClasses && axis.options.dataClasses) {
+            axis.initDataClasses(axis.options);
+        }
+        axis.initStops();
+        // Generate points and inherit data label position
+        GaugeSeries.prototype.translate.call(this);
+    }
+    // Draw the points where each point is one needle.
+    drawPoints() {
+        const series = this, yAxis = series.yAxis, center = yAxis.center, options = series.options, renderer = series.chart.renderer, overshoot = options.overshoot, rounded = options.rounded, borderRadius = borderRadiusObject(rounded ? '50%' : (options.borderRadius ??
+            yAxis.pane.options.borderRadius)).radius, overshootVal = isNumber(overshoot) ?
+            overshoot / 180 * Math.PI :
+            0;
+        let thresholdAngleRad;
+        // Handle the threshold option
+        if (isNumber(options.threshold)) {
+            thresholdAngleRad = yAxis.startAngleRad + yAxis.translate(options.threshold, void 0, void 0, void 0, true);
+        }
+        this.thresholdAngleRad = (thresholdAngleRad ?? yAxis.startAngleRad);
+        for (const point of series.points) {
+            // #10630 null point should not be draw
+            if (!point.isNull) { // Condition like in pie chart
+                const paneInnerSize = yAxis.pane.options.innerSize, radius = ((relativeLength(point.options.radius ??
+                    options.radius ??
+                    '100%', center[2] / 2))), innerRadius = Math.min((relativeLength(point.options.innerRadius ??
+                    options.innerRadius ??
+                    (isNumber(paneInnerSize) ?
+                        paneInnerSize / 2 :
+                        paneInnerSize) ??
+                    0, center[2] / 2)), radius), axisMinAngle = Math.min(yAxis.startAngleRad, yAxis.endAngleRad), axisMaxAngle = Math.max(yAxis.startAngleRad, yAxis.endAngleRad), attribs = {};
+                let graphic = point.graphic, rotation = (yAxis.startAngleRad +
+                    yAxis.translate(point.y, void 0, void 0, void 0, true)), shapeArgs, d, toColor = yAxis.toColor(point.y, point), className = point.getClassName();
+                if (toColor === 'none') { // #3708
+                    toColor = point.color || series.color || 'none';
+                }
+                if (toColor !== 'none') {
+                    point.color = toColor;
+                }
+                // Handle overshoot and clipping to axis max/min
+                rotation = clamp(rotation, axisMinAngle - overshootVal, axisMaxAngle + overshootVal);
+                // Handle the wrap option
+                if (options.wrap === false) {
+                    rotation = clamp(rotation, axisMinAngle, axisMaxAngle);
+                }
+                const angleOfRounding = rounded ?
+                    ((radius - innerRadius) / 2) / radius :
+                    0, start = Math.min(rotation, series.thresholdAngleRad) -
+                    angleOfRounding;
+                let end = Math.max(rotation, series.thresholdAngleRad) +
+                    angleOfRounding;
+                if (end - start > 2 * Math.PI) {
+                    end = start + 2 * Math.PI;
+                }
+                point.shapeArgs = shapeArgs = {
+                    x: center[0],
+                    y: center[1],
+                    r: radius,
+                    innerR: innerRadius,
+                    start,
+                    end,
+                    borderRadius
+                };
+                point.startR = radius; // For PieSeries.animate
+                if (toColor !== 'none') {
+                    attribs.fill = toColor;
+                }
+                if (graphic) {
+                    d = shapeArgs.d;
+                    graphic.animate(extend(attribs, shapeArgs));
+                    if (d) {
+                        shapeArgs.d = d; // Animate alters it
+                    }
+                }
+                else {
+                    attribs['sweep-flag'] = 0;
+                    point.graphic = graphic = renderer.arc(shapeArgs)
+                        .attr(attribs)
+                        .add(series.group);
+                }
+                if (!renderer.styledMode) {
+                    if (options.linecap !== 'square') {
+                        graphic.attr({
+                            'stroke-linecap': 'round',
+                            'stroke-linejoin': 'round'
+                        });
+                    }
+                    graphic.attr({
+                        stroke: options.borderColor || 'none',
+                        'stroke-width': options.borderWidth || 0
+                    });
+                }
+                else if (series.yAxis?.stops) {
+                    className = className
+                        .replace(/highcharts-color-\d/gm, '')
+                        .trim();
+                }
+                if (graphic) {
+                    graphic.addClass(className);
+                }
+                // Positions for the tooltip
+                const midRadius = innerRadius + (radius - innerRadius) * 0.5;
+                point.tooltipPos = [
+                    center[0] + Math.cos(rotation) * midRadius,
+                    center[1] + Math.sin(rotation) * midRadius
+                ];
+            }
+        }
+    }
+    // Extend the pie slice animation by animating from start angle and up.
+    animate(init) {
+        if (!init) {
+            this.startAngleRad = this.thresholdAngleRad;
+            PieSeries.prototype.animate.call(this, init);
+        }
+    }
+}
+/* *
+ *
+ *  Static Properties
+ *
+ * */
+SolidGaugeSeries.defaultOptions = merge(GaugeSeries.defaultOptions, SolidGaugeSeriesDefaults);
+SeriesRegistry.registerSeriesType('solidgauge', SolidGaugeSeries);
+/* *
+ *
+ *  Default Export
+ *
+ * */
+export default SolidGaugeSeries;

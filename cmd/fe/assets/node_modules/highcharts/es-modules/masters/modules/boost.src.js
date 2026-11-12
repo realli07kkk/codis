@@ -1,0 +1,22 @@
+// SPDX-License-Identifier: LicenseRef-Highcharts
+/**
+ * @license Highcharts JS v13.1.1 (2026-09-20)
+ * @module highcharts/modules/boost
+ * @requires highcharts
+ *
+ * Boost module
+ *
+ * (c) 2010-2026 Highsoft AS
+ * Author: Torstein Hønsi
+ *
+ * A commercial license may be required depending on use,
+ * see www.highcharts.com/license
+ *
+ * */
+'use strict';
+import Highcharts from '../../Core/Globals.js';
+import Boost from '../../Extensions/Boost/Boost.js';
+const G = Highcharts;
+G.hasWebGLSupport = Boost.hasWebGLSupport;
+Boost.compose(G.Chart, G.Axis, G.Series, G.seriesTypes, G.Point, G.Color);
+export default Highcharts;

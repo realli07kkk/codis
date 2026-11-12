@@ -1,0 +1,81 @@
+/* *
+ *
+ *  (c) 2010-2026 Highsoft AS
+ *  Author: Torstein Hønsi
+ *
+ *  Integration of this software requires a license.
+ *  - For commercial use, see www.highcharts.com/license
+ *  - For non-commercial, see www.highcharts.com/license-eula
+ *
+ *
+ * */
+'use strict';
+import BoxPlotSeries from '../BoxPlot/BoxPlotSeries.js';
+import ColumnSeries from '../Column/ColumnSeries.js';
+import ErrorBarSeriesDefaults from './ErrorBarSeriesDefaults.js';
+import SeriesRegistry from '../../Core/Series/SeriesRegistry.js';
+const { arearange: AreaRangeSeries } = SeriesRegistry.seriesTypes;
+import { addEvent, extend, merge } from '../../Shared/Utilities.js';
+import RangeDataLabel from '../RangeDataLabel.js';
+/* *
+ *
+ *  Class
+ *
+ * */
+/**
+ * Errorbar series type
+ *
+ * @internal
+ * @class
+ * @name Highcharts.seriesTypes.errorbar
+ *
+ * @augments Highcharts.Series
+ */
+class ErrorBarSeries extends BoxPlotSeries {
+    /* *
+     *
+     *  Functions
+     *
+     * */
+    getColumnMetrics() {
+        const series = this;
+        // Get the width and X offset, either on top of the linked series
+        // column or standalone
+        return ((series.linkedParent && series.linkedParent.columnMetrics) ||
+            ColumnSeries.prototype.getColumnMetrics.call(series));
+    }
+    drawDataLabels() {
+        // Error bars draw upper/lower labels via the area range option adapter.
+        if (AreaRangeSeries) {
+            AreaRangeSeries.prototype.drawDataLabels.call(this);
+        }
+    }
+    toYData(point) {
+        // Return a plain array for speedy calculation
+        return [point.low, point.high];
+    }
+}
+/* *
+ *
+ *  Static Properties
+ *
+ * */
+ErrorBarSeries.defaultOptions = merge(BoxPlotSeries.defaultOptions, ErrorBarSeriesDefaults, { dataLabels: { formatter: RangeDataLabel.formatter } });
+addEvent(ErrorBarSeries, 'afterTranslate', function () {
+    for (const point of this.points) {
+        point.plotLow = point.plotY;
+    }
+}, { order: 0 });
+extend(ErrorBarSeries.prototype, {
+    pointArrayMap: ['low', 'high'], // Array point configs are mapped to this
+    pointValKey: 'high', // Defines the top of the tracker
+    doQuartiles: false
+});
+SeriesRegistry.registerSeriesType('errorbar', ErrorBarSeries);
+/* *
+ *
+ *  Default Export
+ *
+ * */
+/** @internal */
+export default ErrorBarSeries;
