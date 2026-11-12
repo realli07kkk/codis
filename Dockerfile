@@ -1,4 +1,4 @@
-FROM golang:1.26.1
+FROM golang:1.27.4
 
 RUN apt-get update
 RUN apt-get install -y autoconf

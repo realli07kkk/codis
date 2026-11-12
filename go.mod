@@ -2,6 +2,8 @@ module github.com/CodisLabs/codis
 
 go 1.26.1
 
+toolchain go1.27.4
+
 require (
 	github.com/BurntSushi/toml v1.6.0
 	github.com/coreos/etcd v3.3.27+incompatible
@@ -20,7 +22,7 @@ require (
 	github.com/redis/go-redis/v9 v9.20.0
 	github.com/spinlock/jemalloc-go v0.0.0-20201010032256-e81523fb8524
 	github.com/ugorji/go v1.2.14
-	golang.org/x/net v0.55.0
+	golang.org/x/net v0.62.0
 	gopkg.in/alexcesaro/statsd.v2 v2.0.0
 )
 
@@ -64,11 +66,11 @@ require (
 	go.uber.org/multierr v1.6.0 // indirect
 	go.uber.org/zap v1.16.0 // indirect
 	golang.org/x/arch v0.9.0 // indirect
-	golang.org/x/crypto v0.51.0 // indirect
+	golang.org/x/crypto v0.58.0 // indirect
 	golang.org/x/exp v0.0.0-20260218203240-3dfff04db8fa // indirect
 	golang.org/x/mod v0.33.0 // indirect
 	golang.org/x/sync v0.19.0 // indirect
-	golang.org/x/sys v0.45.0 // indirect
+	golang.org/x/sys v0.49.0 // indirect
 	golang.org/x/telemetry v0.0.0-20260209163413-e7419c687ee4 // indirect
 	golang.org/x/tools v0.42.0 // indirect
 	google.golang.org/protobuf v1.34.1 // indirect
