@@ -3,6 +3,7 @@
 VERSION_LDFLAGS = -ldflags "$$(cat bin/version.ldflags)"
 REDIS3_DIR ?= extern/redis-3.2.11
 REDIS8_DIR ?= extern/redis-8.6.3
+ALLOW_INSECURE_REDIS3 ?= 0
 TARGET_PLATFORMS ?= darwin/arm64 linux/amd64 linux/arm64
 HOST_OS := $(shell go env GOHOSTOS)
 HOST_ARCH := $(shell go env GOHOSTARCH)
@@ -203,6 +204,12 @@ codis-server:
 	@mv config/sentinel.conf.tmp config/sentinel.conf
 
 codis-server-redis3:
+	@if [ "$(ALLOW_INSECURE_REDIS3)" != "1" ]; then \
+		echo "ERROR: codis-server-redis3 builds Redis 3.2.11, which is EOL and has known RCE vulnerabilities."; \
+		echo "       It is not part of the default build. For compatibility testing only, set"; \
+		echo "       ALLOW_INSECURE_REDIS3=1 and never expose the resulting server to untrusted networks."; \
+		exit 1; \
+	fi
 	@mkdir -p bin
 	@rm -f bin/codis-server-redis3
 	make -j4 -C $(REDIS3_DIR)/
