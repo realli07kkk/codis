@@ -8,13 +8,13 @@ import "testing"
 func TestParse(t *testing.T) {
 	tests := []struct {
 		name string
-		args map[string]interface{}
+		args map[string]any
 		want Args
 		ok   bool
 	}{
 		{
 			name: "zookeeper with auth",
-			args: map[string]interface{}{
+			args: map[string]any{
 				"--zookeeper":      "127.0.0.1:2181",
 				"--zookeeper-auth": "user:pass",
 			},
@@ -23,7 +23,7 @@ func TestParse(t *testing.T) {
 		},
 		{
 			name: "etcd with auth",
-			args: map[string]interface{}{
+			args: map[string]any{
 				"--etcd":      "127.0.0.1:2379",
 				"--etcd-auth": "user:pass",
 			},
@@ -32,7 +32,7 @@ func TestParse(t *testing.T) {
 		},
 		{
 			name: "filesystem without auth",
-			args: map[string]interface{}{
+			args: map[string]any{
 				"--filesystem": "/tmp/codis",
 			},
 			want: Args{Name: "filesystem", Addr: "/tmp/codis"},
@@ -40,7 +40,7 @@ func TestParse(t *testing.T) {
 		},
 		{
 			name: "consul with auth",
-			args: map[string]interface{}{
+			args: map[string]any{
 				"--consul":      "127.0.0.1:8500",
 				"--consul-auth": "token",
 			},
@@ -49,7 +49,7 @@ func TestParse(t *testing.T) {
 		},
 		{
 			name: "consul without auth",
-			args: map[string]interface{}{
+			args: map[string]any{
 				"--consul": "127.0.0.1:8500",
 			},
 			want: Args{Name: "consul", Addr: "127.0.0.1:8500"},
@@ -57,7 +57,7 @@ func TestParse(t *testing.T) {
 		},
 		{
 			name: "missing coordinator",
-			args: map[string]interface{}{},
+			args: map[string]any{},
 			want: Args{},
 			ok:   false,
 		},
@@ -77,7 +77,7 @@ func TestParse(t *testing.T) {
 }
 
 func TestParseUsesExistingCoordinatorPrecedence(t *testing.T) {
-	args, ok := Parse(map[string]interface{}{
+	args, ok := Parse(map[string]any{
 		"--zookeeper": "zk",
 		"--etcd":      "etcd",
 		"--consul":    "consul",

@@ -6,7 +6,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
+	"os"
 
 	"github.com/CodisLabs/codis/pkg/models"
 	"github.com/CodisLabs/codis/pkg/proxy"
@@ -19,7 +19,7 @@ type cmdProxy struct {
 	auth string
 }
 
-func (t *cmdProxy) Main(d map[string]interface{}) {
+func (t *cmdProxy) Main(d map[string]any) {
 	t.addr = utils.ArgumentMust(d, "--proxy")
 	t.auth, _ = d["--auth"].(string)
 
@@ -66,7 +66,7 @@ func (t *cmdProxy) newProxyClient(xauth bool) *proxy.ApiClient {
 	return c
 }
 
-func (t *cmdProxy) handleOverview(d map[string]interface{}) {
+func (t *cmdProxy) handleOverview(d map[string]any) {
 	c := t.newProxyClient(false)
 
 	log.Debugf("call rpc overview to proxy %s", t.addr)
@@ -83,7 +83,7 @@ func (t *cmdProxy) handleOverview(d map[string]interface{}) {
 		}
 	}
 
-	var obj interface{}
+	var obj any
 	switch cmd {
 	default:
 		obj = o
@@ -104,7 +104,7 @@ func (t *cmdProxy) handleOverview(d map[string]interface{}) {
 	fmt.Println(string(b))
 }
 
-func (t *cmdProxy) handleStart(d map[string]interface{}) {
+func (t *cmdProxy) handleStart(d map[string]any) {
 	c := t.newProxyClient(true)
 
 	log.Debugf("call rpc start to proxy %s", t.addr)
@@ -114,7 +114,7 @@ func (t *cmdProxy) handleStart(d map[string]interface{}) {
 	log.Debugf("call rpc start to proxy OK")
 }
 
-func (t *cmdProxy) handleLogLevel(d map[string]interface{}) {
+func (t *cmdProxy) handleLogLevel(d map[string]any) {
 	c := t.newProxyClient(true)
 
 	s := utils.ArgumentMust(d, "--log-level")
@@ -131,10 +131,10 @@ func (t *cmdProxy) handleLogLevel(d map[string]interface{}) {
 	log.Debugf("call rpc loglevel OK")
 }
 
-func (t *cmdProxy) handleFillSlots(d map[string]interface{}) {
+func (t *cmdProxy) handleFillSlots(d map[string]any) {
 	c := t.newProxyClient(true)
 
-	b, err := ioutil.ReadFile(utils.ArgumentMust(d, "--fillslots"))
+	b, err := os.ReadFile(utils.ArgumentMust(d, "--fillslots"))
 	if err != nil {
 		log.PanicErrorf(err, "load slots from file failed")
 	}
@@ -163,7 +163,7 @@ func (t *cmdProxy) handleFillSlots(d map[string]interface{}) {
 	log.Debugf("call rpc fillslots OK")
 }
 
-func (t *cmdProxy) handleResetStats(d map[string]interface{}) {
+func (t *cmdProxy) handleResetStats(d map[string]any) {
 	c := t.newProxyClient(true)
 
 	log.Debugf("call rpc resetstats to proxy %s", t.addr)
@@ -173,7 +173,7 @@ func (t *cmdProxy) handleResetStats(d map[string]interface{}) {
 	log.Debugf("call rpc resetstats OK")
 }
 
-func (t *cmdProxy) handleForceGC(d map[string]interface{}) {
+func (t *cmdProxy) handleForceGC(d map[string]any) {
 	c := t.newProxyClient(true)
 
 	log.Debugf("call rpc forcegc to proxy %s", t.addr)
@@ -183,7 +183,7 @@ func (t *cmdProxy) handleForceGC(d map[string]interface{}) {
 	log.Debugf("call rpc forcegc OK")
 }
 
-func (t *cmdProxy) handleShutdown(d map[string]interface{}) {
+func (t *cmdProxy) handleShutdown(d map[string]any) {
 	c := t.newProxyClient(true)
 
 	log.Debugf("call rpc shutdown to proxy %s", t.addr)

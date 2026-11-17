@@ -6,7 +6,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
+	"os"
 	"path/filepath"
 	"time"
 
@@ -20,7 +20,7 @@ type cmdAdmin struct {
 	product string
 }
 
-func (t *cmdAdmin) Main(d map[string]interface{}) {
+func (t *cmdAdmin) Main(d map[string]any) {
 	t.product, _ = d["--product"].(string)
 
 	switch {
@@ -37,7 +37,7 @@ func (t *cmdAdmin) Main(d map[string]interface{}) {
 	}
 }
 
-func (t *cmdAdmin) newTopomClient(d map[string]interface{}) models.Client {
+func (t *cmdAdmin) newTopomClient(d map[string]any) models.Client {
 	coordinator := coordarg.MustParse(d)
 	c, err := models.NewClient(coordinator.Name, coordinator.Addr, coordinator.Auth, time.Minute)
 	if err != nil {
@@ -46,7 +46,7 @@ func (t *cmdAdmin) newTopomClient(d map[string]interface{}) models.Client {
 	return c
 }
 
-func (t *cmdAdmin) newTopomStore(d map[string]interface{}) *models.Store {
+func (t *cmdAdmin) newTopomStore(d map[string]any) *models.Store {
 	if err := models.ValidateProduct(t.product); err != nil {
 		log.PanicErrorf(err, "invalid product name")
 	}
@@ -54,7 +54,7 @@ func (t *cmdAdmin) newTopomStore(d map[string]interface{}) *models.Store {
 	return models.NewStore(client, t.product)
 }
 
-func (t *cmdAdmin) handleRemoveLock(d map[string]interface{}) {
+func (t *cmdAdmin) handleRemoveLock(d map[string]any) {
 	store := t.newTopomStore(d)
 	defer store.Close()
 
@@ -65,7 +65,7 @@ func (t *cmdAdmin) handleRemoveLock(d map[string]interface{}) {
 	log.Debugf("force remove-lock OK")
 }
 
-func (t *cmdAdmin) handleConfigDump(d map[string]interface{}) {
+func (t *cmdAdmin) handleConfigDump(d map[string]any) {
 	switch {
 	case d["-1"].(bool):
 		t.dumpConfigV1(d)
@@ -80,13 +80,13 @@ type ConfigV3 struct {
 	Proxy []*models.Proxy       `json:"proxy,omitempty"`
 }
 
-func (t *cmdAdmin) dumpConfigV1(d map[string]interface{}) {
+func (t *cmdAdmin) dumpConfigV1(d map[string]any) {
 	client := t.newTopomClient(d)
 	defer client.Close()
 
 	prefix := filepath.Join("/zk/codis", fmt.Sprintf("db_%s", t.product))
 	config := t.dumpConfigV1Recursively(client, prefix)
-	if m, ok := config.(map[string]interface{}); !ok || m == nil {
+	if m, ok := config.(map[string]any); !ok || m == nil {
 		log.Panicf("cann't find product = %s [v1]", t.product)
 	}
 	b, err := json.MarshalIndent(config, "", "    ")
@@ -96,13 +96,13 @@ func (t *cmdAdmin) dumpConfigV1(d map[string]interface{}) {
 	fmt.Println(string(b))
 }
 
-func (t *cmdAdmin) dumpConfigV1Recursively(client models.Client, path string) interface{} {
+func (t *cmdAdmin) dumpConfigV1Recursively(client models.Client, path string) any {
 	files, err := client.List(path, false)
 	if err != nil {
 		log.PanicErrorf(err, "list path = %s failed", path)
 	}
 	if len(files) != 0 {
-		var m = make(map[string]interface{})
+		var m = make(map[string]any)
 		for _, path := range files {
 			m[filepath.Base(path)] = t.dumpConfigV1Recursively(client, path)
 		}
@@ -113,7 +113,7 @@ func (t *cmdAdmin) dumpConfigV1Recursively(client models.Client, path string) in
 		log.PanicErrorf(err, "read file = %s failed", path)
 	}
 	if len(b) != 0 {
-		var v interface{}
+		var v any
 		if err := json.Unmarshal(b, &v); err != nil {
 			log.PanicErrorf(err, "json unmarshal failed")
 		}
@@ -122,7 +122,7 @@ func (t *cmdAdmin) dumpConfigV1Recursively(client models.Client, path string) in
 	return nil
 }
 
-func (t *cmdAdmin) dumpConfigV3(d map[string]interface{}) {
+func (t *cmdAdmin) dumpConfigV3(d map[string]any) {
 	store := t.newTopomStore(d)
 	defer store.Close()
 
@@ -157,24 +157,24 @@ func (t *cmdAdmin) dumpConfigV3(d map[string]interface{}) {
 	fmt.Println(string(b))
 }
 
-func (t *cmdAdmin) loadJsonConfigV1(file string) map[string]interface{} {
-	b, err := ioutil.ReadFile(file)
+func (t *cmdAdmin) loadJsonConfigV1(file string) map[string]any {
+	b, err := os.ReadFile(file)
 	if err != nil {
 		log.PanicErrorf(err, "read file '%s' failed", file)
 	}
-	var v interface{}
+	var v any
 	if err := json.Unmarshal(b, &v); err != nil {
 		log.PanicErrorf(err, "json unmarshal failed")
 	}
-	return v.(map[string]interface{})
+	return v.(map[string]any)
 }
 
-func (t *cmdAdmin) convertSlotsV1(slots map[int]*models.SlotMapping, v interface{}) {
-	m := v.(map[string]interface{})
+func (t *cmdAdmin) convertSlotsV1(slots map[int]*models.SlotMapping, v any) {
+	m := v.(map[string]any)
 
 	var sid = int(m["id"].(float64))
 	var gid = int(m["group_id"].(float64))
-	var status = m["state"].(map[string]interface{})["status"].(string)
+	var status = m["state"].(map[string]any)["status"].(string)
 
 	log.Debugf("found slot-%04d status = %s", sid, status)
 
@@ -194,8 +194,8 @@ func (t *cmdAdmin) convertSlotsV1(slots map[int]*models.SlotMapping, v interface
 	}
 }
 
-func (t *cmdAdmin) convertGroupV1(group map[int]*models.Group, v interface{}) {
-	m := v.(map[string]interface{})
+func (t *cmdAdmin) convertGroupV1(group map[int]*models.Group, v any) {
+	m := v.(map[string]any)
 
 	var addr = m["addr"].(string)
 	var gid = int(m["group_id"].(float64))
@@ -223,7 +223,7 @@ func (t *cmdAdmin) convertGroupV1(group map[int]*models.Group, v interface{}) {
 	g.Servers = servers
 }
 
-func (t *cmdAdmin) handleConfigConvert(d map[string]interface{}) {
+func (t *cmdAdmin) handleConfigConvert(d map[string]any) {
 	defer func() {
 		if x := recover(); x != nil {
 			log.Panicf("convert config failed: %+v", x)
@@ -235,7 +235,7 @@ func (t *cmdAdmin) handleConfigConvert(d map[string]interface{}) {
 
 	if slots := cfg1["slots"]; slots != nil {
 		temp := make(map[int]*models.SlotMapping)
-		for _, v := range slots.(map[string]interface{}) {
+		for _, v := range slots.(map[string]any) {
 			t.convertSlotsV1(temp, v)
 		}
 		for i := 0; i < models.MaxSlotNum; i++ {
@@ -248,8 +248,8 @@ func (t *cmdAdmin) handleConfigConvert(d map[string]interface{}) {
 
 	if servers := cfg1["servers"]; servers != nil {
 		group := make(map[int]*models.Group)
-		for _, g := range servers.(map[string]interface{}) {
-			for _, v := range g.(map[string]interface{}) {
+		for _, g := range servers.(map[string]any) {
+			for _, v := range g.(map[string]any) {
 				t.convertGroupV1(group, v)
 			}
 		}
@@ -264,7 +264,7 @@ func (t *cmdAdmin) handleConfigConvert(d map[string]interface{}) {
 }
 
 func (t *cmdAdmin) loadJsonConfigV3(file string) *ConfigV3 {
-	b, err := ioutil.ReadFile(file)
+	b, err := os.ReadFile(file)
 	if err != nil {
 		log.PanicErrorf(err, "read file '%s' failed", file)
 	}
@@ -324,7 +324,7 @@ func (t *cmdAdmin) loadJsonConfigV3(file string) *ConfigV3 {
 	return config
 }
 
-func (t *cmdAdmin) handleConfigRestore(d map[string]interface{}) {
+func (t *cmdAdmin) handleConfigRestore(d map[string]any) {
 	store := t.newTopomStore(d)
 	defer store.Close()
 
@@ -371,7 +371,7 @@ func (t *cmdAdmin) handleConfigRestore(d map[string]interface{}) {
 	}
 }
 
-func (t *cmdAdmin) handleDashboardList(d map[string]interface{}) {
+func (t *cmdAdmin) handleDashboardList(d map[string]any) {
 	client := t.newTopomClient(d)
 	defer client.Close()
 
@@ -380,7 +380,7 @@ func (t *cmdAdmin) handleDashboardList(d map[string]interface{}) {
 		log.PanicErrorf(err, "list products failed")
 	}
 
-	nodes := []interface{}{}
+	nodes := []any{}
 
 	for _, path := range list {
 		var elem = &struct {

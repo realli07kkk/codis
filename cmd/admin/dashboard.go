@@ -6,7 +6,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
+	"os"
 	"sort"
 	"strconv"
 
@@ -14,14 +14,13 @@ import (
 	"github.com/CodisLabs/codis/pkg/topom"
 	"github.com/CodisLabs/codis/pkg/utils"
 	"github.com/CodisLabs/codis/pkg/utils/log"
-	"github.com/CodisLabs/codis/pkg/utils/math2"
 )
 
 type cmdDashboard struct {
 	addr string
 }
 
-func (t *cmdDashboard) Main(d map[string]interface{}) {
+func (t *cmdDashboard) Main(d map[string]any) {
 	t.addr = utils.ArgumentMust(d, "--dashboard")
 
 	switch {
@@ -130,7 +129,7 @@ func (t *cmdDashboard) newTopomClient() *topom.ApiClient {
 	return c
 }
 
-func (t *cmdDashboard) handleOverview(d map[string]interface{}) {
+func (t *cmdDashboard) handleOverview(d map[string]any) {
 	c := t.newTopomClient()
 
 	log.Debugf("call rpc overview to dashboard %s", t.addr)
@@ -147,7 +146,7 @@ func (t *cmdDashboard) handleOverview(d map[string]interface{}) {
 		}
 	}
 
-	var obj interface{}
+	var obj any
 	switch cmd {
 	default:
 		obj = o
@@ -186,7 +185,7 @@ func (t *cmdDashboard) handleOverview(d map[string]interface{}) {
 	fmt.Println(string(b))
 }
 
-func (t *cmdDashboard) handleLogLevel(d map[string]interface{}) {
+func (t *cmdDashboard) handleLogLevel(d map[string]any) {
 	c := t.newTopomClient()
 
 	s := utils.ArgumentMust(d, "--log-level")
@@ -203,7 +202,7 @@ func (t *cmdDashboard) handleLogLevel(d map[string]interface{}) {
 	log.Debugf("call rpc loglevel OK")
 }
 
-func (t *cmdDashboard) handleShutdown(d map[string]interface{}) {
+func (t *cmdDashboard) handleShutdown(d map[string]any) {
 	c := t.newTopomClient()
 
 	log.Debugf("call rpc shutdown to dashboard %s", t.addr)
@@ -213,7 +212,7 @@ func (t *cmdDashboard) handleShutdown(d map[string]interface{}) {
 	log.Debugf("call rpc shutdown OK")
 }
 
-func (t *cmdDashboard) handleReload(d map[string]interface{}) {
+func (t *cmdDashboard) handleReload(d map[string]any) {
 	c := t.newTopomClient()
 
 	log.Debugf("call rpc reload to dashboard %s", t.addr)
@@ -223,7 +222,7 @@ func (t *cmdDashboard) handleReload(d map[string]interface{}) {
 	log.Debugf("call rpc reload OK")
 }
 
-func (t *cmdDashboard) handleSlotsCommand(d map[string]interface{}) {
+func (t *cmdDashboard) handleSlotsCommand(d map[string]any) {
 	c := t.newTopomClient()
 
 	switch {
@@ -301,7 +300,7 @@ func (t *cmdDashboard) handleSlotsCommand(d map[string]interface{}) {
 	}
 }
 
-func (t *cmdDashboard) handleACLCommand(d map[string]interface{}) {
+func (t *cmdDashboard) handleACLCommand(d map[string]any) {
 	c := t.newTopomClient()
 
 	switch {
@@ -331,7 +330,7 @@ func (t *cmdDashboard) handleACLCommand(d map[string]interface{}) {
 
 	case d["--acl-set"] != nil:
 		path := utils.ArgumentMust(d, "--acl-set")
-		b, err := ioutil.ReadFile(path)
+		b, err := os.ReadFile(path)
 		if err != nil {
 			log.PanicErrorf(err, "read acl file failed")
 		}
@@ -391,7 +390,7 @@ func redactACLUpdateRequest(req *topom.ACLUpdateRequest) *topom.ACLUpdateRequest
 	return redacted
 }
 
-func (t *cmdDashboard) parseProxyTokens(d map[string]interface{}) []string {
+func (t *cmdDashboard) parseProxyTokens(d map[string]any) []string {
 	switch {
 
 	default:
@@ -467,7 +466,7 @@ func (t *cmdDashboard) parseProxyTokens(d map[string]interface{}) []string {
 	}
 }
 
-func (t *cmdDashboard) handleProxyCommand(d map[string]interface{}) {
+func (t *cmdDashboard) handleProxyCommand(d map[string]any) {
 	c := t.newTopomClient()
 
 	switch {
@@ -550,14 +549,14 @@ func (t *cmdDashboard) handleProxyCommand(d map[string]interface{}) {
 		var format string
 		var wpid int
 		for _, p := range s.Proxy.Models {
-			wpid = math2.MaxInt(wpid, len(strconv.Itoa(p.Id)))
+			wpid = max(wpid, len(strconv.Itoa(p.Id)))
 		}
 		format += fmt.Sprintf("proxy-%%0%dd [T] %%s", wpid)
 
 		var waddr1, waddr2 int
 		for _, p := range s.Proxy.Models {
-			waddr1 = math2.MaxInt(waddr1, len(p.AdminAddr))
-			waddr2 = math2.MaxInt(waddr2, len(p.ProxyAddr))
+			waddr1 = max(waddr1, len(p.AdminAddr))
+			waddr2 = max(waddr2, len(p.ProxyAddr))
 		}
 		format += fmt.Sprintf(" [A] %%-%ds", waddr1)
 		format += fmt.Sprintf(" [P] %%-%ds", waddr2)
@@ -580,7 +579,7 @@ func (t *cmdDashboard) handleProxyCommand(d map[string]interface{}) {
 	}
 }
 
-func (t *cmdDashboard) handleGroupCommand(d map[string]interface{}) {
+func (t *cmdDashboard) handleGroupCommand(d map[string]any) {
 	c := t.newTopomClient()
 
 	switch {
@@ -693,9 +692,9 @@ func (t *cmdDashboard) handleGroupCommand(d map[string]interface{}) {
 		var format string
 		var wgid, widx int
 		for _, g := range s.Group.Models {
-			wgid = math2.MaxInt(wgid, len(strconv.Itoa(g.Id)))
+			wgid = max(wgid, len(strconv.Itoa(g.Id)))
 			for i, _ := range g.Servers {
-				widx = math2.MaxInt(widx, len(strconv.Itoa(i)))
+				widx = max(widx, len(strconv.Itoa(i)))
 			}
 		}
 		format += fmt.Sprintf("group-%%0%dd [%%0%dd]", wgid, widx)
@@ -703,7 +702,7 @@ func (t *cmdDashboard) handleGroupCommand(d map[string]interface{}) {
 		var waddr int
 		for _, g := range s.Group.Models {
 			for _, x := range g.Servers {
-				waddr = math2.MaxInt(waddr, len(x.Addr))
+				waddr = max(waddr, len(x.Addr))
 			}
 		}
 		format += fmt.Sprintf(" %%-%ds", waddr)
@@ -744,7 +743,7 @@ func (t *cmdDashboard) handleGroupCommand(d map[string]interface{}) {
 	}
 }
 
-func (t *cmdDashboard) handleSentinelCommand(d map[string]interface{}) {
+func (t *cmdDashboard) handleSentinelCommand(d map[string]any) {
 	c := t.newTopomClient()
 
 	switch {
@@ -782,7 +781,7 @@ func (t *cmdDashboard) handleSentinelCommand(d map[string]interface{}) {
 	}
 }
 
-func (t *cmdDashboard) handleSyncActionCommand(d map[string]interface{}) {
+func (t *cmdDashboard) handleSyncActionCommand(d map[string]any) {
 	c := t.newTopomClient()
 
 	switch {
@@ -811,7 +810,7 @@ func (t *cmdDashboard) handleSyncActionCommand(d map[string]interface{}) {
 
 }
 
-func (t *cmdDashboard) handleSlotActionCommand(d map[string]interface{}) {
+func (t *cmdDashboard) handleSlotActionCommand(d map[string]any) {
 	c := t.newTopomClient()
 
 	switch {
@@ -884,7 +883,7 @@ func (t *cmdDashboard) handleSlotActionCommand(d map[string]interface{}) {
 	}
 }
 
-func (t *cmdDashboard) handleSlotRebalance(d map[string]interface{}) {
+func (t *cmdDashboard) handleSlotRebalance(d map[string]any) {
 	c := t.newTopomClient()
 
 	confirm := d["--confirm"].(bool)

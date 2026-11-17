@@ -13,7 +13,7 @@ import (
 // package-level adminUsage contract, mirroring how main() parses argv. It is the
 // authoritative source for "what shape does docopt produce" so the dispatch
 // contract can be pinned without hand-rolled map fakes.
-func parseAdminUsage(t *testing.T, argv ...string) map[string]interface{} {
+func parseAdminUsage(t *testing.T, argv ...string) map[string]any {
 	t.Helper()
 	// docopt.Parse(usage, argv, help=true, version="", optionsFirst=false).
 	// The admin binary passes nil for argv to read os.Args; here we feed an

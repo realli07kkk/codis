@@ -12,7 +12,7 @@ import (
 	"github.com/CodisLabs/codis/pkg/utils/log"
 )
 
-func (t *cmdDashboard) handleRDBAnalysisRemoteFetch(d map[string]interface{}) {
+func (t *cmdDashboard) handleRDBAnalysisRemoteFetch(d map[string]any) {
 	c := t.newTopomClient()
 	serverAddr := utils.ArgumentMust(d, "--server")
 	options := parseRDBAnalysisRemoteFetchOptions(d)
@@ -26,7 +26,7 @@ func (t *cmdDashboard) handleRDBAnalysisRemoteFetch(d map[string]interface{}) {
 	fmt.Println(id)
 }
 
-func parseRDBAnalysisRemoteFetchOptions(d map[string]interface{}) topom.RDBAnalysisOptions {
+func parseRDBAnalysisRemoteFetchOptions(d map[string]any) topom.RDBAnalysisOptions {
 	var options topom.RDBAnalysisOptions
 	if n, ok := utils.ArgumentInteger(d, "--topn"); ok {
 		options.TopN = n

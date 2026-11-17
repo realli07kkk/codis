@@ -28,7 +28,7 @@ var options = []option{
 	{name: "consul", addrFlag: "--consul", authFlag: "--consul-auth"},
 }
 
-func Parse(d map[string]interface{}) (Args, bool) {
+func Parse(d map[string]any) (Args, bool) {
 	for _, option := range options {
 		if d[option.addrFlag] == nil {
 			continue
@@ -47,7 +47,7 @@ func Parse(d map[string]interface{}) (Args, bool) {
 	return Args{}, false
 }
 
-func MustParse(d map[string]interface{}) Args {
+func MustParse(d map[string]any) Args {
 	args, ok := Parse(d)
 	if !ok {
 		log.Panicf("invalid coordinator")

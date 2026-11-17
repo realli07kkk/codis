@@ -10,7 +10,7 @@ import (
 )
 
 func TestRDBAnalysisRemoteFetchOptions(t *testing.T) {
-	options := parseRDBAnalysisRemoteFetchOptions(map[string]interface{}{
+	options := parseRDBAnalysisRemoteFetchOptions(map[string]any{
 		"--topn":            "10",
 		"--max-depth":       "4",
 		"--regex":           "^user:",
@@ -27,7 +27,7 @@ func TestRDBAnalysisRemoteFetchOptions(t *testing.T) {
 }
 
 func TestRDBAnalysisRemoteFetchOptionsOmitAuth(t *testing.T) {
-	options := parseRDBAnalysisRemoteFetchOptions(map[string]interface{}{
+	options := parseRDBAnalysisRemoteFetchOptions(map[string]any{
 		"--topn": "5",
 	})
 	assert.Must(options.TopN == 5)

@@ -13,7 +13,6 @@ import (
 	"github.com/CodisLabs/codis/pkg/topom"
 	"github.com/CodisLabs/codis/pkg/utils"
 	"github.com/CodisLabs/codis/pkg/utils/log"
-	"github.com/CodisLabs/codis/pkg/utils/math2"
 	"github.com/CodisLabs/codis/pkg/utils/redis"
 )
 
@@ -182,14 +181,14 @@ func (hc *HealthyChecker) LogProxyStats() {
 	var format string
 	var wpid int
 	for _, p := range hc.Proxy.Models {
-		wpid = math2.MaxInt(wpid, len(strconv.Itoa(p.Id)))
+		wpid = max(wpid, len(strconv.Itoa(p.Id)))
 	}
 	format += fmt.Sprintf("proxy-%%0%dd [T] %%s", wpid)
 
 	var waddr1, waddr2 int
 	for _, p := range hc.Proxy.Models {
-		waddr1 = math2.MaxInt(waddr1, len(p.AdminAddr))
-		waddr2 = math2.MaxInt(waddr2, len(p.ProxyAddr))
+		waddr1 = max(waddr1, len(p.AdminAddr))
+		waddr2 = max(waddr2, len(p.ProxyAddr))
 	}
 	format += fmt.Sprintf(" [A] %%-%ds", waddr1)
 	format += fmt.Sprintf(" [P] %%-%ds", waddr2)
@@ -212,9 +211,9 @@ func (hc *HealthyChecker) LogGroupStats() {
 	var format string
 	var wgid, widx int
 	for _, g := range hc.Group.Models {
-		wgid = math2.MaxInt(wgid, len(strconv.Itoa(g.Id)))
+		wgid = max(wgid, len(strconv.Itoa(g.Id)))
 		for i, _ := range g.Servers {
-			widx = math2.MaxInt(widx, len(strconv.Itoa(i)))
+			widx = max(widx, len(strconv.Itoa(i)))
 		}
 	}
 	format += fmt.Sprintf("group-%%0%dd [%%0%dd]", wgid, widx)
@@ -222,7 +221,7 @@ func (hc *HealthyChecker) LogGroupStats() {
 	var waddr int
 	for _, g := range hc.Group.Models {
 		for _, x := range g.Servers {
-			waddr = math2.MaxInt(waddr, len(x.Addr))
+			waddr = max(waddr, len(x.Addr))
 		}
 	}
 	format += fmt.Sprintf(" %%-%ds", waddr)
