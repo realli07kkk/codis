@@ -172,7 +172,7 @@ func (d *Decoder) decodeBulkBytes() ([]byte, error) {
 	case n == -1:
 		return nil, nil
 	}
-	b, err := d.br.ReadFull(int(n) + 2)
+	b, err := d.readFull(int(n) + 2)
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
@@ -180,6 +180,22 @@ func (d *Decoder) decodeBulkBytes() ([]byte, error) {
 		return nil, errors.Trace(ErrBadCRLFEnd)
 	}
 	return b[:n], nil
+}
+
+// readFull reads exactly n bytes. Large values are read in chunks so a
+// malicious length header (for example "$536870911\r\n" with no payload)
+// cannot force a huge allocation before any data arrives.
+func (d *Decoder) readFull(n int) ([]byte, error) {
+	const chunk = 1024 * 1024
+	if n <= chunk {
+		return d.br.ReadFull(n)
+	}
+	var buf bytes.Buffer
+	buf.Grow(chunk)
+	if _, err := io.CopyN(&buf, d.br, int64(n)); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
 }
 
 func (d *Decoder) decodeArray() ([]*Resp, error) {
@@ -195,13 +211,17 @@ func (d *Decoder) decodeArray() ([]*Resp, error) {
 	case n == -1:
 		return nil, nil
 	}
-	array := make([]*Resp, n)
-	for i := range array {
+	capHint := int(n)
+	if capHint > 1024 {
+		capHint = 1024
+	}
+	array := make([]*Resp, 0, capHint)
+	for i := int64(0); i < n; i++ {
 		r, err := d.decodeResp()
 		if err != nil {
 			return nil, err
 		}
-		array[i] = r
+		array = append(array, r)
 	}
 	return array, nil
 }
