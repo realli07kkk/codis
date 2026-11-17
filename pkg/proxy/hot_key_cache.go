@@ -568,7 +568,13 @@ func (s *Router) handleRequestWithHotKeyCacheInvalidationPlan(r *Request, plan h
 	if err := dispatch(); err != nil {
 		return err
 	}
-	if !plan.active() || (r.Resp != nil && r.Coalesce == nil) {
+	if !plan.active() {
+		return nil
+	}
+	if r.Coalesce == nil && r.IsDone() {
+		// The response arrived before this function could observe it. Apply the
+		// plan now instead of dropping the invalidation.
+		plan.apply(r.Resp)
 		return nil
 	}
 	coalesce := r.Coalesce

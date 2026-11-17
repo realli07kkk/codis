@@ -275,6 +275,8 @@ func (s *Router) KeepAlive() error {
 }
 
 func (s *Router) isOnline() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 	return s.online && !s.closed
 }
 

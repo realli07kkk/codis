@@ -6,7 +6,6 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
 	"net"
 	"net/http"
 	"net/http/httputil"
@@ -178,7 +177,7 @@ Options:
 	if s, ok := utils.Argument(d, "--pidfile"); ok {
 		if pidfile, err := filepath.Abs(s); err != nil {
 			log.WarnErrorf(err, "parse pidfile = '%s' failed", s)
-		} else if err := ioutil.WriteFile(pidfile, []byte(strconv.Itoa(os.Getpid())), 0644); err != nil {
+		} else if err := os.WriteFile(pidfile, []byte(strconv.Itoa(os.Getpid())), 0644); err != nil {
 			log.WarnErrorf(err, "write pidfile = '%s' failed", pidfile)
 		} else {
 			defer func() {
@@ -192,7 +191,7 @@ Options:
 
 	h := http.NewServeMux()
 	h.Handle("/", m)
-	hs := &http.Server{Handler: h}
+	hs := utils.NewAdminHTTPServer(h)
 	if err := hs.Serve(l); err != nil {
 		log.PanicErrorf(err, "serve %s failed", listen)
 	}
@@ -207,7 +206,7 @@ type StaticLoader struct {
 }
 
 func (l *StaticLoader) Reload() (map[string]string, error) {
-	b, err := ioutil.ReadFile(l.path)
+	b, err := os.ReadFile(l.path)
 	if err != nil {
 		return nil, errors.Trace(err)
 	}

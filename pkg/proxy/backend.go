@@ -13,9 +13,9 @@ import (
 	"time"
 
 	"github.com/CodisLabs/codis/pkg/proxy/redis"
+	"github.com/CodisLabs/codis/pkg/utils"
 	"github.com/CodisLabs/codis/pkg/utils/errors"
 	"github.com/CodisLabs/codis/pkg/utils/log"
-	"github.com/CodisLabs/codis/pkg/utils/math2"
 	"github.com/CodisLabs/codis/pkg/utils/sync2/atomic2"
 )
 
@@ -25,8 +25,11 @@ const (
 )
 
 type BackendConn struct {
-	stop sync.Once
-	addr string
+	stop    sync.Once
+	sendMu  sync.Mutex
+	senders sync.WaitGroup
+	done    chan struct{}
+	addr    string
 
 	input chan *Request
 	retry struct {
@@ -49,6 +52,7 @@ func NewBackendConn(addr string, database int, config *Config) *BackendConn {
 func NewBackendConnWithAuth(addr string, database int, config *Config, auth RedisAuthIdentity) *BackendConn {
 	bc := &BackendConn{
 		addr: addr, config: config, auth: auth, database: database,
+		done: make(chan struct{}),
 	}
 	bc.input = make(chan *Request, 1024)
 	bc.retry.delay = &DelayExp2{
@@ -67,9 +71,30 @@ func (bc *BackendConn) Addr() string {
 
 func (bc *BackendConn) Close() {
 	bc.stop.Do(func() {
-		close(bc.input)
+		bc.sendMu.Lock()
+		bc.closed.Set(true)
+		close(bc.done)
+		bc.sendMu.Unlock()
+
+		// Wait for producers that already passed the closed check, then drain
+		// requests they may have enqueued. No producer can start after this
+		// point because closed is set before the wait starts.
+		bc.senders.Wait()
+		bc.drainInput()
 	})
-	bc.closed.Set(true)
+}
+
+// drainInput fails queued requests without blocking. It is safe to call from
+// both Close and loopWriter's deferred cleanup.
+func (bc *BackendConn) drainInput() {
+	for {
+		select {
+		case r := <-bc.input:
+			bc.setResponse(r, nil, ErrBackendConnReset)
+		default:
+			return
+		}
+	}
 }
 
 func (bc *BackendConn) IsConnected() bool {
@@ -80,7 +105,21 @@ func (bc *BackendConn) PushBack(r *Request) {
 	if r.Batch != nil {
 		r.Batch.Add(1)
 	}
-	bc.input <- r
+	bc.sendMu.Lock()
+	if bc.closed.IsTrue() {
+		bc.sendMu.Unlock()
+		bc.setResponse(r, nil, ErrBackendConnReset)
+		return
+	}
+	bc.senders.Add(1)
+	bc.sendMu.Unlock()
+	defer bc.senders.Done()
+
+	select {
+	case bc.input <- r:
+	case <-bc.done:
+		bc.setResponse(r, nil, ErrBackendConnReset)
+	}
 }
 
 func (bc *BackendConn) KeepAlive() bool {
@@ -254,6 +293,7 @@ func (bc *BackendConn) selectDatabase(c *redis.Conn, database int) error {
 
 func (bc *BackendConn) setResponse(r *Request, resp *redis.Resp, err error) error {
 	r.Resp, r.Err = resp, err
+	r.markDone()
 	if r.Group != nil {
 		r.Group.Done()
 	}
@@ -269,14 +309,20 @@ var (
 )
 
 func (bc *BackendConn) run() {
+	defer bc.Close()
 	log.Warnf("backend conn [%p] to %s, db-%d start service",
 		bc, bc.addr, bc.database)
 	for round := 0; bc.closed.IsFalse(); round++ {
 		log.Warnf("backend conn [%p] to %s, db-%d round-[%d]",
 			bc, bc.addr, bc.database, round)
-		if err := bc.loopWriter(round); err != nil {
-			bc.delayBeforeRetry()
-		}
+		func() {
+			// Recover per round so a panic in the writer reconnects instead of
+			// permanently retiring this BackendConn.
+			defer utils.Recover("backend conn")
+			if err := bc.loopWriter(round); err != nil {
+				bc.delayBeforeRetry()
+			}
+		}()
 	}
 	log.Warnf("backend conn [%p] to %s, db-%d stop and exit",
 		bc, bc.addr, bc.database)
@@ -328,12 +374,11 @@ func (bc *BackendConn) delayBeforeRetry() {
 	timeout := bc.retry.delay.After()
 	for bc.closed.IsFalse() {
 		select {
+		case <-bc.done:
+			return
 		case <-timeout:
 			return
-		case r, ok := <-bc.input:
-			if !ok {
-				return
-			}
+		case r := <-bc.input:
 			bc.setResponse(r, nil, ErrBackendConnReset)
 		}
 	}
@@ -341,10 +386,7 @@ func (bc *BackendConn) delayBeforeRetry() {
 
 func (bc *BackendConn) loopWriter(round int) (err error) {
 	defer func() {
-		for i := len(bc.input); i != 0; i-- {
-			r := <-bc.input
-			bc.setResponse(r, nil, ErrBackendConnReset)
-		}
+		bc.drainInput()
 		log.WarnErrorf(err, "backend conn [%p] to %s, db-%d writer-[%d] exit",
 			bc, bc.addr, bc.database, round)
 	}()
@@ -364,21 +406,25 @@ func (bc *BackendConn) loopWriter(round int) (err error) {
 	p.MaxInterval = time.Millisecond
 	p.MaxBuffered = cap(tasks) / 2
 
-	for r := range bc.input {
-		if r.IsReadOnly() && r.IsBroken() {
-			bc.setResponse(r, nil, ErrRequestIsBroken)
-			continue
-		}
-		if err := p.EncodeMultiBulk(r.Multi); err != nil {
-			return bc.setResponse(r, nil, fmt.Errorf("backend conn failure, %s", err))
-		}
-		if err := p.Flush(len(bc.input) == 0); err != nil {
-			return bc.setResponse(r, nil, fmt.Errorf("backend conn failure, %s", err))
-		} else {
-			tasks <- r
+	for {
+		select {
+		case <-bc.done:
+			return nil
+		case r := <-bc.input:
+			if r.IsReadOnly() && r.IsBroken() {
+				bc.setResponse(r, nil, ErrRequestIsBroken)
+				continue
+			}
+			if err := p.EncodeMultiBulk(r.Multi); err != nil {
+				return bc.setResponse(r, nil, fmt.Errorf("backend conn failure, %s", err))
+			}
+			if err := p.Flush(len(bc.input) == 0); err != nil {
+				return bc.setResponse(r, nil, fmt.Errorf("backend conn failure, %s", err))
+			} else {
+				tasks <- r
+			}
 		}
 	}
-	return nil
 }
 
 type sharedBackendConn struct {
@@ -437,10 +483,10 @@ func (s *sharedBackendConn) Release() {
 	s.owner.mu.Lock()
 	defer s.owner.mu.Unlock()
 	if s.refcnt <= 0 {
-		log.Panicf("shared backend conn has been closed, close too many times")
-	} else {
-		s.refcnt--
+		log.Errorf("shared backend conn has been closed, ignore extra release")
+		return
 	}
+	s.refcnt--
 	if s.refcnt != 0 {
 		return
 	}
@@ -457,10 +503,10 @@ func (s *sharedBackendConn) Retain() *sharedBackendConn {
 		return nil
 	}
 	if s.refcnt <= 0 {
-		log.Panicf("shared backend conn has been closed")
-	} else {
-		s.refcnt++
+		log.Errorf("shared backend conn has been closed, ignore retain")
+		return nil
 	}
+	s.refcnt++
 	return s
 }
 
@@ -515,7 +561,7 @@ type sharedBackendConnPool struct {
 
 func newSharedBackendConnPool(config *Config, parallel int, auth RedisAuthIdentity) *sharedBackendConnPool {
 	p := &sharedBackendConnPool{
-		config: config, parallel: math2.MaxInt(1, parallel), auth: auth,
+		config: config, parallel: max(1, parallel), auth: auth,
 	}
 	p.pool = make(map[string]*sharedBackendConn)
 	return p

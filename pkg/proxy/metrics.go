@@ -10,14 +10,15 @@ import (
 	influxdbClient "github.com/influxdata/influxdb/client/v2"
 	statsdClient "gopkg.in/alexcesaro/statsd.v2"
 
+	"github.com/CodisLabs/codis/pkg/utils"
 	"github.com/CodisLabs/codis/pkg/utils/errors"
 	"github.com/CodisLabs/codis/pkg/utils/log"
-	"github.com/CodisLabs/codis/pkg/utils/math2"
 	"github.com/CodisLabs/codis/pkg/utils/rpc"
 )
 
 func (p *Proxy) startMetricsReporter(d time.Duration, do, cleanup func() error) {
 	go func() {
+		defer utils.Recover("metrics reporter")
 		if cleanup != nil {
 			defer cleanup()
 		}
@@ -27,8 +28,12 @@ func (p *Proxy) startMetricsReporter(d time.Duration, do, cleanup func() error) 
 			Min: 1, Max: 15,
 			Unit: time.Second,
 		}
-		for !p.IsClosed() {
-			<-ticker.C
+		for {
+			select {
+			case <-p.exit.C:
+				return
+			case <-ticker.C:
+			}
 			if err := do(); err != nil {
 				log.WarnErrorf(err, "report metrics failed")
 				delay.SleepWithCancel(p.IsClosed)
@@ -45,7 +50,7 @@ func (p *Proxy) startMetricsJson() {
 	if server == "" {
 		return
 	}
-	period = math2.MaxDuration(time.Second, period)
+	period = max(time.Second, period)
 
 	p.startMetricsReporter(period, func() error {
 		return rpc.ApiPostJson(server, p.Overview(StatsRuntime))
@@ -58,7 +63,7 @@ func (p *Proxy) startMetricsInfluxdb() {
 	if server == "" {
 		return
 	}
-	period = math2.MaxDuration(time.Second, period)
+	period = max(time.Second, period)
 
 	c, err := influxdbClient.NewHTTPClient(influxdbClient.HTTPConfig{
 		Addr:     server,
@@ -91,7 +96,7 @@ func (p *Proxy) startMetricsInfluxdb() {
 			"proxy_addr":   model.ProxyAddr,
 			"hostname":     model.Hostname,
 		}
-		fields := map[string]interface{}{
+		fields := map[string]any{
 			"ops_total":                stats.Ops.Total,
 			"ops_fails":                stats.Ops.Fails,
 			"ops_redis_errors":         stats.Ops.Redis.Errors,
@@ -124,7 +129,7 @@ func (p *Proxy) startMetricsStatsd() {
 	if server == "" {
 		return
 	}
-	period = math2.MaxDuration(time.Second, period)
+	period = max(time.Second, period)
 
 	c, err := statsdClient.New(statsdClient.Address(server))
 	if err != nil {
@@ -147,7 +152,7 @@ func (p *Proxy) startMetricsStatsd() {
 			replacer.Replace(model.ProxyAddr),
 		}
 
-		fields := map[string]interface{}{
+		fields := map[string]any{
 			"ops_total":                stats.Ops.Total,
 			"ops_fails":                stats.Ops.Fails,
 			"ops_redis_errors":         stats.Ops.Redis.Errors,

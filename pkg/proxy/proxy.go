@@ -20,7 +20,6 @@ import (
 	"github.com/CodisLabs/codis/pkg/utils"
 	"github.com/CodisLabs/codis/pkg/utils/errors"
 	"github.com/CodisLabs/codis/pkg/utils/log"
-	"github.com/CodisLabs/codis/pkg/utils/math2"
 	"github.com/CodisLabs/codis/pkg/utils/redis"
 	"github.com/CodisLabs/codis/pkg/utils/rpc"
 	"github.com/CodisLabs/codis/pkg/utils/unsafe2"
@@ -266,6 +265,11 @@ func (s *Proxy) IsClosed() bool {
 	return s.closed
 }
 
+// Done returns a channel that is closed when the proxy starts shutting down.
+func (s *Proxy) Done() <-chan struct{} {
+	return s.exit.C
+}
+
 func (s *Proxy) HasSwitched() bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -367,7 +371,7 @@ func (s *Proxy) rewatchSentinels(servers []string) {
 					if d <= 0 {
 						return
 					}
-					time.Sleep(math2.MinDuration(d, time.Second))
+					time.Sleep(min(d, time.Second))
 				}
 			}
 			go func() {
@@ -419,15 +423,16 @@ func (s *Proxy) serveAdmin() {
 	log.Warnf("[%p] admin start service on %s", s, s.ladmin.Addr())
 
 	eh := make(chan error, 1)
+	h := http.NewServeMux()
+	h.Handle("/", newApiServer(s))
+	hs := utils.NewAdminHTTPServer(h)
 	go func(l net.Listener) {
-		h := http.NewServeMux()
-		h.Handle("/", newApiServer(s))
-		hs := &http.Server{Handler: h}
 		eh <- hs.Serve(l)
 	}(s.ladmin)
 
 	select {
 	case <-s.exit.C:
+		utils.ShutdownHTTPServer(hs, 5*time.Second)
 		log.Warnf("[%p] admin shutdown", s)
 	case err := <-eh:
 		log.ErrorErrorf(err, "[%p] admin exit on error", s)
@@ -469,7 +474,7 @@ func (s *Proxy) serveProxy() {
 }
 
 func (s *Proxy) keepAlive(d time.Duration) {
-	var ticker = time.NewTicker(math2.MaxDuration(d, time.Second))
+	var ticker = time.NewTicker(max(d, time.Second))
 	defer ticker.Stop()
 	for {
 		select {
@@ -598,7 +603,7 @@ func (s *Proxy) Overview(flags StatsFlags) *Overview {
 	o := &Overview{
 		Version: utils.Version,
 		Compile: utils.Compile,
-		Config:  s.Config(),
+		Config:  s.Config().Redacted(),
 		Model:   s.Model(),
 		Stats:   s.Stats(flags),
 	}

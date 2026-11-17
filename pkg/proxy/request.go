@@ -5,6 +5,7 @@ package proxy
 
 import (
 	"sync"
+	"sync/atomic"
 	"unsafe"
 
 	"github.com/CodisLabs/codis/pkg/proxy/redis"
@@ -31,6 +32,18 @@ type Request struct {
 	Err error
 
 	Coalesce func() error
+
+	done uint32
+}
+
+// IsDone reports whether the backend response has been written. It is safe to
+// call concurrently with setResponse; a true result means Resp can be read.
+func (r *Request) IsDone() bool {
+	return atomic.LoadUint32(&r.done) == 1
+}
+
+func (r *Request) markDone() {
+	atomic.StoreUint32(&r.done, 1)
 }
 
 func (r *Request) IsBroken() bool {
@@ -121,7 +134,7 @@ func (c *RequestChan) PopFront() (*Request, bool) {
 
 func (c *RequestChan) lockedPushBack(r *Request) int {
 	if c.closed {
-		panic("send on closed chan")
+		return len(c.data)
 	}
 	if c.waits != 0 {
 		c.cond.Signal()

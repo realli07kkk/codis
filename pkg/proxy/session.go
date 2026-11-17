@@ -13,6 +13,7 @@ import (
 
 	"github.com/CodisLabs/codis/pkg/models"
 	"github.com/CodisLabs/codis/pkg/proxy/redis"
+	"github.com/CodisLabs/codis/pkg/utils"
 	"github.com/CodisLabs/codis/pkg/utils/errors"
 	"github.com/CodisLabs/codis/pkg/utils/log"
 	"github.com/CodisLabs/codis/pkg/utils/sync2/atomic2"
@@ -158,12 +159,14 @@ func (s *Session) Start(d *Router) {
 
 		go func() {
 			defer clientSessions.unregister(s)
+			defer utils.Recover("session writer")
 			s.loopWriter(tasks)
 		}()
 
 		go func() {
+			defer utils.Recover("session reader")
+			defer tasks.Close()
 			s.loopReader(tasks, d)
-			tasks.Close()
 		}()
 	})
 }

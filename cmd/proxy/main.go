@@ -7,7 +7,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -26,7 +25,6 @@ import (
 	"github.com/CodisLabs/codis/pkg/topom"
 	"github.com/CodisLabs/codis/pkg/utils"
 	"github.com/CodisLabs/codis/pkg/utils/log"
-	"github.com/CodisLabs/codis/pkg/utils/math2"
 )
 
 func main() {
@@ -98,9 +96,9 @@ Options:
 
 	var maxncpu int
 	if n, ok := utils.ArgumentInteger(d, "--max-ncpu"); ok {
-		maxncpu = math2.MaxInt(ncpu, n)
+		maxncpu = max(ncpu, n)
 	} else {
-		maxncpu = math2.MaxInt(ncpu, runtime.NumCPU())
+		maxncpu = max(ncpu, runtime.NumCPU())
 	}
 	log.Warnf("set ncpu = %d, max-ncpu = %d", ncpu, maxncpu)
 
@@ -136,7 +134,7 @@ Options:
 
 	var slots []*models.Slot
 	if s, ok := utils.Argument(d, "--fillslots"); ok {
-		b, err := ioutil.ReadFile(s)
+		b, err := os.ReadFile(s)
 		if err != nil {
 			log.PanicErrorf(err, "load slots from file failed")
 		}
@@ -169,7 +167,7 @@ Options:
 	if s, ok := utils.Argument(d, "--pidfile"); ok {
 		if pidfile, err := filepath.Abs(s); err != nil {
 			log.WarnErrorf(err, "parse pidfile = '%s' failed", s)
-		} else if err := ioutil.WriteFile(pidfile, []byte(strconv.Itoa(os.Getpid())), 0644); err != nil {
+		} else if err := os.WriteFile(pidfile, []byte(strconv.Itoa(os.Getpid())), 0644); err != nil {
 			log.WarnErrorf(err, "write pidfile = '%s' failed", pidfile)
 		} else {
 			defer func() {
@@ -184,7 +182,7 @@ Options:
 	go func() {
 		defer s.Close()
 		c := make(chan os.Signal, 1)
-		signal.Notify(c, syscall.SIGINT, syscall.SIGKILL, syscall.SIGTERM)
+		signal.Notify(c, os.Interrupt, syscall.SIGTERM)
 
 		sig := <-c
 		log.Warnf("[%p] proxy receive signal = '%v'", s, sig)
@@ -201,14 +199,15 @@ Options:
 
 	for !s.IsClosed() && !s.IsOnline() {
 		log.Warnf("[%p] proxy waiting online ...", s)
-		time.Sleep(time.Second)
+		select {
+		case <-s.Done():
+		case <-time.After(time.Second):
+		}
 	}
 
 	log.Warnf("[%p] proxy is working ...", s)
 
-	for !s.IsClosed() {
-		time.Sleep(time.Second)
-	}
+	<-s.Done()
 
 	log.Warnf("[%p] proxy is exiting ...", s)
 }

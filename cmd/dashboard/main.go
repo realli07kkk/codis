@@ -5,7 +5,6 @@ package main
 
 import (
 	"fmt"
-	"io/ioutil"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -136,7 +135,7 @@ Options:
 	if s, ok := utils.Argument(d, "--pidfile"); ok {
 		if pidfile, err := filepath.Abs(s); err != nil {
 			log.WarnErrorf(err, "parse pidfile = '%s' failed", s)
-		} else if err := ioutil.WriteFile(pidfile, []byte(strconv.Itoa(os.Getpid())), 0644); err != nil {
+		} else if err := os.WriteFile(pidfile, []byte(strconv.Itoa(os.Getpid())), 0644); err != nil {
 			log.WarnErrorf(err, "write pidfile = '%s' failed", pidfile)
 		} else {
 			defer func() {
@@ -151,7 +150,7 @@ Options:
 	go func() {
 		defer s.Close()
 		c := make(chan os.Signal, 1)
-		signal.Notify(c, syscall.SIGINT, syscall.SIGKILL, syscall.SIGTERM)
+		signal.Notify(c, os.Interrupt, syscall.SIGTERM)
 
 		sig := <-c
 		log.Warnf("[%p] dashboard receive signal = '%v'", s, sig)
@@ -164,15 +163,16 @@ Options:
 			} else {
 				log.Panicf("dashboard online failed, give up & abort :'(")
 			}
-			time.Sleep(time.Second * 2)
+			select {
+			case <-s.Done():
+			case <-time.After(time.Second * 2):
+			}
 		}
 	}
 
 	log.Warnf("[%p] dashboard is working ...", s)
 
-	for !s.IsClosed() {
-		time.Sleep(time.Second)
-	}
+	<-s.Done()
 
 	log.Warnf("[%p] dashboard is exiting ...", s)
 }
