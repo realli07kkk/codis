@@ -8,6 +8,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	_ "net/http/pprof"
@@ -18,6 +19,7 @@ import (
 	"github.com/martini-contrib/render"
 
 	"github.com/CodisLabs/codis/pkg/models"
+	"github.com/CodisLabs/codis/pkg/utils"
 	"github.com/CodisLabs/codis/pkg/utils/errors"
 	"github.com/CodisLabs/codis/pkg/utils/log"
 	"github.com/CodisLabs/codis/pkg/utils/rpc"
@@ -27,14 +29,21 @@ type apiServer struct {
 	proxy *Proxy
 }
 
+var apiServerInitMu sync.Mutex
+
 func newApiServer(p *Proxy) http.Handler {
+	// martini-contrib/render keeps a package-level template store; serialize
+	// construction so tests that create several proxies do not race.
+	apiServerInitMu.Lock()
+	defer apiServerInitMu.Unlock()
+
 	m := martini.New()
 	m.Use(martini.Recovery())
 	m.Use(render.Renderer())
 	m.Use(func(w http.ResponseWriter, req *http.Request, c martini.Context) {
 		path := req.URL.Path
 		if req.Method != "GET" && strings.HasPrefix(path, "/api/") {
-			path = redactHotKeyCacheInvalidatePath(path)
+			path = utils.RedactPathSecret(path, p.XAuth())
 			var remoteAddr = req.RemoteAddr
 			var headerAddr string
 			for _, key := range []string{"X-Real-IP", "X-Forwarded-For"} {
@@ -58,9 +67,7 @@ func newApiServer(p *Proxy) http.Handler {
 	r.Get("/", func(r render.Render) {
 		r.Redirect("/proxy")
 	})
-	r.Any("/debug/**", func(w http.ResponseWriter, req *http.Request) {
-		http.DefaultServeMux.ServeHTTP(w, req)
-	})
+	r.Any("/debug/**", utils.ServeDebugHTTP)
 
 	r.Group("/proxy", func(r martini.Router) {
 		r.Get("", api.Overview)
@@ -92,14 +99,6 @@ func newApiServer(p *Proxy) http.Handler {
 	return m
 }
 
-func redactHotKeyCacheInvalidatePath(path string) string {
-	const prefix = "/api/proxy/hot-key-cache/invalidate/"
-	if strings.HasPrefix(path, prefix) {
-		return prefix + ":xauth"
-	}
-	return path
-}
-
 func (s *apiServer) verifyXAuth(params martini.Params) error {
 	if s.proxy.IsClosed() {
 		return ErrClosedProxy
@@ -108,7 +107,7 @@ func (s *apiServer) verifyXAuth(params martini.Params) error {
 	if xauth == "" {
 		return errors.New("missing xauth, please check product name & auth")
 	}
-	if xauth != s.proxy.XAuth() {
+	if !rpc.ConstantTimeCompareString(xauth, s.proxy.XAuth()) {
 		return errors.New("invalid xauth, please check product name & auth")
 	}
 	return nil
@@ -303,7 +302,7 @@ func (c *ApiClient) SetTimeout(timeout time.Duration) {
 	c.timeout = timeout
 }
 
-func (c *ApiClient) encodeURL(format string, args ...interface{}) string {
+func (c *ApiClient) encodeURL(format string, args ...any) string {
 	return rpc.EncodeURL(c.addr, format, args...)
 }
 

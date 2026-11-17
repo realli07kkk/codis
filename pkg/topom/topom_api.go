@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	_ "net/http/pprof"
@@ -19,6 +20,7 @@ import (
 
 	"github.com/CodisLabs/codis/pkg/models"
 	"github.com/CodisLabs/codis/pkg/proxy"
+	"github.com/CodisLabs/codis/pkg/utils"
 	"github.com/CodisLabs/codis/pkg/utils/errors"
 	"github.com/CodisLabs/codis/pkg/utils/log"
 	"github.com/CodisLabs/codis/pkg/utils/redis"
@@ -29,14 +31,21 @@ type apiServer struct {
 	topom *Topom
 }
 
+var apiServerInitMu sync.Mutex
+
 func newApiServer(t *Topom) http.Handler {
+	// martini-contrib/render keeps a package-level template store; serialize
+	// construction so tests that create several topoms do not race.
+	apiServerInitMu.Lock()
+	defer apiServerInitMu.Unlock()
+
 	m := martini.New()
 	m.Use(martini.Recovery())
 	m.Use(render.Renderer())
 	m.Use(func(w http.ResponseWriter, req *http.Request, c martini.Context) {
 		path := req.URL.Path
 		if req.Method != "GET" && strings.HasPrefix(path, "/api/") {
-			path = redactHotKeyCacheInvalidatePath(path)
+			path = utils.RedactPathSecret(path, t.XAuth())
 			var remoteAddr = req.RemoteAddr
 			var headerAddr string
 			for _, key := range []string{"X-Real-IP", "X-Forwarded-For"} {
@@ -61,9 +70,7 @@ func newApiServer(t *Topom) http.Handler {
 	r.Get("/", func(r render.Render) {
 		r.Redirect("/topom")
 	})
-	r.Any("/debug/**", func(w http.ResponseWriter, req *http.Request) {
-		http.DefaultServeMux.ServeHTTP(w, req)
-	})
+	r.Any("/debug/**", utils.ServeDebugHTTP)
 
 	r.Group("/topom", func(r martini.Router) {
 		r.Get("", api.Overview)
@@ -150,14 +157,6 @@ func newApiServer(t *Topom) http.Handler {
 	return m
 }
 
-func redactHotKeyCacheInvalidatePath(path string) string {
-	const prefix = "/api/topom/hot-key-cache/invalidate/"
-	if strings.HasPrefix(path, prefix) {
-		return prefix + ":xauth"
-	}
-	return path
-}
-
 func (s *apiServer) verifyXAuth(params martini.Params) error {
 	if s.topom.IsClosed() {
 		return ErrClosedTopom
@@ -166,7 +165,7 @@ func (s *apiServer) verifyXAuth(params martini.Params) error {
 	if xauth == "" {
 		return errors.New("missing xauth, please check product name & auth")
 	}
-	if xauth != s.topom.XAuth() {
+	if !rpc.ConstantTimeCompareString(xauth, s.topom.XAuth()) {
 		return errors.New("invalid xauth, please check product name & auth")
 	}
 	return nil
@@ -865,7 +864,7 @@ func (c *ApiClient) SetXAuth(name string) {
 	c.xauth = rpc.NewXAuth(name)
 }
 
-func (c *ApiClient) encodeURL(format string, args ...interface{}) string {
+func (c *ApiClient) encodeURL(format string, args ...any) string {
 	return rpc.EncodeURL(c.addr, format, args...)
 }
 

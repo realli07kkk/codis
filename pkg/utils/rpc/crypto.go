@@ -7,10 +7,20 @@ import (
 	"bytes"
 	"crypto/md5"
 	"crypto/sha256"
+	"crypto/subtle"
 	"fmt"
 	"net"
 	"sort"
 )
+
+// ConstantTimeCompareString compares two strings without leaking their
+// contents through timing. Both values are hashed first so the comparison
+// time does not depend on the input length either.
+func ConstantTimeCompareString(a, b string) bool {
+	ah := sha256.Sum256([]byte(a))
+	bh := sha256.Sum256([]byte(b))
+	return subtle.ConstantTimeCompare(ah[:], bh[:]) == 1
+}
 
 func NewToken(segs ...string) string {
 	var list []string

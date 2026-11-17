@@ -173,7 +173,7 @@ type Config struct {
 
 	JodisName       string            `toml:"jodis_name" json:"jodis_name"`
 	JodisAddr       string            `toml:"jodis_addr" json:"jodis_addr"`
-	JodisAuth       string            `toml:"jodis_auth" json:"jodis_auth"`
+	JodisAuth       string            `toml:"jodis_auth" json:"-"`
 	JodisTimeout    timesize.Duration `toml:"jodis_timeout" json:"jodis_timeout"`
 	JodisCompatible bool              `toml:"jodis_compatible" json:"jodis_compatible"`
 
@@ -258,7 +258,39 @@ func (c *Config) LoadFromFile(path string) error {
 	return c.Validate()
 }
 
+const redactedSecret = "<redacted>"
+
+func redactSecret(s string) string {
+	if s == "" {
+		return ""
+	}
+	return redactedSecret
+}
+
+// Redacted returns a copy of the config with credentials replaced by a
+// placeholder. It is intended for logs and API responses.
+func (c *Config) Redacted() *Config {
+	if c == nil {
+		return nil
+	}
+	x := *c
+	x.JodisAuth = redactSecret(x.JodisAuth)
+	x.ProductAuth = redactSecret(x.ProductAuth)
+	x.SessionAuth = redactSecret(x.SessionAuth)
+	x.BackendAuthPassword = redactSecret(x.BackendAuthPassword)
+	x.MetricsReportInfluxdbPassword = redactSecret(x.MetricsReportInfluxdbPassword)
+	return &x
+}
+
+// String renders the config for logs. Credentials are always redacted.
 func (c *Config) String() string {
+	if c == nil {
+		return "<nil>"
+	}
+	return c.Redacted().encode()
+}
+
+func (c *Config) encode() string {
 	var b bytes.Buffer
 	e := toml.NewEncoder(&b)
 	e.Indent = "    "

@@ -8,11 +8,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"net"
 	"net/http"
 	"net/url"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/CodisLabs/codis/pkg/utils/errors"
@@ -82,7 +82,7 @@ func NewRemoteError(err error) *RemoteError {
 }
 
 func responseBodyAsBytes(rsp *http.Response) ([]byte, error) {
-	b, err := ioutil.ReadAll(rsp.Body)
+	b, err := io.ReadAll(rsp.Body)
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
@@ -104,15 +104,31 @@ func responseBodyAsError(rsp *http.Response) (error, error) {
 	return e.TracedError(), nil
 }
 
-func apiMarshalJson(v interface{}) ([]byte, error) {
+func apiMarshalJson(v any) ([]byte, error) {
 	return json.MarshalIndent(v, "", "    ")
 }
 
-func apiRequestJson(method string, url string, args, reply interface{}) error {
+func apiRequestJson(method string, url string, args, reply any) error {
 	return apiRequestJsonWithClient(client, method, url, args, reply)
 }
 
-func apiRequestJsonWithClient(c *http.Client, method string, url string, args, reply interface{}) error {
+func redactRPCURL(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return raw
+	}
+	parts := strings.Split(u.Path, "/")
+	for i := 0; i+2 < len(parts); i++ {
+		if parts[i] == "api" && (parts[i+1] == "proxy" || parts[i+1] == "topom") {
+			parts[i+2] = ":xauth"
+			break
+		}
+	}
+	u.Path = strings.Join(parts, "/")
+	return u.String()
+}
+
+func apiRequestJsonWithClient(c *http.Client, method string, url string, args, reply any) error {
 	var body []byte
 	if args != nil {
 		b, err := apiMarshalJson(args)
@@ -138,9 +154,9 @@ func apiRequestJsonWithClient(c *http.Client, method string, url string, args, r
 		return errors.Trace(err)
 	}
 	defer func() {
-		io.Copy(ioutil.Discard, rsp.Body)
+		io.Copy(io.Discard, rsp.Body)
 		rsp.Body.Close()
-		log.Debugf("call rpc [%s] %s in %v", method, url, time.Since(start))
+		log.Debugf("call rpc [%s] %s in %v", method, redactRPCURL(url), time.Since(start))
 	}()
 
 	switch rsp.StatusCode {
@@ -169,15 +185,15 @@ func apiRequestJsonWithClient(c *http.Client, method string, url string, args, r
 	}
 }
 
-func ApiGetJson(url string, reply interface{}) error {
+func ApiGetJson(url string, reply any) error {
 	return apiRequestJson(MethodGet, url, nil, reply)
 }
 
-func ApiPutJson(url string, args, reply interface{}) error {
+func ApiPutJson(url string, args, reply any) error {
 	return apiRequestJson(MethodPut, url, args, reply)
 }
 
-func ApiPutJsonWithTimeout(url string, args, reply interface{}, timeout time.Duration) error {
+func ApiPutJsonWithTimeout(url string, args, reply any, timeout time.Duration) error {
 	if timeout <= 0 {
 		return ApiPutJson(url, args, reply)
 	}
@@ -188,7 +204,7 @@ func ApiPutJsonWithTimeout(url string, args, reply interface{}, timeout time.Dur
 	return apiRequestJsonWithClient(c, MethodPut, url, args, reply)
 }
 
-func ApiPostJson(url string, args interface{}) error {
+func ApiPostJson(url string, args any) error {
 	return apiRequestJson(MethodPost, url, args, nil)
 }
 
@@ -204,7 +220,7 @@ func ApiResponseError(err error) (int, string) {
 	}
 }
 
-func ApiResponseJson(v interface{}) (int, string) {
+func ApiResponseJson(v any) (int, string) {
 	b, err := apiMarshalJson(v)
 	if err != nil {
 		return ApiResponseError(errors.Trace(err))
@@ -213,7 +229,7 @@ func ApiResponseJson(v interface{}) (int, string) {
 	}
 }
 
-func EncodeURL(host string, format string, args ...interface{}) string {
+func EncodeURL(host string, format string, args ...any) string {
 	var u url.URL
 	u.Scheme = "http"
 	u.Host = host

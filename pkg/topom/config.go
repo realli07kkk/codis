@@ -86,7 +86,7 @@ sentinel_client_reconfig_script = ""
 type Config struct {
 	CoordinatorName string `toml:"coordinator_name" json:"coordinator_name"`
 	CoordinatorAddr string `toml:"coordinator_addr" json:"coordinator_addr"`
-	CoordinatorAuth string `toml:"coordinator_auth" json:"coordinator_auth"`
+	CoordinatorAuth string `toml:"coordinator_auth" json:"-"`
 
 	AdminAddr string `toml:"admin_addr" json:"admin_addr"`
 
@@ -149,7 +149,38 @@ func (c *Config) LoadFromFile(path string) error {
 	return c.Validate()
 }
 
+const redactedSecret = "<redacted>"
+
+func redactSecret(s string) string {
+	if s == "" {
+		return ""
+	}
+	return redactedSecret
+}
+
+// Redacted returns a copy of the config with credentials replaced by a
+// placeholder. It is intended for logs and API responses.
+func (c *Config) Redacted() *Config {
+	if c == nil {
+		return nil
+	}
+	x := *c
+	x.CoordinatorAuth = redactSecret(x.CoordinatorAuth)
+	x.ProductAuth = redactSecret(x.ProductAuth)
+	x.BackendAuthPassword = redactSecret(x.BackendAuthPassword)
+	x.RDBAnalysisRemoteFetchAuth = redactSecret(x.RDBAnalysisRemoteFetchAuth)
+	return &x
+}
+
+// String renders the config for logs. Credentials are always redacted.
 func (c *Config) String() string {
+	if c == nil {
+		return "<nil>"
+	}
+	return c.Redacted().encode()
+}
+
+func (c *Config) encode() string {
 	var b bytes.Buffer
 	e := toml.NewEncoder(&b)
 	e.Indent = "    "

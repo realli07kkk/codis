@@ -9,6 +9,7 @@ import (
 
 	"github.com/CodisLabs/codis/pkg/models"
 	"github.com/CodisLabs/codis/pkg/proxy/redis"
+	"github.com/CodisLabs/codis/pkg/utils/rpc"
 )
 
 const defaultACLUser = "default"
@@ -51,7 +52,7 @@ func (s *Session) handleLegacyAuth(r *Request) error {
 	}
 
 	switch {
-	case s.config.SessionAuth != string(r.Multi[1].Value):
+	case !rpc.ConstantTimeCompareString(s.config.SessionAuth, string(r.Multi[1].Value)):
 		s.setAuthorized(false)
 		if !wasAuthorized {
 			s.authBruteforce.RecordAuthFailure(remoteAddr, wasAuthorized, now)
@@ -140,7 +141,7 @@ func aclPasswordAllowed(user *models.ACLUser, hash string) bool {
 		}
 	}
 	for _, allowed := range user.PasswordHashes {
-		if allowed == hash {
+		if rpc.ConstantTimeCompareString(allowed, hash) {
 			return true
 		}
 	}
