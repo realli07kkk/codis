@@ -4,7 +4,6 @@
 package topom
 
 import (
-	"io/ioutil"
 	"os"
 	"testing"
 
@@ -27,10 +26,21 @@ func init() {
 	config.ProductAuth = "topom_auth"
 }
 
+var testRootDir string
+
+func TestMain(m *testing.M) {
+	d, err := os.MkdirTemp("", "codis-topom-test-")
+	if err != nil {
+		log.PanicError(err, "create temp root failed")
+	}
+	testRootDir = d
+	code := m.Run()
+	os.RemoveAll(d)
+	os.Exit(code)
+}
+
 func newDiskClient() *fsclient.Client {
-	const TempDir = "gotest.tmp"
-	assert.MustNoError(os.MkdirAll(TempDir, 0755))
-	d, err := ioutil.TempDir(TempDir, "")
+	d, err := os.MkdirTemp(testRootDir, "")
 	assert.MustNoError(err)
 	c, err := fsclient.New(d)
 	assert.MustNoError(err)

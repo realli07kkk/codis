@@ -25,23 +25,25 @@ type RedisStats struct {
 }
 
 func (s *Topom) newRedisStats(addr string, timeout time.Duration, do func(addr string) (*RedisStats, error)) *RedisStats {
-	var ch = make(chan struct{})
-	stats := &RedisStats{}
+	ch := make(chan *RedisStats, 1)
 
 	go func() {
-		defer close(ch)
+		stats := &RedisStats{}
 		p, err := do(addr)
 		if err != nil {
 			stats.Error = rpc.NewRemoteError(err)
 		} else {
 			stats.Stats, stats.Sentinel = p.Stats, p.Sentinel
 		}
+		ch <- stats
 	}()
 
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
 	select {
-	case <-ch:
+	case stats := <-ch:
 		return stats
-	case <-time.After(timeout):
+	case <-timer.C:
 		return &RedisStats{Timeout: true}
 	}
 }
@@ -113,23 +115,25 @@ type ProxyStats struct {
 }
 
 func (s *Topom) newProxyStats(p *models.Proxy, timeout time.Duration) *ProxyStats {
-	var ch = make(chan struct{})
-	stats := &ProxyStats{}
+	ch := make(chan *ProxyStats, 1)
 
 	go func() {
-		defer close(ch)
+		stats := &ProxyStats{}
 		x, err := s.newProxyClient(p).StatsSimple()
 		if err != nil {
 			stats.Error = rpc.NewRemoteError(err)
 		} else {
 			stats.Stats = x
 		}
+		ch <- stats
 	}()
 
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
 	select {
-	case <-ch:
+	case stats := <-ch:
 		return stats
-	case <-time.After(timeout):
+	case <-timer.C:
 		return &ProxyStats{Timeout: true}
 	}
 }
@@ -147,7 +151,6 @@ func (s *Topom) RefreshProxyStats(timeout time.Duration) (*sync2.Future, error) 
 		go func(p *models.Proxy) {
 			stats := s.newProxyStats(p, timeout)
 			stats.UnixTime = time.Now().Unix()
-			fut.Done(p.Token, stats)
 
 			switch x := stats.Stats; {
 			case x == nil:
@@ -157,6 +160,9 @@ func (s *Topom) RefreshProxyStats(timeout time.Duration) (*sync2.Future, error) 
 					log.WarnErrorf(err, "auto online proxy-[%s] failed", p.Token)
 				}
 			}
+			// Done must be the last step: the future already signals that the
+			// goroutine no longer touches shared cache state.
+			fut.Done(p.Token, stats)
 		}(p)
 	}
 	go func() {

@@ -7,12 +7,9 @@ import (
 	"sort"
 	"time"
 
-	rbtree "github.com/emirpasic/gods/trees/redblacktree"
-
 	"github.com/CodisLabs/codis/pkg/models"
 	"github.com/CodisLabs/codis/pkg/utils/errors"
 	"github.com/CodisLabs/codis/pkg/utils/log"
-	"github.com/CodisLabs/codis/pkg/utils/math2"
 	"github.com/CodisLabs/codis/pkg/utils/redis"
 )
 
@@ -414,7 +411,7 @@ func (s *Topom) newSlotActionExecutor(sid int) (func(db int) (remains int, nextd
 					MaxBulks: s.config.MigrationAsyncMaxBulks,
 					MaxBytes: s.config.MigrationAsyncMaxBytes.AsInt(),
 					NumKeys:  s.config.MigrationAsyncNumKeys,
-					Timeout: math2.MinDuration(time.Second*5,
+					Timeout: min(time.Second*5,
 						s.config.MigrationTimeout.Duration()),
 				}
 				do = func() (int, error) {
@@ -558,6 +555,8 @@ func (s *Topom) SlotsRebalance(confirm bool) (map[int]int, error) {
 			groupIds = append(groupIds, g.Id)
 		}
 	}
+	// groupIds stays sorted by gid: the final assignment loop walks it and the
+	// previous implementation relied on that order.
 	sort.Ints(groupIds)
 
 	if len(groupIds) == 0 {
@@ -572,6 +571,18 @@ func (s *Topom) SlotsRebalance(confirm bool) (map[int]int, error) {
 	)
 	var groupSize = func(gid int) int {
 		return assigned[gid] + len(pendings[gid]) - moveout[gid]
+	}
+	var lessGroup = func(gid1, gid2 int) bool {
+		if d := groupSize(gid1) - groupSize(gid2); d != 0 {
+			return d < 0
+		}
+		return gid1 < gid2
+	}
+	active := append([]int(nil), groupIds...)
+	var sortGroups = func() {
+		sort.Slice(active, func(i, j int) bool {
+			return lessGroup(active[i], active[j])
+		})
 	}
 
 	// don't migrate slot if it's being migrated
@@ -597,19 +608,18 @@ func (s *Topom) SlotsRebalance(confirm bool) (map[int]int, error) {
 		}
 	}
 
-	var tree = rbtree.NewWith(func(x, y interface{}) int {
-		var gid1 = x.(int)
-		var gid2 = y.(int)
-		if gid1 != gid2 {
-			if d := groupSize(gid1) - groupSize(gid2); d != 0 {
-				return d
-			}
-			return gid1 - gid2
-		}
-		return 0
-	})
-	for _, gid := range groupIds {
-		tree.Put(gid, nil)
+	sortGroups()
+
+	// active is the ordered set of groups that still participate in the
+	// rebalance. groupIds stays untouched so the final assignment loop sees
+	// every group in gid order, matching the previous red-black tree behaviour.
+	insertActive := func(gid int) {
+		i := sort.Search(len(active), func(i int) bool {
+			return lessGroup(gid, active[i])
+		})
+		active = append(active, 0)
+		copy(active[i+1:], active[i:])
+		active[i] = gid
 	}
 
 	// assign offline slots to the smallest group
@@ -620,27 +630,27 @@ func (s *Topom) SlotsRebalance(confirm bool) (map[int]int, error) {
 		if m.GroupId != 0 {
 			continue
 		}
-		dest := tree.Left().Key.(int)
-		tree.Remove(dest)
+		dest := active[0]
+		active = active[1:]
 
 		docking = append(docking, m.Id)
 		moveout[dest]--
 
-		tree.Put(dest, nil)
+		insertActive(dest)
 	}
 
 	var upperBound = (MaxSlotNum + len(groupIds) - 1) / len(groupIds)
 
 	// rebalance between different server groups
-	for tree.Size() >= 2 {
-		from := tree.Right().Key.(int)
-		tree.Remove(from)
+	for len(active) >= 2 {
+		from := active[len(active)-1]
+		active = active[:len(active)-1]
 
 		if len(pendings[from]) == moveout[from] {
 			continue
 		}
-		dest := tree.Left().Key.(int)
-		tree.Remove(dest)
+		dest := active[0]
+		active = active[1:]
 
 		var (
 			fromSize = groupSize(from)
@@ -658,8 +668,8 @@ func (s *Topom) SlotsRebalance(confirm bool) (map[int]int, error) {
 		moveout[from]++
 		moveout[dest]--
 
-		tree.Put(from, nil)
-		tree.Put(dest, nil)
+		insertActive(from)
+		insertActive(dest)
 	}
 
 	for gid, n := range moveout {

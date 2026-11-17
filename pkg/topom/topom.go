@@ -19,7 +19,6 @@ import (
 	"github.com/CodisLabs/codis/pkg/utils"
 	"github.com/CodisLabs/codis/pkg/utils/errors"
 	"github.com/CodisLabs/codis/pkg/utils/log"
-	"github.com/CodisLabs/codis/pkg/utils/math2"
 	"github.com/CodisLabs/codis/pkg/utils/redis"
 	"github.com/CodisLabs/codis/pkg/utils/rpc"
 	"github.com/CodisLabs/codis/pkg/utils/sync2/atomic2"
@@ -219,55 +218,67 @@ func (s *Topom) Start(routines bool) error {
 	}
 	s.rewatchSentinels(ctx.sentinel.Servers)
 
-	go func() {
-		for !s.IsClosed() {
-			if s.IsOnline() {
-				w, _ := s.RefreshRedisStats(time.Second)
-				if w != nil {
-					w.Wait()
-				}
-			}
-			time.Sleep(time.Second)
+	go s.runPeriodic("topom redis stats refresh", time.Second, func() {
+		w, _ := s.RefreshRedisStats(time.Second)
+		if w != nil {
+			w.Wait()
 		}
-	}()
+	})
 
-	go func() {
-		for !s.IsClosed() {
-			if s.IsOnline() {
-				w, _ := s.RefreshProxyStats(time.Second)
-				if w != nil {
-					w.Wait()
-				}
-			}
-			time.Sleep(time.Second)
+	go s.runPeriodic("topom proxy stats refresh", time.Second, func() {
+		w, _ := s.RefreshProxyStats(time.Second)
+		if w != nil {
+			w.Wait()
 		}
-	}()
+	})
 
-	go func() {
-		for !s.IsClosed() {
-			if s.IsOnline() {
-				if err := s.ProcessSlotAction(); err != nil {
-					log.WarnErrorf(err, "process slot action failed")
-					time.Sleep(time.Second * 5)
-				}
-			}
-			time.Sleep(time.Second)
+	go s.runPeriodic("topom slot action", time.Second, func() {
+		if err := s.ProcessSlotAction(); err != nil {
+			log.WarnErrorf(err, "process slot action failed")
+			time.Sleep(time.Second * 5)
 		}
-	}()
+	})
 
-	go func() {
-		for !s.IsClosed() {
-			if s.IsOnline() {
-				if err := s.ProcessSyncAction(); err != nil {
-					log.WarnErrorf(err, "process sync action failed")
-					time.Sleep(time.Second * 5)
-				}
-			}
-			time.Sleep(time.Second)
+	go s.runPeriodic("topom sync action", time.Second, func() {
+		if err := s.ProcessSyncAction(); err != nil {
+			log.WarnErrorf(err, "process sync action failed")
+			time.Sleep(time.Second * 5)
 		}
-	}()
+	})
 
 	return nil
+}
+
+// runPeriodic runs fn on a ticker until the topom is closed. Unlike a bare
+// for/sleep loop it wakes up immediately on Close and isolates panics.
+func (s *Topom) runPeriodic(scope string, period time.Duration, fn func()) {
+	defer utils.Recover(scope)
+	ticker := time.NewTicker(period)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-s.exit.C:
+			return
+		case <-ticker.C:
+			if s.IsOnline() {
+				stopped := false
+				func() {
+					defer func() {
+						if x := recover(); x != nil {
+							log.Errorf("%s panic: %v", scope, x)
+							stopped = true
+						}
+					}()
+					fn()
+				}()
+				if stopped {
+					// A panic may leave the state machine half-applied; stop
+					// this loop instead of retrying it every tick.
+					return
+				}
+			}
+		}
+	}
 }
 
 func (s *Topom) XAuth() string {
@@ -400,12 +411,17 @@ func (s *Topom) IsClosed() bool {
 	return s.closed
 }
 
+// Done returns a channel that is closed when the topom starts shutting down.
+func (s *Topom) Done() <-chan struct{} {
+	return s.exit.C
+}
+
 func (s *Topom) GetSlotActionInterval() int {
 	return s.action.interval.AsInt()
 }
 
 func (s *Topom) SetSlotActionInterval(us int) {
-	us = math2.MinMaxInt(us, 0, 1000*1000)
+	us = min(max(us, 0), 1000*1000)
 	s.action.interval.Set(int64(us))
 	log.Warnf("set action interval = %d", us)
 }
@@ -449,15 +465,16 @@ func (s *Topom) serveAdmin() {
 	log.Warnf("admin start service on %s", s.ladmin.Addr())
 
 	eh := make(chan error, 1)
+	h := http.NewServeMux()
+	h.Handle("/", newApiServer(s))
+	hs := utils.NewAdminHTTPServer(h)
 	go func(l net.Listener) {
-		h := http.NewServeMux()
-		h.Handle("/", newApiServer(s))
-		hs := &http.Server{Handler: h}
 		eh <- hs.Serve(l)
 	}(s.ladmin)
 
 	select {
 	case <-s.exit.C:
+		utils.ShutdownHTTPServer(hs, 5*time.Second)
 		log.Warnf("admin shutdown")
 	case err := <-eh:
 		log.ErrorErrorf(err, "admin exit on error")
@@ -479,7 +496,7 @@ func (s *Topom) Overview() (*Overview, error) {
 		return &Overview{
 			Version: utils.Version,
 			Compile: utils.Compile,
-			Config:  s.Config(),
+			Config:  s.Config().Redacted(),
 			Model:   s.Model(),
 			Stats:   stats,
 		}, nil
