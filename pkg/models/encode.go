@@ -10,7 +10,7 @@ import (
 	"github.com/CodisLabs/codis/pkg/utils/log"
 )
 
-func jsonEncode(v interface{}) []byte {
+func jsonEncode(v any) []byte {
 	b, err := json.MarshalIndent(v, "", "    ")
 	if err != nil {
 		log.PanicErrorf(err, "encode to json failed")
@@ -18,7 +18,7 @@ func jsonEncode(v interface{}) []byte {
 	return b
 }
 
-func jsonDecode(v interface{}, b []byte) error {
+func jsonDecode(v any, b []byte) error {
 	if err := json.Unmarshal(b, v); err != nil {
 		return errors.Trace(err)
 	}

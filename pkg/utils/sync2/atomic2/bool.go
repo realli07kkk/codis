@@ -3,38 +3,34 @@
 
 package atomic2
 
+import "sync/atomic"
+
+// Bool is kept as a thin compatibility wrapper around sync/atomic.Bool.
+// New code should use sync/atomic directly.
 type Bool struct {
-	c Int64
+	v atomic.Bool
 }
 
 func (b *Bool) Bool() bool {
-	return b.IsTrue()
+	return b.v.Load()
 }
 
 func (b *Bool) IsTrue() bool {
-	return b.c.Int64() != 0
+	return b.v.Load()
 }
 
 func (b *Bool) IsFalse() bool {
-	return b.c.Int64() == 0
-}
-
-func (b *Bool) toInt64(v bool) int64 {
-	if v {
-		return 1
-	} else {
-		return 0
-	}
+	return !b.v.Load()
 }
 
 func (b *Bool) Set(v bool) {
-	b.c.Set(b.toInt64(v))
+	b.v.Store(v)
 }
 
 func (b *Bool) CompareAndSwap(o, n bool) bool {
-	return b.c.CompareAndSwap(b.toInt64(o), b.toInt64(n))
+	return b.v.CompareAndSwap(o, n)
 }
 
 func (b *Bool) Swap(v bool) bool {
-	return b.c.Swap(b.toInt64(v)) != 0
+	return b.v.Swap(v)
 }

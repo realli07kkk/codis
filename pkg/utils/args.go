@@ -9,7 +9,7 @@ import (
 	"github.com/CodisLabs/codis/pkg/utils/log"
 )
 
-func Argument(d map[string]interface{}, name string) (string, bool) {
+func Argument(d map[string]any, name string) (string, bool) {
 	if d[name] != nil {
 		if s, ok := d[name].(string); ok {
 			if s != "" {
@@ -23,7 +23,7 @@ func Argument(d map[string]interface{}, name string) (string, bool) {
 	return "", false
 }
 
-func ArgumentMust(d map[string]interface{}, name string) string {
+func ArgumentMust(d map[string]any, name string) string {
 	s, ok := Argument(d, name)
 	if ok {
 		return s
@@ -32,7 +32,7 @@ func ArgumentMust(d map[string]interface{}, name string) string {
 	return ""
 }
 
-func ArgumentInteger(d map[string]interface{}, name string) (int, bool) {
+func ArgumentInteger(d map[string]any, name string) (int, bool) {
 	if s, ok := Argument(d, name); ok {
 		n, err := strconv.Atoi(s)
 		if err != nil {
@@ -43,7 +43,7 @@ func ArgumentInteger(d map[string]interface{}, name string) (int, bool) {
 	return 0, false
 }
 
-func ArgumentIntegerMust(d map[string]interface{}, name string) int {
+func ArgumentIntegerMust(d map[string]any, name string) int {
 	n, ok := ArgumentInteger(d, name)
 	if ok {
 		return n

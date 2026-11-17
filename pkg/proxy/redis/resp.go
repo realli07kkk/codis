@@ -73,7 +73,7 @@ func NewError(value []byte) *Resp {
 	return r
 }
 
-func NewErrorf(format string, args ...interface{}) *Resp {
+func NewErrorf(format string, args ...any) *Resp {
 	return NewError([]byte(fmt.Sprintf(format, args...)))
 }
 

@@ -4,7 +4,6 @@
 package unsafe2
 
 import (
-	"reflect"
 	"runtime"
 	"unsafe"
 
@@ -35,9 +34,7 @@ func newCGoSlice(n int, force bool) Slice {
 	}
 	s := &cgoSlice{
 		ptr: p,
-		buf: *(*[]byte)(unsafe.Pointer(&reflect.SliceHeader{
-			Data: uintptr(p), Len: n, Cap: n,
-		})),
+		buf: unsafe.Slice((*byte)(p), n),
 	}
 	runtime.SetFinalizer(s, (*cgoSlice).reclaim)
 	return s

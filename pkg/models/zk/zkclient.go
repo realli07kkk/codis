@@ -19,7 +19,7 @@ import (
 
 var ErrClosedClient = errors.New("use of closed zk client")
 
-var DefaultLogfunc = func(format string, v ...interface{}) {
+var DefaultLogfunc = func(format string, v ...any) {
 	log.Info("zookeeper - " + fmt.Sprintf(format, v...))
 }
 
@@ -38,10 +38,10 @@ type Client struct {
 }
 
 type zkLogger struct {
-	logfunc func(format string, v ...interface{})
+	logfunc func(format string, v ...any)
 }
 
-func (l *zkLogger) Printf(format string, v ...interface{}) {
+func (l *zkLogger) Printf(format string, v ...any) {
 	if l != nil && l.logfunc != nil {
 		l.logfunc(format, v...)
 	}
@@ -51,7 +51,7 @@ func New(addrlist string, auth string, timeout time.Duration) (*Client, error) {
 	return NewWithLogfunc(addrlist, auth, timeout, DefaultLogfunc)
 }
 
-func NewWithLogfunc(addrlist string, auth string, timeout time.Duration, logfunc func(foramt string, v ...interface{})) (*Client, error) {
+func NewWithLogfunc(addrlist string, auth string, timeout time.Duration, logfunc func(foramt string, v ...any)) (*Client, error) {
 	if timeout <= 0 {
 		timeout = time.Second * 5
 	}

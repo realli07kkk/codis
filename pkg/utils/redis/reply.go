@@ -9,7 +9,7 @@ import (
 	"github.com/CodisLabs/codis/pkg/utils/errors"
 )
 
-func replyError(reply interface{}) error {
+func replyError(reply any) error {
 	if err, ok := reply.(error); ok {
 		return errors.Trace(err)
 	}
@@ -23,7 +23,7 @@ func replyArgError(errs []error) error {
 	return errors.Trace(errs[0])
 }
 
-func replyString(reply interface{}, errs ...error) (string, error) {
+func replyString(reply any, errs ...error) (string, error) {
 	if err := replyArgError(errs); err != nil {
 		return "", err
 	}
@@ -40,7 +40,7 @@ func replyString(reply interface{}, errs ...error) (string, error) {
 	}
 }
 
-func replyInt(reply interface{}, errs ...error) (int, error) {
+func replyInt(reply any, errs ...error) (int, error) {
 	if err := replyArgError(errs); err != nil {
 		return 0, err
 	}
@@ -85,7 +85,7 @@ func replyInt(reply interface{}, errs ...error) (int, error) {
 	}
 }
 
-func replyValues(reply interface{}, errs ...error) ([]interface{}, error) {
+func replyValues(reply any, errs ...error) ([]any, error) {
 	if err := replyArgError(errs); err != nil {
 		return nil, err
 	}
@@ -93,16 +93,16 @@ func replyValues(reply interface{}, errs ...error) ([]interface{}, error) {
 		return nil, err
 	}
 	switch v := reply.(type) {
-	case []interface{}:
+	case []any:
 		return v, nil
 	case []string:
-		values := make([]interface{}, len(v))
+		values := make([]any, len(v))
 		for i := range v {
 			values[i] = v[i]
 		}
 		return values, nil
 	case []int:
-		values := make([]interface{}, len(v))
+		values := make([]any, len(v))
 		for i := range v {
 			values[i] = v[i]
 		}
@@ -112,7 +112,7 @@ func replyValues(reply interface{}, errs ...error) ([]interface{}, error) {
 	}
 }
 
-func replyStrings(reply interface{}, errs ...error) ([]string, error) {
+func replyStrings(reply any, errs ...error) ([]string, error) {
 	values, err := replyValues(reply, errs...)
 	if err != nil {
 		return nil, err
@@ -128,7 +128,7 @@ func replyStrings(reply interface{}, errs ...error) ([]string, error) {
 	return strings, nil
 }
 
-func replyInts(reply interface{}, errs ...error) ([]int, error) {
+func replyInts(reply any, errs ...error) ([]int, error) {
 	values, err := replyValues(reply, errs...)
 	if err != nil {
 		return nil, err
@@ -144,7 +144,7 @@ func replyInts(reply interface{}, errs ...error) ([]int, error) {
 	return ints, nil
 }
 
-func replyStringMap(reply interface{}, errs ...error) (map[string]string, error) {
+func replyStringMap(reply any, errs ...error) (map[string]string, error) {
 	values, err := replyValues(reply, errs...)
 	if err != nil {
 		return nil, err

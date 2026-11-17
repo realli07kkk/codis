@@ -12,7 +12,6 @@ import (
 	"github.com/CodisLabs/codis/pkg/utils"
 	"github.com/CodisLabs/codis/pkg/utils/errors"
 	"github.com/CodisLabs/codis/pkg/utils/log"
-	"github.com/CodisLabs/codis/pkg/utils/math2"
 )
 
 const MaxSlotNum = models.MaxSlotNum
@@ -57,7 +56,7 @@ func (ctx *context) getSlotMappingsByGroupId(gid int) []*models.SlotMapping {
 func (ctx *context) maxSlotActionIndex() (maxIndex int) {
 	for _, m := range ctx.slots {
 		if m.Action.State != models.ActionNothing {
-			maxIndex = math2.MaxInt(maxIndex, m.Action.Index)
+			maxIndex = max(maxIndex, m.Action.Index)
 		}
 	}
 	return maxIndex
@@ -209,7 +208,7 @@ func (ctx *context) maxSyncActionIndex() (maxIndex int) {
 	for _, g := range ctx.group {
 		for _, x := range g.Servers {
 			if x.Action.State == models.ActionPending {
-				maxIndex = math2.MaxInt(maxIndex, x.Action.Index)
+				maxIndex = max(maxIndex, x.Action.Index)
 			}
 		}
 	}
@@ -301,7 +300,7 @@ func (ctx *context) getProxy(token string) (*models.Proxy, error) {
 
 func (ctx *context) maxProxyId() (maxId int) {
 	for _, p := range ctx.proxy {
-		maxId = math2.MaxInt(maxId, p.Id)
+		maxId = max(maxId, p.Id)
 	}
 	return maxId
 }

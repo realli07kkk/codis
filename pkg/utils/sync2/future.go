@@ -8,12 +8,12 @@ import "sync"
 type Future struct {
 	sync.Mutex
 	wait sync.WaitGroup
-	vmap map[string]interface{}
+	vmap map[string]any
 }
 
 func (f *Future) lazyInit() {
 	if f.vmap == nil {
-		f.vmap = make(map[string]interface{})
+		f.vmap = make(map[string]any)
 	}
 }
 
@@ -21,7 +21,7 @@ func (f *Future) Add() {
 	f.wait.Add(1)
 }
 
-func (f *Future) Done(key string, val interface{}) {
+func (f *Future) Done(key string, val any) {
 	f.Lock()
 	defer f.Unlock()
 	f.lazyInit()
@@ -29,7 +29,7 @@ func (f *Future) Done(key string, val interface{}) {
 	f.wait.Done()
 }
 
-func (f *Future) Wait() map[string]interface{} {
+func (f *Future) Wait() map[string]any {
 	f.wait.Wait()
 	f.Lock()
 	defer f.Unlock()

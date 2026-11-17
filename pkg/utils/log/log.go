@@ -192,35 +192,35 @@ func (l *Logger) isTraceEnabled(t LogType) bool {
 	return t == TYPE_PANIC || l.trace.Test(t)
 }
 
-func (l *Logger) Panic(v ...interface{}) {
+func (l *Logger) Panic(v ...any) {
 	t := TYPE_PANIC
 	s := fmt.Sprint(v...)
 	l.output(1, nil, t, s)
 	os.Exit(1)
 }
 
-func (l *Logger) Panicf(format string, v ...interface{}) {
+func (l *Logger) Panicf(format string, v ...any) {
 	t := TYPE_PANIC
 	s := fmt.Sprintf(format, v...)
 	l.output(1, nil, t, s)
 	os.Exit(1)
 }
 
-func (l *Logger) PanicError(err error, v ...interface{}) {
+func (l *Logger) PanicError(err error, v ...any) {
 	t := TYPE_PANIC
 	s := fmt.Sprint(v...)
 	l.output(1, err, t, s)
 	os.Exit(1)
 }
 
-func (l *Logger) PanicErrorf(err error, format string, v ...interface{}) {
+func (l *Logger) PanicErrorf(err error, format string, v ...any) {
 	t := TYPE_PANIC
 	s := fmt.Sprintf(format, v...)
 	l.output(1, err, t, s)
 	os.Exit(1)
 }
 
-func (l *Logger) Error(v ...interface{}) {
+func (l *Logger) Error(v ...any) {
 	t := TYPE_ERROR
 	if l.isDisabled(t) {
 		return
@@ -229,7 +229,7 @@ func (l *Logger) Error(v ...interface{}) {
 	l.output(1, nil, t, s)
 }
 
-func (l *Logger) Errorf(format string, v ...interface{}) {
+func (l *Logger) Errorf(format string, v ...any) {
 	t := TYPE_ERROR
 	if l.isDisabled(t) {
 		return
@@ -238,7 +238,7 @@ func (l *Logger) Errorf(format string, v ...interface{}) {
 	l.output(1, nil, t, s)
 }
 
-func (l *Logger) ErrorError(err error, v ...interface{}) {
+func (l *Logger) ErrorError(err error, v ...any) {
 	t := TYPE_ERROR
 	if l.isDisabled(t) {
 		return
@@ -247,7 +247,7 @@ func (l *Logger) ErrorError(err error, v ...interface{}) {
 	l.output(1, err, t, s)
 }
 
-func (l *Logger) ErrorErrorf(err error, format string, v ...interface{}) {
+func (l *Logger) ErrorErrorf(err error, format string, v ...any) {
 	t := TYPE_ERROR
 	if l.isDisabled(t) {
 		return
@@ -256,7 +256,7 @@ func (l *Logger) ErrorErrorf(err error, format string, v ...interface{}) {
 	l.output(1, err, t, s)
 }
 
-func (l *Logger) Warn(v ...interface{}) {
+func (l *Logger) Warn(v ...any) {
 	t := TYPE_WARN
 	if l.isDisabled(t) {
 		return
@@ -265,7 +265,7 @@ func (l *Logger) Warn(v ...interface{}) {
 	l.output(1, nil, t, s)
 }
 
-func (l *Logger) Warnf(format string, v ...interface{}) {
+func (l *Logger) Warnf(format string, v ...any) {
 	t := TYPE_WARN
 	if l.isDisabled(t) {
 		return
@@ -274,7 +274,7 @@ func (l *Logger) Warnf(format string, v ...interface{}) {
 	l.output(1, nil, t, s)
 }
 
-func (l *Logger) WarnError(err error, v ...interface{}) {
+func (l *Logger) WarnError(err error, v ...any) {
 	t := TYPE_WARN
 	if l.isDisabled(t) {
 		return
@@ -283,7 +283,7 @@ func (l *Logger) WarnError(err error, v ...interface{}) {
 	l.output(1, err, t, s)
 }
 
-func (l *Logger) WarnErrorf(err error, format string, v ...interface{}) {
+func (l *Logger) WarnErrorf(err error, format string, v ...any) {
 	t := TYPE_WARN
 	if l.isDisabled(t) {
 		return
@@ -292,7 +292,7 @@ func (l *Logger) WarnErrorf(err error, format string, v ...interface{}) {
 	l.output(1, err, t, s)
 }
 
-func (l *Logger) Info(v ...interface{}) {
+func (l *Logger) Info(v ...any) {
 	t := TYPE_INFO
 	if l.isDisabled(t) {
 		return
@@ -301,7 +301,7 @@ func (l *Logger) Info(v ...interface{}) {
 	l.output(1, nil, t, s)
 }
 
-func (l *Logger) Infof(format string, v ...interface{}) {
+func (l *Logger) Infof(format string, v ...any) {
 	t := TYPE_INFO
 	if l.isDisabled(t) {
 		return
@@ -310,7 +310,7 @@ func (l *Logger) Infof(format string, v ...interface{}) {
 	l.output(1, nil, t, s)
 }
 
-func (l *Logger) InfoError(err error, v ...interface{}) {
+func (l *Logger) InfoError(err error, v ...any) {
 	t := TYPE_INFO
 	if l.isDisabled(t) {
 		return
@@ -319,7 +319,7 @@ func (l *Logger) InfoError(err error, v ...interface{}) {
 	l.output(1, err, t, s)
 }
 
-func (l *Logger) InfoErrorf(err error, format string, v ...interface{}) {
+func (l *Logger) InfoErrorf(err error, format string, v ...any) {
 	t := TYPE_INFO
 	if l.isDisabled(t) {
 		return
@@ -328,7 +328,7 @@ func (l *Logger) InfoErrorf(err error, format string, v ...interface{}) {
 	l.output(1, err, t, s)
 }
 
-func (l *Logger) Debug(v ...interface{}) {
+func (l *Logger) Debug(v ...any) {
 	t := TYPE_DEBUG
 	if l.isDisabled(t) {
 		return
@@ -337,7 +337,7 @@ func (l *Logger) Debug(v ...interface{}) {
 	l.output(1, nil, t, s)
 }
 
-func (l *Logger) Debugf(format string, v ...interface{}) {
+func (l *Logger) Debugf(format string, v ...any) {
 	t := TYPE_DEBUG
 	if l.isDisabled(t) {
 		return
@@ -346,7 +346,7 @@ func (l *Logger) Debugf(format string, v ...interface{}) {
 	l.output(1, nil, t, s)
 }
 
-func (l *Logger) DebugError(err error, v ...interface{}) {
+func (l *Logger) DebugError(err error, v ...any) {
 	t := TYPE_DEBUG
 	if l.isDisabled(t) {
 		return
@@ -355,7 +355,7 @@ func (l *Logger) DebugError(err error, v ...interface{}) {
 	l.output(1, err, t, s)
 }
 
-func (l *Logger) DebugErrorf(err error, format string, v ...interface{}) {
+func (l *Logger) DebugErrorf(err error, format string, v ...any) {
 	t := TYPE_DEBUG
 	if l.isDisabled(t) {
 		return
@@ -364,17 +364,17 @@ func (l *Logger) DebugErrorf(err error, format string, v ...interface{}) {
 	l.output(1, err, t, s)
 }
 
-func (l *Logger) Print(v ...interface{}) {
+func (l *Logger) Print(v ...any) {
 	s := fmt.Sprint(v...)
 	l.output(1, nil, 0, s)
 }
 
-func (l *Logger) Printf(format string, v ...interface{}) {
+func (l *Logger) Printf(format string, v ...any) {
 	s := fmt.Sprintf(format, v...)
 	l.output(1, nil, 0, s)
 }
 
-func (l *Logger) Println(v ...interface{}) {
+func (l *Logger) Println(v ...any) {
 	s := fmt.Sprintln(v...)
 	l.output(1, nil, 0, s)
 }
@@ -436,35 +436,35 @@ func SetTrace(v LogLevel) {
 	StdLog.SetTraceLevel(v)
 }
 
-func Panic(v ...interface{}) {
+func Panic(v ...any) {
 	t := TYPE_PANIC
 	s := fmt.Sprint(v...)
 	StdLog.output(1, nil, t, s)
 	os.Exit(1)
 }
 
-func Panicf(format string, v ...interface{}) {
+func Panicf(format string, v ...any) {
 	t := TYPE_PANIC
 	s := fmt.Sprintf(format, v...)
 	StdLog.output(1, nil, t, s)
 	os.Exit(1)
 }
 
-func PanicError(err error, v ...interface{}) {
+func PanicError(err error, v ...any) {
 	t := TYPE_PANIC
 	s := fmt.Sprint(v...)
 	StdLog.output(1, err, t, s)
 	os.Exit(1)
 }
 
-func PanicErrorf(err error, format string, v ...interface{}) {
+func PanicErrorf(err error, format string, v ...any) {
 	t := TYPE_PANIC
 	s := fmt.Sprintf(format, v...)
 	StdLog.output(1, err, t, s)
 	os.Exit(1)
 }
 
-func Error(v ...interface{}) {
+func Error(v ...any) {
 	t := TYPE_ERROR
 	if StdLog.isDisabled(t) {
 		return
@@ -473,7 +473,7 @@ func Error(v ...interface{}) {
 	StdLog.output(1, nil, t, s)
 }
 
-func Errorf(format string, v ...interface{}) {
+func Errorf(format string, v ...any) {
 	t := TYPE_ERROR
 	if StdLog.isDisabled(t) {
 		return
@@ -482,7 +482,7 @@ func Errorf(format string, v ...interface{}) {
 	StdLog.output(1, nil, t, s)
 }
 
-func ErrorError(err error, v ...interface{}) {
+func ErrorError(err error, v ...any) {
 	t := TYPE_ERROR
 	if StdLog.isDisabled(t) {
 		return
@@ -491,7 +491,7 @@ func ErrorError(err error, v ...interface{}) {
 	StdLog.output(1, err, t, s)
 }
 
-func ErrorErrorf(err error, format string, v ...interface{}) {
+func ErrorErrorf(err error, format string, v ...any) {
 	t := TYPE_ERROR
 	if StdLog.isDisabled(t) {
 		return
@@ -500,7 +500,7 @@ func ErrorErrorf(err error, format string, v ...interface{}) {
 	StdLog.output(1, err, t, s)
 }
 
-func Warn(v ...interface{}) {
+func Warn(v ...any) {
 	t := TYPE_WARN
 	if StdLog.isDisabled(t) {
 		return
@@ -509,7 +509,7 @@ func Warn(v ...interface{}) {
 	StdLog.output(1, nil, t, s)
 }
 
-func Warnf(format string, v ...interface{}) {
+func Warnf(format string, v ...any) {
 	t := TYPE_WARN
 	if StdLog.isDisabled(t) {
 		return
@@ -518,7 +518,7 @@ func Warnf(format string, v ...interface{}) {
 	StdLog.output(1, nil, t, s)
 }
 
-func WarnError(err error, v ...interface{}) {
+func WarnError(err error, v ...any) {
 	t := TYPE_WARN
 	if StdLog.isDisabled(t) {
 		return
@@ -527,7 +527,7 @@ func WarnError(err error, v ...interface{}) {
 	StdLog.output(1, err, t, s)
 }
 
-func WarnErrorf(err error, format string, v ...interface{}) {
+func WarnErrorf(err error, format string, v ...any) {
 	t := TYPE_WARN
 	if StdLog.isDisabled(t) {
 		return
@@ -536,7 +536,7 @@ func WarnErrorf(err error, format string, v ...interface{}) {
 	StdLog.output(1, err, t, s)
 }
 
-func Info(v ...interface{}) {
+func Info(v ...any) {
 	t := TYPE_INFO
 	if StdLog.isDisabled(t) {
 		return
@@ -545,7 +545,7 @@ func Info(v ...interface{}) {
 	StdLog.output(1, nil, t, s)
 }
 
-func Infof(format string, v ...interface{}) {
+func Infof(format string, v ...any) {
 	t := TYPE_INFO
 	if StdLog.isDisabled(t) {
 		return
@@ -554,7 +554,7 @@ func Infof(format string, v ...interface{}) {
 	StdLog.output(1, nil, t, s)
 }
 
-func InfoError(err error, v ...interface{}) {
+func InfoError(err error, v ...any) {
 	t := TYPE_INFO
 	if StdLog.isDisabled(t) {
 		return
@@ -563,7 +563,7 @@ func InfoError(err error, v ...interface{}) {
 	StdLog.output(1, err, t, s)
 }
 
-func InfoErrorf(err error, format string, v ...interface{}) {
+func InfoErrorf(err error, format string, v ...any) {
 	t := TYPE_INFO
 	if StdLog.isDisabled(t) {
 		return
@@ -572,7 +572,7 @@ func InfoErrorf(err error, format string, v ...interface{}) {
 	StdLog.output(1, err, t, s)
 }
 
-func Debug(v ...interface{}) {
+func Debug(v ...any) {
 	t := TYPE_DEBUG
 	if StdLog.isDisabled(t) {
 		return
@@ -581,7 +581,7 @@ func Debug(v ...interface{}) {
 	StdLog.output(1, nil, t, s)
 }
 
-func Debugf(format string, v ...interface{}) {
+func Debugf(format string, v ...any) {
 	t := TYPE_DEBUG
 	if StdLog.isDisabled(t) {
 		return
@@ -590,7 +590,7 @@ func Debugf(format string, v ...interface{}) {
 	StdLog.output(1, nil, t, s)
 }
 
-func DebugError(err error, v ...interface{}) {
+func DebugError(err error, v ...any) {
 	t := TYPE_DEBUG
 	if StdLog.isDisabled(t) {
 		return
@@ -599,7 +599,7 @@ func DebugError(err error, v ...interface{}) {
 	StdLog.output(1, err, t, s)
 }
 
-func DebugErrorf(err error, format string, v ...interface{}) {
+func DebugErrorf(err error, format string, v ...any) {
 	t := TYPE_DEBUG
 	if StdLog.isDisabled(t) {
 		return
@@ -608,17 +608,17 @@ func DebugErrorf(err error, format string, v ...interface{}) {
 	StdLog.output(1, err, t, s)
 }
 
-func Print(v ...interface{}) {
+func Print(v ...any) {
 	s := fmt.Sprint(v...)
 	StdLog.output(1, nil, 0, s)
 }
 
-func Printf(format string, v ...interface{}) {
+func Printf(format string, v ...any) {
 	s := fmt.Sprintf(format, v...)
 	StdLog.output(1, nil, 0, s)
 }
 
-func Println(v ...interface{}) {
+func Println(v ...any) {
 	s := fmt.Sprintln(v...)
 	StdLog.output(1, nil, 0, s)
 }

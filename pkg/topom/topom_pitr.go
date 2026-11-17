@@ -483,7 +483,7 @@ func (d *topomPitrDeps) ConfigGet(ctx stdcontext.Context, serverAddr, pattern st
 		// CONFIG GET returns a flat array of alternating key/value bulk
 		// strings. Parse it inline rather than depending on unexported redis
 		// helpers.
-		values, ok := v.([]interface{})
+		values, ok := v.([]any)
 		if !ok {
 			return errors.Errorf("unexpected CONFIG GET reply type %T", v)
 		}

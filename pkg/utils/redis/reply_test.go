@@ -12,14 +12,14 @@ func TestReplyConversionHelpers(t *testing.T) {
 	if n, err := replyInt("42"); err != nil || n != 42 {
 		t.Fatalf("replyInt = %d, %v", n, err)
 	}
-	ints, err := replyInts([]interface{}{int64(3), []byte("11")})
+	ints, err := replyInts([]any{int64(3), []byte("11")})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(ints) != 2 || ints[0] != 3 || ints[1] != 11 {
 		t.Fatalf("replyInts = %v", ints)
 	}
-	m, err := replyStringMap([]interface{}{
+	m, err := replyStringMap([]any{
 		[]byte("name"), "codis-1",
 		"config-epoch", []byte("9"),
 	})
@@ -38,7 +38,7 @@ func TestReplyConversionHelpersRejectMalformedShape(t *testing.T) {
 	if _, err := replyInts("not-array"); err == nil {
 		t.Fatal("expected replyInts to reject non-array")
 	}
-	if _, err := replyStringMap([]interface{}{"name"}); err == nil {
+	if _, err := replyStringMap([]any{"name"}); err == nil {
 		t.Fatal("expected replyStringMap to reject odd values")
 	}
 }

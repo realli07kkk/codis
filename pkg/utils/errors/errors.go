@@ -21,6 +21,11 @@ func (e *TracedError) Error() string {
 	return e.Cause.Error()
 }
 
+// Unwrap lets standard library errors.Is/As see through the trace wrapper.
+func (e *TracedError) Unwrap() error {
+	return e.Cause
+}
+
 func New(s string) error {
 	return errors.New(s)
 }
@@ -39,7 +44,7 @@ func Trace(err error) error {
 	}
 }
 
-func Errorf(format string, v ...interface{}) error {
+func Errorf(format string, v ...any) error {
 	err := fmt.Errorf(format, v...)
 	if !TraceEnabled {
 		return err

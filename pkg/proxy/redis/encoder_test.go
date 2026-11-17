@@ -5,7 +5,7 @@ package redis
 
 import (
 	"bytes"
-	"io/ioutil"
+	"io"
 	"math"
 	"strconv"
 	"testing"
@@ -84,7 +84,7 @@ func testEncodeAndCheck(t *testing.T, resp *Resp, expect []byte) {
 }
 
 func newBenchmarkEncoder(n int) *Encoder {
-	return NewEncoderSize(ioutil.Discard, 1024*128)
+	return NewEncoderSize(io.Discard, 1024*128)
 }
 
 func benchmarkEncode(b *testing.B, n int) {

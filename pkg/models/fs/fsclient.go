@@ -6,7 +6,6 @@ package fsclient
 import (
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"path/filepath"
 	"sort"
@@ -79,7 +78,7 @@ func (c *Client) lockFs() error {
 		f.Close()
 		return errors.Trace(err)
 	}
-	var data = map[string]interface{}{
+	var data = map[string]any{
 		"pid": os.Getpid(),
 		"now": time.Now().String(),
 	}
@@ -97,7 +96,8 @@ func (c *Client) lockFs() error {
 
 func (c *Client) unlockFs() {
 	if c.lockfd == nil {
-		log.Panicf("unlock again")
+		log.Errorf("fsclient - unlock called without a held lock")
+		return
 	}
 	var f = c.lockfd
 	if err := f.Truncate(0); err != nil {
@@ -130,7 +130,7 @@ func (c *Client) newTempFile() (*os.File, error) {
 		return nil, err
 	}
 	prefix := fmt.Sprintf("%d.", int(time.Now().Unix()))
-	f, err := ioutil.TempFile(c.TempDir, prefix)
+	f, err := os.CreateTemp(c.TempDir, prefix)
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
@@ -262,7 +262,7 @@ func (c *Client) Read(path string, must bool) ([]byte, error) {
 		}
 	}
 
-	b, err := ioutil.ReadFile(realpath)
+	b, err := os.ReadFile(realpath)
 	if err != nil {
 		log.Warnf("fsclient - read %s failed", path)
 		return nil, errors.Trace(err)

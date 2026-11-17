@@ -14,7 +14,6 @@ import (
 	"time"
 
 	"github.com/CodisLabs/codis/pkg/utils/errors"
-	"github.com/CodisLabs/codis/pkg/utils/math2"
 
 	goredis "github.com/redis/go-redis/v9"
 )
@@ -69,7 +68,7 @@ func NewClientWithAuthIdentity(addr string, auth RedisAuthIdentity, timeout time
 		DisableIdentity: true,
 		MaxRetries:      -1,
 		DialerRetries:   1,
-		DialTimeout:     math2.MinDuration(time.Second, timeout),
+		DialTimeout:     min(time.Second, timeout),
 		ReadTimeout:     timeout,
 		WriteTimeout:    timeout,
 		PoolSize:        1,
@@ -136,7 +135,7 @@ func (c *Client) handleCommandError(err error) error {
 	return errors.Trace(err)
 }
 
-func (c *Client) Do(cmd string, args ...interface{}) (interface{}, error) {
+func (c *Client) Do(cmd string, args ...any) (any, error) {
 	if c.pipe != nil {
 		if c.flushed && c.pipeRecv != len(c.pipeCmds) {
 			return nil, errors.Errorf("redis pipeline has pending replies")
@@ -147,7 +146,7 @@ func (c *Client) Do(cmd string, args ...interface{}) (interface{}, error) {
 		if err := c.Flush(); err != nil {
 			return nil, err
 		}
-		var reply interface{}
+		var reply any
 		for c.pipe != nil {
 			r, err := c.Receive()
 			if err != nil {
@@ -161,7 +160,7 @@ func (c *Client) Do(cmd string, args ...interface{}) (interface{}, error) {
 	ctx, cancel := c.context()
 	defer cancel()
 
-	r, err := c.conn.Do(ctx, append([]interface{}{cmd}, args...)...).Result()
+	r, err := c.conn.Do(ctx, append([]any{cmd}, args...)...).Result()
 	if err != nil {
 		if isRedisNil(err) {
 			c.LastUse = time.Now()
@@ -173,7 +172,7 @@ func (c *Client) Do(cmd string, args ...interface{}) (interface{}, error) {
 	return r, nil
 }
 
-func (c *Client) Send(cmd string, args ...interface{}) error {
+func (c *Client) Send(cmd string, args ...any) error {
 	if c.pipe != nil && c.flushed && c.pipeRecv != len(c.pipeCmds) {
 		return errors.Errorf("redis pipeline has pending replies")
 	}
@@ -185,7 +184,7 @@ func (c *Client) Send(cmd string, args ...interface{}) error {
 	}
 	ctx, cancel := c.context()
 	defer cancel()
-	c.pipeCmds = append(c.pipeCmds, c.pipe.Do(ctx, append([]interface{}{cmd}, args...)...))
+	c.pipeCmds = append(c.pipeCmds, c.pipe.Do(ctx, append([]any{cmd}, args...)...))
 	c.Pipeline.Send++
 	return nil
 }
@@ -203,7 +202,7 @@ func (c *Client) Flush() error {
 	return nil
 }
 
-func (c *Client) Receive() (interface{}, error) {
+func (c *Client) Receive() (any, error) {
 	if c.pipe == nil || c.pipeRecv == len(c.pipeCmds) {
 		return nil, errors.New("redis pipeline has no pending replies")
 	}

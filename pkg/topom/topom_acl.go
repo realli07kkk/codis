@@ -373,7 +373,7 @@ func (s *Topom) ensureBackendServiceUser(c *redis.Client) error {
 }
 
 func redisACLSetUser(c *redis.Client, user *models.ACLUser) error {
-	args := []interface{}{"SETUSER", user.Name, "reset"}
+	args := []any{"SETUSER", user.Name, "reset"}
 	if user.Enabled {
 		args = append(args, "on")
 	} else {

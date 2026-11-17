@@ -25,12 +25,12 @@ func (a RedisAuthIdentity) HasAuth() bool {
 	return a.Password != ""
 }
 
-func (a RedisAuthIdentity) AuthArgs() []interface{} {
+func (a RedisAuthIdentity) AuthArgs() []any {
 	if a.Username != "" {
-		return []interface{}{a.Username, a.Password}
+		return []any{a.Username, a.Password}
 	}
 	if a.Password != "" {
-		return []interface{}{a.Password}
+		return []any{a.Password}
 	}
 	return nil
 }

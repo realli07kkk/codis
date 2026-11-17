@@ -9,7 +9,6 @@ import (
 	"github.com/CodisLabs/codis/pkg/models"
 	"github.com/CodisLabs/codis/pkg/utils/errors"
 	"github.com/CodisLabs/codis/pkg/utils/log"
-	"github.com/CodisLabs/codis/pkg/utils/math2"
 	"github.com/CodisLabs/codis/pkg/utils/redis"
 	"github.com/CodisLabs/codis/pkg/utils/sync2"
 )
@@ -125,7 +124,7 @@ func (s *Topom) rewatchSentinels(servers []string) {
 					if d <= 0 {
 						return
 					}
-					time.Sleep(math2.MinDuration(d, time.Second))
+					time.Sleep(min(d, time.Second))
 				}
 			}
 			go func() {

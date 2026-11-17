@@ -24,8 +24,8 @@ type Sentinel struct {
 
 	Product, Auth string
 
-	LogFunc func(format string, args ...interface{})
-	ErrFunc func(err error, format string, args ...interface{})
+	LogFunc func(format string, args ...any)
+	ErrFunc func(err error, format string, args ...any)
 }
 
 func NewSentinel(product, auth string) *Sentinel {
@@ -62,13 +62,13 @@ func (s *Sentinel) isSameProduct(name string) (gid int, _ bool) {
 	return n, true
 }
 
-func (s *Sentinel) printf(format string, args ...interface{}) {
+func (s *Sentinel) printf(format string, args ...any) {
 	if s.LogFunc != nil {
 		s.LogFunc(format, args...)
 	}
 }
 
-func (s *Sentinel) errorf(err error, format string, args ...interface{}) {
+func (s *Sentinel) errorf(err error, format string, args ...any) {
 	if s.ErrFunc != nil {
 		s.ErrFunc(err, format, args...)
 	}
@@ -459,7 +459,7 @@ func (s *Sentinel) monitorGroupsCommand(client *Client, sentniel string, config 
 		}
 	}
 	for gid := range groups {
-		var args = []interface{}{"set", s.NodeName(gid)}
+		var args = []any{"set", s.NodeName(gid)}
 		if config.ParallelSyncs != 0 {
 			args = append(args, "parallel-syncs", config.ParallelSyncs)
 		}

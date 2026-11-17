@@ -5,8 +5,6 @@ package proxy
 
 import (
 	"time"
-
-	"github.com/CodisLabs/codis/pkg/utils/math2"
 )
 
 type Delay interface {
@@ -27,7 +25,7 @@ func (d *DelayExp2) Reset() {
 }
 
 func (d *DelayExp2) NextValue() int {
-	d.Value = math2.MinMaxInt(d.Value*2, d.Min, d.Max)
+	d.Value = min(max(d.Value*2, d.Min), d.Max)
 	return d.Value
 }
 

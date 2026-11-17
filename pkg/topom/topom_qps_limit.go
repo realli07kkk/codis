@@ -155,7 +155,7 @@ func (s *Topom) proxyQPSLimitSyncStatus(proxies map[string]*models.Proxy, config
 	return "ready"
 }
 
-func proxyQPSLimitApplied(v interface{}, config *models.ProxyQPSLimit) bool {
+func proxyQPSLimitApplied(v any, config *models.ProxyQPSLimit) bool {
 	stats, ok := v.(*ProxyStats)
 	if !ok || stats == nil || stats.Timeout || stats.Error != nil || stats.Stats == nil {
 		return false

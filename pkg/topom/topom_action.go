@@ -10,7 +10,6 @@ import (
 
 	"github.com/CodisLabs/codis/pkg/models"
 	"github.com/CodisLabs/codis/pkg/utils/log"
-	"github.com/CodisLabs/codis/pkg/utils/math2"
 	"github.com/CodisLabs/codis/pkg/utils/sync2"
 )
 
@@ -37,7 +36,7 @@ func (s *Topom) ProcessSlotAction() error {
 			plans[m.Id] = true
 			return true
 		}
-		var parallel = math2.MaxInt(1, s.config.MigrationParallelSlots)
+		var parallel = max(1, s.config.MigrationParallelSlots)
 		for parallel > len(plans) {
 			_, ok, err := s.SlotActionPrepareFilter(accept, update)
 			if err != nil {

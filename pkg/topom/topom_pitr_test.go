@@ -800,7 +800,7 @@ func TestAdminPitrDispatchBooleans(t *testing.T) {
 	// The dispatch in cmdDashboard.Main and handlePitrCommand must therefore
 	// type-assert .(bool). We simulate the default (overview) argv: no pitr
 	// flags set → all must be false.
-	d := map[string]interface{}{
+	d := map[string]any{
 		"--dashboard":                 "127.0.0.1:18080",
 		"--pitr-create":               false,
 		"--pitr-list":                 false,
