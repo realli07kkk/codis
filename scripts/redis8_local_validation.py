@@ -48,7 +48,7 @@ class ManagedProcess:
 
 
 def utc_now():
-    return datetime.datetime.now(datetime.UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    return datetime.datetime.now(datetime.timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 
 def repo_root_from_script():
