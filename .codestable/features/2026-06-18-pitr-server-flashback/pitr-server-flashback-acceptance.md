@@ -88,9 +88,9 @@
 **正常路径**：
 
 - [x] **S1** enabled + AOF 已开，PUT create 返回 uuid v7 job_id，state 走完到 succeeded
-  - 证据：单测覆盖 state 机各步；**端到端 happy path（真实 Redis 8 + 截断 + 重启 + 读回）未在本环境跑**——标为遗留（见第 9 节）。job_id wire contract 由 `TestPitrCreateResponseWireContract` 钉住。
+  - 证据：单测覆盖 state 机各步；2026-11-21 API 与 Playwright 浏览器均已跑通成功 happy path（job `01a1fe4c-...` / `01a1fe78-...`）。job_id wire contract 由 `TestPitrCreateResponseWireContract` 钉住。
 - [x] **S2** `codis-admin --pitr-create` 成功只打印 job_id：`cmd/admin/pitr.go:handlePitrCreate` `fmt.Println(id)`，docopt 解析由 `TestAdminDocoptPitrCreateParses` 钉住。
-- [x] **S3** FE PITR 区域提交后状态实时刷新：FE `pitr.js` 轮询（`schedulePoll` 2s），HTML 区域已接入 `index.html` + `dashboard-fe.js`。**浏览器肉眼未验证**（无运行 dashboard）——标为遗留。
+- [x] **S3** FE PITR 区域提交后状态实时刷新：FE `pitr.js` 轮询（`schedulePoll` 2s），HTML 区域已接入 `index.html` + `dashboard-fe.js`。**2026-11-21 已用 Playwright 实测**：`truncate_ts=0` 被客户端拒绝；成功 job `01a1fe78-fcb7-7ee7-a824-7562c78800db` 在浏览器中创建并轮询到 `succeeded`；`6383` 保留 `pitr:browser:before`、`pitr:browser:after` 不存在，`6384` 同为 25 keys 且 `master_link_status:up`；详情抽屉展示 9 个 done steps；删除任务后回到 0 条。失败 job `01a1fe74-...` 亦在列表/详情显示 `server-[...] doesn't exist`。
 
 **关键边界（前置校验）**：
 
@@ -171,13 +171,19 @@
 
 ## 9. 遗留
 
-**未在本环境验证（需真实 Redis 8 + 进程管理器）**：
+**2026-11-21 已补做（真实 Redis 8 + 进程管理器）**：
 
-- 端到端 happy path：真实 Redis 8（`appendonly yes` + `aof-timestamp-enabled yes`）→ 写入 → PUT create 指定过去 ts → 截断 → 重启 → 读回确认值回到 ts 时间点。本地 Go 单测覆盖各 step 逻辑，但完整链路未跑。
+- 端到端 happy path：真实 Redis 8（`appendonly yes` + `aof-timestamp-enabled yes`）→ 写入 → 指定过去 ts → 截断 → 重启 → 读回；API 和浏览器各跑一次，均 succeeded。浏览器成功 job `01a1fe78-fcb7-7ee7-a824-7562c78800db`。
+- FE 浏览器：非法 ts 客户端拒绝、失败 job 列表/详情、成功 job 轮询/详情、删除均通过。
+- 副本状态：成功 job 后检查 6384 `master_link_status:up`、`master_sync_in_progress:0`，DBSIZE 与 6383 一致。
+
+**仍未闭环**：
+
 - cancel 在 snapshot 之后/truncate 中途各阶段的 server 最终状态（需真进程管理器才能观察 restart/wait-load 时序）。
-- FE 浏览器肉眼验证（无运行 dashboard/proxy 环境）。
+- S16：`stepResync` 仍只发 `SLAVEOF`，没有轮询 `master_sync_in_progress=0`；job success 不代表副本 resync 已完成。
+- S17：truncate 中 cancel 当前为 `failed`，与设计 `cancelled` 的语义冲突，需定稿。
 
-这些属于 SDD 已声明的 acceptance 范围之外的本轮环境限制；代码层面经两轮 review（最终 Good taste，无 Blocker/Critical/Warning）。建议在 Linux + 真实 Redis 8 环境补一次 E2E 验证后再上生产。
+代码层面经两轮 review（最终 Good taste，无 Blocker/Critical/Warning）。S16/S17 语义闭环前不能把 PITR 标为完全验收。
 
 **已知限制**（SDD 边界，已落地）：
 
@@ -200,7 +206,7 @@
 - **cancel 在 truncate 中**：实际为 `failed`（server down，snapshot 保留），与 S17/时序图写 `cancelled` 冲突；与 design §7“AOF 不确定绝不静默 cancelled”一致。需定稿语义。
 - **replica resync 未等待完成**：job `succeeded` 后立即查 6384 仍能看到截断点之后的 key，几秒后才消失；`stepResync` 只发 `SLAVEOF`，未轮询 `master_sync_in_progress=0`。S16 不能仅以 job success 判一致。
 - **系统前置**：`6383` 的 systemd `Restart=always` 在 `SHUTDOWN NOSAVE` 后会立刻拉起，和 PITR 停服窗口竞争；本轮改为 `Restart=on-failure`，并实测 clean SHUTDOWN 后 service inactive、手动 start 后 PONG、6384 复制恢复。生产必须要求 `no`/`on-failure`。
-- **FE**：页面与 `pitr.js` 均 200，API 200；浏览器肉眼验证仍未完成（本机无 Chrome 扩展/Chromium）。
+- **FE**：页面与 `pitr.js` 均 200，API 200；2026-11-21 Playwright 已实测成功 job `01a1fe78-fcb7-7ee7-a824-7562c78800db` 的创建、轮询、详情与删除，以及非法 ts 和副本失败 job。
 - `make gotest` 全部包 ok（RC=0）；`make codis-dashboard` 成功。
 
-证据：`.runtime/pitr-e2e/REPORT.md` 及同目录 JSON/manifest；ECS-A `/data/backup/pitr-e2e/`。**结论：happy path 通过，但 S16/S17/S3 仍未闭环，不能据此把 PITR 标为完全验收。**
+证据：`.runtime/pitr-e2e/REPORT.md` 及同目录 JSON/manifest；ECS-A `/data/backup/pitr-e2e/`。**结论：happy path 与 S3 浏览器成功路径已通过；S16/S17 仍未闭环，不能据此把 PITR 标为完全验收。**

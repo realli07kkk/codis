@@ -207,7 +207,8 @@ make gotest
 - 大 RDB upload：12473 bytes / 285 objects / 2 DB，string/list/hash/set/zset 汇总正常。
 - `codis-admin --rdb-analysis-remote-fetch`：job done。
 - 鉴权/边界：错误 export auth=403；非 product server、带 scheme 的 `server_addr`、错误 xauth=800；remote fetch 关闭=800。
-- FE `/`、`rdb-analysis.js` 均 200；真实浏览器表单 E2E 仍未做。
+- FE 浏览器（Playwright 1.65.1 headless Chromium，2026-11-21）：从 `RDB 数据分析` 页面上传 Redis 8 fixture，任务轮询到 `done`，Summary 显示 456 bytes / 7 objects；Remote Server 在 remote fetch 关闭时显示可读的 HTTP 503 提示，不再把代理返回的 HTML 错误页原样渲染。
+- 上述浏览器测试发现并修复 `cmd/fe/assets/dashboard-fe.js` 的 `Api.errorMessage`：HTML 错误响应现在被替换为可读提示，避免 Surge/反向代理错误页进入页面。
 - 测试后已恢复 export/remote fetch 为关闭，删除测试 key、临时 token 和临时文件；dashboard 保留升级后的二进制。
 
 **结论：Redis 8 RDB version 13 的 remote fetch、upload、workspace、codis-admin 分析均已在真机通过。** 证据：`.runtime/rdb-analysis-e2e/REPORT.md` 及同目录 JSON/RDB。

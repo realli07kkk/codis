@@ -264,6 +264,9 @@ dashboard.factory('Api', ['$http', '$window', '$injector', function ($http, $win
         var data = response.data;
         if (data) {
             if (typeof data === 'string') {
+                if (/<\s*(!doctype|html|head|body|title)\b/i.test(data)) {
+                    return 'Dashboard 或反向代理返回了不可解析的错误响应（HTTP ' + (response.status || 'unknown') + '）；请检查 Dashboard 日志和反向代理状态';
+                }
                 return data;
             }
             return data.Cause || data.cause || data.message || data.error || angular.toJson(data);

@@ -125,7 +125,7 @@ tags:
 - **codis-admin**：remote fetch job done。
 - **边界**：非 product server、带 scheme 的 `server_addr`、错误 xauth=800；remote fetch 关闭=800。
 - **单测**：fork 的 Redis 8 fixture、KEY_META/SLOT_INFO 合成用例通过；主模块 `go test ./cmd/... ./pkg/...` 全部通过。
-- FE `/`、`rdb-analysis.js` 均 200；真实浏览器表单 E2E 未做。
+- FE 浏览器（Playwright 1.65.1 headless Chromium，2026-11-21）：`RDB 数据分析` 页面的 Remote Server 表单在 remote fetch 关闭时显示可读 HTTP 503 提示；上传入口同一页面可完成 Redis 8 RDB 分析并展示 summary。该轮发现并修复 `Api.errorMessage` 对 HTML 错误页的渲染。
 - 测试后已恢复 export/remote fetch 为关闭，删除测试 key、临时 token 和临时文件；dashboard 保留升级后的二进制。
 
 **结论：remote fetch 传输/鉴权及 Redis 8 RDB version 13 解析均在真机通过。** 证据：`.runtime/rdb-analysis-e2e/REPORT.md` 及同目录 JSON/RDB。

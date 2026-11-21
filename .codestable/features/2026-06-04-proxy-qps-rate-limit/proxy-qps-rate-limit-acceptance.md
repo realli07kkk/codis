@@ -91,6 +91,7 @@
 - PUT limit=7 后重启 19000，stats 仍 rev3/limit7，证明 reinit 重放。
 - limit=1 时 AUTH 返回 `ERR Client sent AUTH, but no password is set`（非 QPS 错误），QUIT 返回 OK；10 PING 为 1 accepted / 9 rejected。
 - 最终 rev5/limit0，两个 proxy stats 均 rev5/limit0；ACL 测试后恢复 `codis_acl_enabled=false` 并重启，无认证 PING=PONG。
-- FE `/`、`qps-limit.js` 均 200；**浏览器表单 E2E 仍未做**（本机无 Chrome tab/Chromium）。
+- FE 浏览器（Playwright 1.65.1 headless Chromium，2026-11-21）：在 `安全与限流 / Proxy 限流` 页面把 limit 从 0 改为 3，页面显示 rev6 / enabled / ready；再改回 0，页面显示 rev7 / disabled / ready。浏览器提交和配置刷新均成功。
+- 浏览器测试后 QPS 最终为 rev7 / limit0 / disabled；两个 proxy 配置同步正常。
 
 未独立测量被拒绝请求的后端 commandstats delta；`ops.redis.errors` 未增长，QPS 拒绝计入 request fails。证据：`.runtime/acl-qps-e2e/REPORT.md` 及同目录脚本；测试未修改产品代码。

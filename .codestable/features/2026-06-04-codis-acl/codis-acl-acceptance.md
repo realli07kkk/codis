@@ -92,6 +92,7 @@
 - revision 切换：改密码到 rev2 后旧会话 `ACL WHOAMI`/`GET` 返回 `NOAUTH`，重新 AUTH 新密码恢复。
 - 空 rules、明文密码规则被 800 拒绝；db=99 被 topom 接受但 proxy AUTH fail-closed（`exceeds backend db count 16`），随后移除。
 - `--acl-sync` 返回 rev4 `ready`；清理后 rev5 disabled、users=null，6 个后端均只剩 default，两个 proxy 恢复 `codis_acl_enabled=false`，无认证 PING=PONG。
-- FE `/`、`acl.js` 均 200；**浏览器表单 E2E 仍未做**（本机无 Chrome tab/Chromium）。
+- FE 浏览器（Playwright 1.65.1 headless Chromium，2026-11-21）：在 `安全与限流 / 访问控制` 页面完成新增用户（`browser-test`，1 个密码、`+@read ~*`）→ 列表显示 1 个用户 → 删除并确认 → 列表回到 0 个；页面未出现原始 HTML 错误。
+- 浏览器测试后 ACL 最终为 rev7 disabled、users=null；`codis_acl_enabled` 仍为 false。
 
 证据：`.runtime/acl-qps-e2e/REPORT.md` 及同目录脚本；测试未修改产品代码。
