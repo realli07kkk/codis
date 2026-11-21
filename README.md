@@ -30,10 +30,12 @@ Donate if you want to help us maintaining this project. Thank you!
 [简体中文](doc/tutorial_zh.md)
 [English (WIP) ](doc/tutorial_en.md)
 
+[All documents](doc/README.md)
+
 ## FAQ
 
 [简体中文](doc/FAQ_zh.md)
-[English (WIP) ](FAQ_en.md)
+[English (WIP) ](doc/FAQ_en.md)
 
 ## High Availability
 

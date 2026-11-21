@@ -30,12 +30,17 @@ Recent history uses concise imperative or scoped summaries such as `utils: close
 
 Avoid editing generated build output in `bin/` or vendored code unless the task specifically requires it. Preserve user changes in the working tree. Prefer small, compatible fixes over broad rewrites; this project values stable Redis/proxy behavior and backward compatibility.
 
-## CodeStable Project Memory
+## Project Knowledge Base
 
-This repository is onboarded to CodeStable under `.codestable/`. AI agents should read `.codestable/attention.md` before using any CodeStable workflow because it contains project-specific build, test, path, and compatibility constraints.
+Long-form knowledge lives in `doc/` (see `doc/README.md` for the full index). Read `doc/architecture_zh.md` (system map, module boundaries, code anchors) before architecture-sensitive changes, bug root-cause analysis, or module onboarding. Build, test, and release constraints are in `doc/build_and_release_zh.md`; per-capability docs cover ACL (`doc/codis_acl_zh.md`), PITR (`doc/pitr_flashback_zh.md`), Redis 8 codis-server extensions (`doc/redis8_codis_server_zh.md`), and proxy protocol behavior (`doc/proxy_protocol_extensions_zh.md`).
 
-- `.codestable/requirements/` stores capability-level requirement documents: why a capability exists, who it serves, what it solves, and what it explicitly does not cover. Read `requirements/VISION.md` and the relevant requirement before feature design, roadmap work, or scope discussions.
-- `.codestable/architecture/` stores the current system map: implemented module boundaries, runtime flow, state ownership, and code anchors. Read `architecture/ARCHITECTURE.md` before architecture-sensitive changes, bug root-cause analysis, or module onboarding.
-- `.codestable/features/`, `.codestable/issues/`, `.codestable/refactors/`, and `.codestable/roadmap/` store workflow artifacts for feature, bug, refactor, and larger planning work.
-- `.codestable/compound/` stores durable learnings, decisions, explorations, and reusable tricks.
-- `.codestable/reference/` and `.codestable/tools/` are shared CodeStable assets copied from the skill package; refresh them through `cs-onboard` rather than hand-editing unless the task explicitly asks for it.
+Hard constraints worth repeating here:
+
+- Do not run a full `go mod tidy` to "fix" the module graph; drive minimal, mechanical `go.mod`/`go.sum` changes from the commands that actually verify the change.
+- Regenerate `config/dashboard.toml` with `go run ./cmd/dashboard --default-config` (prints `DefaultConfig` with comments), not `Config.String()`.
+- Embedded Redis 8 sources are pinned under `extern/redis-8.6.3/` and must stay git-tracked so patches show up in `git status`.
+- Building `codis-server` requires a C/C++ toolchain and autotools (`gcc`, `gcc-c++`, `autoconf`, `automake`, `libtool` on EL/Rocky or apt equivalents); jemalloc autogen/configure/make runs automatically.
+- `codis-server-redis3` does not accept the Redis 8 `codis-enabled yes` config; do not reuse Redis 8 configs for the Redis 3 fallback binary in cross-version checks.
+- On darwin, `/bin/true` and `/bin/false` usually live under `/usr/bin`; in `os/exec` tests use `exec.LookPath` or a multi-path fallback instead of hardcoding `/bin/xxx`.
+- Use `python3`, not `python`, for repository scripts.
+- Do not modify Dockerfiles or Docker scripts unless the task explicitly asks for it.

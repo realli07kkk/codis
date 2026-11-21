@@ -1,6 +1,8 @@
 ### redis 修改部分（增加若干指令） 
 --------------------------------
 
+> 本文描述 Redis 3 内核时代的 Codis 扩展命令。当前默认构建的 codis-server 内嵌 Redis 8，其扩展（含 `SLOTSRESTORE-ASYNC` 等）见 [redis8_codis_server_zh.md](redis8_codis_server_zh.md)。
+
 ##### SLOTSINFO [start] [count] 
 
 + 命令说明：获取 redis 中 slot 的个数以及每个 slot 的大小

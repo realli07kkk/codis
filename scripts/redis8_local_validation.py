@@ -683,19 +683,19 @@ def build_gate_definitions():
         },
         {
             "name": "linux-formal-handoff",
-            "command": "review .codestable/features/2026-05-17-redis8-validation-cutover/redis8-linux-validation-handoff.md",
+            "command": "review doc/redis8_validation_zh.md (Linux 正式验证要求)",
             "expected": "Linux e2e, benchmark, fork/RDB, replication, Docker/deploy checks are enumerated",
             "failure_owner": "validation planning",
             "local_execution": "documented_only",
-            "evidence": "handoff markdown",
+            "evidence": "doc/redis8_validation_zh.md",
         },
         {
             "name": "cutover-runbook-draft",
-            "command": "review .codestable/features/2026-05-17-redis8-validation-cutover/redis8-cutover-runbook-draft.md",
+            "command": "review doc/redis8_validation_zh.md (切换手顺)",
             "expected": "preflight/canary/ramp/full/rollback are covered",
             "failure_owner": "operations planning",
             "local_execution": "documented_only",
-            "evidence": "runbook markdown",
+            "evidence": "doc/redis8_validation_zh.md",
         },
     ]
 
