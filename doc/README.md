@@ -15,9 +15,12 @@ Codis 是基于代理的高性能 Redis 集群方案。本目录是项目的全�
 
 ## Codis Server（内嵌 Redis）
 
-- [redis_change_zh.md](redis_change_zh.md)：Redis 3 内核时代的 Codis 命令扩展（SLOTS 系列命令）
 - [redis8_codis_server_zh.md](redis8_codis_server_zh.md)：内嵌 Redis 8 codis-server 扩展（codis-enabled、slot 模型、tag 索引、同步/异步迁移、RDB HTTP 导出、线程模型）
 - [rdb_analysis_zh.md](rdb_analysis_zh.md)：Dashboard RDB 分析（本地/远程拉取、RDB 解析器 fork）
+
+## 历史背景
+
+- [redis_change_zh.md](redis_change_zh.md)：项目早期曾基于 Redis 3.2 内核，当前版本已移除 Redis 3 支持
 
 ## Proxy 能力
 

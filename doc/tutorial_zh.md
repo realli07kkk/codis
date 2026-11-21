@@ -15,7 +15,7 @@ codis目前主要release版本如下:
 > * codis-proxy 对 zk 强依赖
 > * 同步迁移性能差，不支持大key迁移
 ### codis 3.x
-> * 最新 release 版本为 codis-3.2，codis-server 基于 redis-3.2.8
+> * codis-3.2 是历史 release，早期 codis-server 曾基于 redis-3.2.8；当前主线已移除 Redis 3 支持，改用内嵌 Redis 8
 > * 支持 slot 同步迁移、异步迁移和并发迁移，对 key 大小无任何限制，迁移性能大幅度提升
 > * 相比 2.0：重构了整个集群组件通信方式，codis-proxy 与 zookeeper 实现了解耦，废弃了codis-config 等
 > * 元数据存储支持 etcd/zookeeper/filesystem 等，可自行扩展支持新的存储，集群正常运行期间，即便元存储故障也不再影响 codis 集群，大大提升 codis-proxy 稳定性
@@ -33,7 +33,7 @@ codis目前主要release版本如下:
 
 Codis 3.x 由以下组件组成：
 
-* **Codis Server**：基于 redis-3.2.8 分支开发。增加了额外的数据结构，以支持 slot 有关的操作以及数据迁移指令。具体的修改可以参考文档 [redis 的修改](redis_change_zh.md)。
+* **Codis Server**：基于内嵌 Redis 8（`extern/redis-8.6.3`）开发。增加了额外的数据结构，以支持 slot 有关的操作以及数据迁移指令。具体的修改可以参考文档 [Redis 8 Codis Server 扩展](redis8_codis_server_zh.md)。
 
 * **Codis Proxy**：客户端连接的 Redis 代理服务, 实现了 Redis 协议。 除部分命令不支持以外([不支持的命令列表](unsupported_cmds.md))，表现的和原生的 Redis 没有区别（就像 Twemproxy）。
 
@@ -103,7 +103,7 @@ $ cd $_ && git clone https://github.com/CodisLabs/codis.git -b release3.2
 ```bash
 $ cd $GOPATH/src/github.com/CodisLabs/codis
 $ make
-make -j -C extern/redis-3.2.8/
+make -j4 -C extern/redis-8.6.3/
 ... ...
 go build -i -o bin/codis-dashboard ./cmd/dashboard
 go build -i -o bin/codis-proxy ./cmd/proxy

@@ -15,7 +15,6 @@
 | `make codis-proxy` | 只构建 proxy（带 `cgo_jemalloc`），并重写 `config/proxy.toml`；Linux 上会先跑 `jemalloc-config` |
 | `make codis-server` | 构建内嵌 Redis 8，产出 `bin/codis-server` 与 `redis-*` helper，并重写 `config/redis.conf`、`config/sentinel.conf` |
 | `make codis-server-redis8` | 以 `codis-server` 为前提，额外产出 `bin/*-redis8` 与 `config/redis8.conf`、`config/sentinel8.conf` |
-| `make codis-server-redis3` | 构建 EOL 的 Redis 3.2.11，仅用于兼容性对比，必须显式设置 `ALLOW_INSECURE_REDIS3=1` |
 | `make build-platforms` / `make release-platforms` | 按 `TARGET_PLATFORMS` 矩阵构建平台产物到 `bin/<os>-<arch>/` |
 | `make build-no-redis-platform` | 只构建 Go 入口与 FE assets 到 `bin/<os>-<arch>-no-redis/`，不含 Redis Server |
 | `make clean` | 删除 `bin/`、`scripts/tmp/` 和 `pkg/topom/gotest.tmp` |

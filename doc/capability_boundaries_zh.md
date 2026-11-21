@@ -16,14 +16,13 @@ Codis 的目标是让业务像用单机 Redis 一样使用可扩缩容的 Redis 
 | 能力 | 支持 | 明确不支持或限制 |
 | --- | --- | --- |
 | Redis 8 ↔ Redis 8 | `SLOTSMGRTSLOT`/`SLOTSMGRTONE`/`SLOTSMGRTTAGSLOT`/`SLOTSMGRTTAGONE`、`-ASYNC` 系列，以及 `SLOTSRESTORE`/`SLOTSRESTORE-ASYNC` fragment restore | 同步与异步协议只在同一大版本内互通，不能跨版本假设可用 |
-| Redis 3 ↔ Redis 8 | 只按本地矩阵记录方向性结论：Redis 3 → Redis 8 成功，Redis 8 → Redis 3 为可观测失败且源端 key 保留 | 不能外推为持久化 RDB/AOF 降级能力；换回 Redis 3 二进制不能当作通用回滚 |
-| Redis 3 backend | 通过 `codis-server-redis3` fallback 构建目标保留 | 需显式设置 `ALLOW_INSECURE_REDIS3=1`，不属于默认产物；Redis 3.2.11 已 EOL |
+| 跨大版本 | 不提供兼容性承诺 | 只保证 Redis 8 ↔ Redis 8；不要依赖旧版本二进制或数据文件回滚 |
 
 ## ACL 与认证
 
 | 能力 | 支持 | 明确不支持或限制 |
 | --- | --- | --- |
-| 统一 ACL 管理 | 默认关闭的 `codis_acl_enabled`：dashboard/topom 提交 Redis 8 ACL 用户、password hashes 与 rules，并按 revision 下发 proxy snapshot；客户端可用 `AUTH [username] password` 与 `ACL WHOAMI` | 只面向 Redis 8 backend，Redis 3 fallback 不要求 ACL；不实现完整 Redis Cluster ACL、RESP3/`HELLO` parity、Pub/Sub channel ACL、模块 key-spec 语义、跨 dashboard 原子事务或跨 proxy 强一致瞬时切换 |
+| 统一 ACL 管理 | 默认关闭的 `codis_acl_enabled`：dashboard/topom 提交 Redis 8 ACL 用户、password hashes 与 rules，并按 revision 下发 proxy snapshot；客户端可用 `AUTH [username] password` 与 `ACL WHOAMI` | 只面向 Redis 8 backend；不实现完整 Redis Cluster ACL、RESP3/`HELLO` parity、Pub/Sub channel ACL、模块 key-spec 语义、跨 dashboard 原子事务或跨 proxy 强一致瞬时切换 |
 | 客户端权限 | 普通命令走 user-bound backend connection，返回前对原始命令做 ACL 校验 | 普通客户端不能通过 proxy 执行 ACL 管理命令 |
 | db 绑定 | ACL 用户可绑定固定 db，认证后 proxy 强制该 session 路由到绑定 db，优先级高于 `SELECT` | 只是 proxy 路由属性，不渲染进 `ACL SETUSER`、不放大权限；`default` 用户只能绑一个 db，同一用户无法按密码分流到不同 db |
 | 凭据 | 明文 `new_password` 只作为提交时的短期输入 | 不写 coordinator、stats、API 响应或 FE 视图；backend service 密码与 session 密码仍属运行期凭据，需按配置与进程内存风险管理 |
@@ -81,7 +80,7 @@ Codis 的目标是让业务像用单机 Redis 一样使用可扩缩容的 Redis 
 
 | 能力 | 支持 | 明确不支持或限制 |
 | --- | --- | --- |
-| 默认构建 | `make` / `make build-all` 产出当前机器可运行的根 `bin/` 产物；`codis-server` 默认内嵌 Redis 8 并启用 `codis-enabled yes` | 不承诺 Linux 性能基线、fork/RDB、复制、部署包装与最终生产切换结论；不承诺 Redis 8 的 RDB/AOF 可被 Redis 3 读取 |
+| 默认构建 | `make` / `make build-all` 产出当前机器可运行的根 `bin/` 产物；`codis-server` 默认内嵌 Redis 8 并启用 `codis-enabled yes` | 不承诺 Linux 性能基线、fork/RDB、复制、部署包装与最终生产切换结论；不承诺跨大版本 RDB/AOF 兼容 |
 | 平台矩阵 | 发布入口按 `darwin/arm64`、`linux/amd64`、`linux/arm64` 等目标生成独立目录，每个目录是一个平台的完整产物集合 | 不保证在任意 host 上交叉构建任意 target，完整产物仍依赖目标平台环境或配置好的 C/cgo toolchain；不是纯 Go cross build，proxy 与 Codis Server 仍含 C/cgo 边界 |
 | 构建边界 | 构建前检查目标平台与必要工具链，条件不满足直接报错 | 不改变运行期协议、proxy 路由、dashboard 行为或 Redis 数据格式；不负责 Docker 镜像、CI 发布流水线、release 包上传或生产部署编排 |
 

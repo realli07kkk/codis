@@ -94,14 +94,6 @@ def redis_cli(bin_dir, port, *args, db=None, timeout=15, check=True):
     return run(cmd, cwd=bin_dir.parent, timeout=timeout, check=check)
 
 
-def redis_cli3(bin_dir, port, *args, db=None, timeout=15, check=True):
-    cmd = [bin_dir / "redis-cli-redis3", "-h", "127.0.0.1", "-p", str(port), "--raw"]
-    if db is not None:
-        cmd.extend(["-n", str(db)])
-    cmd.extend(args)
-    return run(cmd, cwd=bin_dir.parent, timeout=timeout, check=check)
-
-
 def free_port():
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     sock.bind(("127.0.0.1", 0))
@@ -168,19 +160,18 @@ def admin_cmd(bin_dir, admin_port, *args, timeout=30, check=True, stdout_limit=4
     return run(cmd, cwd=bin_dir.parent, timeout=timeout, check=check, stdout_limit=stdout_limit)
 
 
-def write_redis_conf(path, port, data_dir, codis_enabled=True):
+def write_redis_conf(path, port, data_dir):
     lines = [
         "port {}".format(port),
         "bind 127.0.0.1",
         "protected-mode no",
+        "codis-enabled yes",
         "daemonize no",
         'save ""',
         "appendonly no",
         "dir {}".format(data_dir),
         "dbfilename dump-{}.rdb".format(port),
     ]
-    if codis_enabled:
-        lines.insert(4, "codis-enabled yes")
     Path(path).write_text("\n".join(lines) + "\n")
 
 
@@ -278,9 +269,7 @@ def require_binaries(bin_dir):
         "codis-dashboard",
         "codis-proxy",
         "codis-server",
-        "codis-server-redis3",
         "redis-cli",
-        "redis-cli-redis3",
     ]
     missing = [name for name in names if not (bin_dir / name).exists()]
     if missing:
@@ -291,7 +280,6 @@ def collect_versions(repo, bin_dir):
     commands = {
         "git_head": ["git", "rev-parse", "--short=12", "HEAD"],
         "codis_server": [bin_dir / "codis-server", "--version"],
-        "codis_server_redis3": [bin_dir / "codis-server-redis3", "--version"],
         "codis_proxy": [bin_dir / "codis-proxy", "--version"],
         "codis_dashboard": [bin_dir / "codis-dashboard", "--version"],
     }
@@ -483,162 +471,6 @@ def run_e2e_scenario(repo, bin_dir, work_root, migration_method, keep_temp):
             result["workdir_removed"] = True
 
 
-def cross_cli(bin_dir, redis_version):
-    if redis_version == "redis3":
-        return redis_cli3
-    return redis_cli
-
-
-def start_cross_redis(processes, repo, bin_dir, work_dir, redis_version, port, name):
-    data_dir = work_dir / "data-{}-{}".format(redis_version, port)
-    data_dir.mkdir(parents=True, exist_ok=True)
-    conf = work_dir / "{}-{}.conf".format(redis_version, port)
-    write_redis_conf(conf, port, data_dir, codis_enabled=(redis_version != "redis3"))
-    binary = bin_dir / ("codis-server-redis3" if redis_version == "redis3" else "codis-server")
-    log = work_dir / "{}-{}.log".format(redis_version, port)
-    start_redis(processes, binary, conf, repo, log, name)
-    wait_redis_ping(bin_dir, port, cli_func=cross_cli(bin_dir, redis_version))
-    return conf
-
-
-def prepare_sample(cli_func, bin_dir, port, sample):
-    key = sample["key"]
-    kind = sample["kind"]
-    if kind == "string":
-        cli_func(bin_dir, port, "SET", key, sample["value"])
-    elif kind == "hash":
-        cli_func(bin_dir, port, "HSET", key, "field", sample["value"])
-    elif kind == "list":
-        cli_func(bin_dir, port, "RPUSH", key, "one", "two", "three")
-    elif kind == "zset":
-        cli_func(bin_dir, port, "ZADD", key, "1", "one", "2", "two")
-    else:
-        raise ValidationError("unsupported sample kind {}".format(kind))
-
-
-def assert_cross_sample(cli_func, bin_dir, port, sample):
-    key = sample["key"]
-    kind = sample["kind"]
-    if kind == "string":
-        actual = cli_func(bin_dir, port, "GET", key)["stdout"].strip()
-        expected = sample["value"]
-    elif kind == "hash":
-        actual = cli_func(bin_dir, port, "HGET", key, "field")["stdout"].strip()
-        expected = sample["value"]
-    elif kind == "list":
-        actual = cli_func(bin_dir, port, "LRANGE", key, "0", "-1")["stdout"].strip().splitlines()
-        expected = ["one", "two", "three"]
-    elif kind == "zset":
-        actual = cli_func(bin_dir, port, "ZRANGE", key, "0", "-1", "WITHSCORES")["stdout"].strip().splitlines()
-        expected = ["one", "1", "two", "2"]
-    else:
-        raise ValidationError("unsupported sample kind {}".format(kind))
-    if actual != expected:
-        raise ValidationError("sample {} mismatch: got {!r}, want {!r}".format(key, actual, expected))
-
-
-def classify_migrate_result(result):
-    output = (result.get("stdout") or "") + "\n" + (result.get("stderr") or "")
-    if result.get("returncode") != 0 or "ERR" in output.upper() or "ERROR" in output.upper():
-        return "observable_failure"
-    text = result.get("stdout", "").strip()
-    if text == "1":
-        return "success"
-    return "unsupported"
-
-
-def run_cross_version_direction(repo, bin_dir, work_root, source_version, target_version, keep_temp):
-    name = "{}-to-{}".format(source_version, target_version)
-    scenario_dir = work_root / "cross-{}".format(name)
-    scenario_dir.mkdir(parents=True, exist_ok=True)
-    source_port = free_port()
-    target_port = free_port()
-    processes = []
-    source_cli = cross_cli(bin_dir, source_version)
-    target_cli = cross_cli(bin_dir, target_version)
-    result = {
-        "name": name,
-        "status": "running",
-        "source_version": source_version,
-        "target_version": target_version,
-        "source_port": source_port,
-        "target_port": target_port,
-        "workdir": str(scenario_dir),
-        "samples": [],
-    }
-    samples = [
-        {"kind": "string", "key": "{{cross-{}}}:string".format(name), "value": "value-string"},
-        {"kind": "hash", "key": "{{cross-{}}}:hash".format(name), "value": "value-hash"},
-        {"kind": "list", "key": "{{cross-{}}}:list".format(name), "value": ""},
-        {"kind": "zset", "key": "{{cross-{}}}:zset".format(name), "value": ""},
-    ]
-    try:
-        start_cross_redis(processes, repo, bin_dir, scenario_dir, source_version, source_port, "source")
-        start_cross_redis(processes, repo, bin_dir, scenario_dir, target_version, target_port, "target")
-        for sample in samples:
-            source_cli(bin_dir, source_port, "FLUSHALL")
-            target_cli(bin_dir, target_port, "FLUSHALL")
-            prepare_sample(source_cli, bin_dir, source_port, sample)
-            before_exists = source_cli(bin_dir, source_port, "EXISTS", sample["key"])["stdout"].strip()
-            migrate = source_cli(
-                bin_dir,
-                source_port,
-                "SLOTSMGRTTAGONE",
-                "127.0.0.1",
-                str(target_port),
-                "3000",
-                sample["key"],
-                timeout=20,
-                check=False,
-            )
-            classification = classify_migrate_result(migrate)
-            source_exists = source_cli(bin_dir, source_port, "EXISTS", sample["key"], check=False)["stdout"].strip()
-            target_exists = target_cli(bin_dir, target_port, "EXISTS", sample["key"], check=False)["stdout"].strip()
-            sample_result = {
-                "kind": sample["kind"],
-                "key": sample["key"],
-                "before_source_exists": before_exists,
-                "classification": classification,
-                "migrate": migrate,
-                "after_source_exists": source_exists,
-                "after_target_exists": target_exists,
-            }
-            if classification == "success":
-                assert_cross_sample(target_cli, bin_dir, target_port, sample)
-                if source_exists != "0":
-                    raise ValidationError("source key was not removed after success: {}".format(sample["key"]))
-            else:
-                if source_exists != "1":
-                    raise ValidationError("source key disappeared after failed migration: {}".format(sample["key"]))
-            result["samples"].append(sample_result)
-        classifications = sorted(set(sample["classification"] for sample in result["samples"]))
-        result["classifications"] = classifications
-        result["status"] = "passed"
-        if classifications == ["success"]:
-            result["direction_result"] = "success"
-        elif "observable_failure" in classifications:
-            result["direction_result"] = "observable_failure"
-        else:
-            result["direction_result"] = "unsupported"
-        return result
-    except Exception as err:
-        result["status"] = "failed"
-        result["error"] = str(err)
-        return result
-    finally:
-        cleanup = []
-        for proc in reversed(processes):
-            try:
-                proc.stop()
-                cleanup.append({"name": proc.name, "status": "stopped", "log": str(proc.log_path)})
-            except Exception as err:
-                cleanup.append({"name": proc.name, "status": "cleanup_failed", "error": str(err), "log": str(proc.log_path)})
-        result["cleanup"] = cleanup
-        if not keep_temp and result.get("status") == "passed":
-            shutil.rmtree(scenario_dir, ignore_errors=True)
-            result["workdir_removed"] = True
-
-
 def build_gate_definitions():
     return [
         {
@@ -674,14 +506,6 @@ def build_gate_definitions():
             "evidence": "feature evidence JSON",
         },
         {
-            "name": "cross-version-fragment-matrix",
-            "command": "python3 scripts/redis8_local_validation.py --only cross-version --output <evidence.json>",
-            "expected": "Redis 3/Redis 8 directions are success or observable failure with source preserved",
-            "failure_owner": "RDB fragment compatibility",
-            "local_execution": "runner",
-            "evidence": "feature evidence JSON",
-        },
-        {
             "name": "linux-formal-handoff",
             "command": "review doc/redis8_validation_zh.md (Linux 正式验证要求)",
             "expected": "Linux e2e, benchmark, fork/RDB, replication, Docker/deploy checks are enumerated",
@@ -702,7 +526,7 @@ def build_gate_definitions():
 
 def parse_only(value):
     if value == "all":
-        return {"e2e", "cross-version"}
+        return {"e2e"}
     return {part.strip() for part in value.split(",") if part.strip()}
 
 
@@ -710,7 +534,7 @@ def main():
     parser = argparse.ArgumentParser(description="Run local non-performance Redis 8 Codis validation gates.")
     parser.add_argument("--repo", default=str(repo_root_from_script()), help="repository root")
     parser.add_argument("--output", help="write JSON evidence to this path")
-    parser.add_argument("--only", default="all", help="all, e2e, cross-version, or comma-separated subset")
+    parser.add_argument("--only", default="all", choices=("all", "e2e"), help="all or e2e")
     parser.add_argument("--keep-temp", action="store_true", help="keep temporary workdirs")
     args = parser.parse_args()
 
@@ -729,7 +553,6 @@ def main():
         "gate_definitions": build_gate_definitions(),
         "versions": {},
         "e2e": [],
-        "cross_version": [],
     }
 
     work_root = Path(tempfile.mkdtemp(prefix="codis-redis8-validation-"))
@@ -743,13 +566,6 @@ def main():
             for method in ("semi-async", "sync"):
                 scenario = run_e2e_scenario(repo, bin_dir, work_root, method, args.keep_temp)
                 evidence["e2e"].append(scenario)
-                if scenario.get("status") != "passed":
-                    overall_ok = False
-
-        if "cross-version" in selected:
-            for source, target in (("redis3", "redis8"), ("redis8", "redis3")):
-                scenario = run_cross_version_direction(repo, bin_dir, work_root, source, target, args.keep_temp)
-                evidence["cross_version"].append(scenario)
                 if scenario.get("status") != "passed":
                     overall_ok = False
 

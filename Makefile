@@ -1,9 +1,7 @@
 .DEFAULT_GOAL := build-all
 
 VERSION_LDFLAGS = -ldflags "$$(cat bin/version.ldflags)"
-REDIS3_DIR ?= extern/redis-3.2.11
 REDIS8_DIR ?= extern/redis-8.6.3
-ALLOW_INSECURE_REDIS3 ?= 0
 TARGET_PLATFORMS ?= darwin/arm64 linux/amd64 linux/arm64
 HOST_OS := $(shell go env GOHOSTOS)
 HOST_ARCH := $(shell go env GOHOSTARCH)
@@ -34,7 +32,7 @@ TARGET_REDIS_MAKE_ARGS := $($(TARGET_REDIS_MAKE_ARGS_VAR))
 GO_BUILD_ENV = GOOS=$(TARGET_OS) GOARCH=$(TARGET_ARCH) CGO_ENABLED=$(TARGET_CGO_ENABLED) $(if $(TARGET_CC),CC="$(TARGET_CC)")
 REDIS_BUILD_ENV = $(if $(TARGET_CC),CC="$(TARGET_CC)") $(if $(TARGET_CXX),CXX="$(TARGET_CXX)") $(TARGET_REDIS_MAKE_ARGS)
 
-.PHONY: build-all host-build-all build-host codis-deps jemalloc-config validate-target-platform check-target-platforms check-target-platform default-configs build-platforms release-platforms build-platform build-platform-artifact build-no-redis-platform codis-dashboard codis-proxy codis-admin codis-ha codis-fe codis-server codis-server-redis3 codis-server-redis8 clean-gotest clean distclean gotest gobench docker demo
+.PHONY: build-all host-build-all build-host codis-deps jemalloc-config validate-target-platform check-target-platforms check-target-platform default-configs build-platforms release-platforms build-platform build-platform-artifact build-no-redis-platform codis-dashboard codis-proxy codis-admin codis-ha codis-fe codis-server codis-server-redis8 clean-gotest clean distclean gotest gobench docker demo
 
 build-all: host-build-all
 
@@ -214,21 +212,6 @@ codis-server:
 	@awk '1; /^protected-mode no$$/ { print ""; print "# Codis packaging note: Docker and Kubernetes examples rely on network-layer"; print "# isolation when Sentinel protected mode is disabled. Bare-metal deployments"; print "# should restrict exposure with firewall rules or override this setting." }' config/sentinel.conf > config/sentinel.conf.tmp
 	@mv config/sentinel.conf.tmp config/sentinel.conf
 
-codis-server-redis3:
-	@if [ "$(ALLOW_INSECURE_REDIS3)" != "1" ]; then \
-		echo "ERROR: codis-server-redis3 builds Redis 3.2.11, which is EOL and has known RCE vulnerabilities."; \
-		echo "       It is not part of the default build. For compatibility testing only, set"; \
-		echo "       ALLOW_INSECURE_REDIS3=1 and never expose the resulting server to untrusted networks."; \
-		exit 1; \
-	fi
-	@mkdir -p bin
-	@rm -f bin/codis-server-redis3
-	make -j4 -C $(REDIS3_DIR)/
-	@cp -f $(REDIS3_DIR)/src/redis-server  bin/codis-server-redis3
-	@cp -f $(REDIS3_DIR)/src/redis-benchmark bin/redis-benchmark-redis3
-	@cp -f $(REDIS3_DIR)/src/redis-cli bin/redis-cli-redis3
-	@cp -f $(REDIS3_DIR)/src/redis-sentinel bin/redis-sentinel-redis3
-
 codis-server-redis8: codis-server
 	@mkdir -p bin config
 	@rm -f bin/codis-server-redis8
@@ -247,7 +230,6 @@ clean: clean-gotest
 	@rm -rf scripts/tmp
 
 distclean: clean
-	@make --no-print-directory --quiet -C $(REDIS3_DIR) distclean
 	@if [ -d "$(REDIS8_DIR)" ]; then make --no-print-directory --quiet -C $(REDIS8_DIR) distclean; fi
 
 gotest: codis-deps

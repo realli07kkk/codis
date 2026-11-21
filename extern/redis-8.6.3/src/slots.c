@@ -137,7 +137,7 @@ static int parseSlotCount(client *c, robj *obj, int *count) {
         addReplyErrorFormat(c, "invalid slot count = %lld", val);
         return C_ERR;
     }
-    /* Redis 3 Codis clamps overlarge SLOTSINFO count instead of returning an error. */
+    /* Codis clamps an overlarge SLOTSINFO count instead of returning an error. */
     *count = val > CODIS_SLOTS ? CODIS_SLOTS : (int)val;
     return C_OK;
 }

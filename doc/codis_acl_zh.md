@@ -141,7 +141,7 @@ Forced DB 是 proxy 的路由属性，不会渲染进 Redis `ACL SETUSER`；迁�
 - ACL 允许不会扩大 proxy 的命令边界：原本不支持的命令、`CONFIG` / `SUBSCRIBE` / `MONITOR` 等危险命令仍按既有规则拒绝。
 - 普通客户端不能通过 proxy 执行 ACL 管理命令；ACL 管理只走 dashboard/topom、`codis-admin` 和 FE。
 - 不在 coordinator、日志、stats、API 响应或 FE 中保存或回显客户端明文密码，只保存 SHA-256 hash。
-- Redis 3 fallback 不支持 ACL，只能在 `codis_acl_enabled=false` 下使用；该模式下旧 `session_auth` 与 `product_auth` 语义完全不变。
+- ACL 只面向 Redis 8 backend；`codis_acl_enabled=false` 时保留旧 `session_auth` 与 `product_auth` 语义。
 - 不承诺跨 dashboard 的分布式原子 rollout；多个 dashboard 同时提交时以 coordinator revision 为准，可能相互覆盖。
 - 直连 Redis Server 手工执行 `ACL SETUSER` 会在下一次 topom 同步时被覆盖。proxy 管理面的下发模式与 [Codis Proxy QPS 限流](proxy_qps_rate_limit_zh.md) 类似：coordinator 保存目标状态，topom 负责 fan-out 和重放。
 

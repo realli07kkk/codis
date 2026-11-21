@@ -1,10 +1,10 @@
 # Codis Server（内嵌 Redis 8）扩展
 
-`codis-server` 现在默认构建内嵌 Redis 8（`extern/redis-8.6.3`），`make codis-server` 产出的二进制同时是 Codis 的 slot server。配置 `codis-enabled yes` 后 Redis 8 进入 Codis 1024 slot 模式，本文描述该模式下的配置、slot 模型、扩展命令、tag 索引、RDB HTTP 导出和内部实现约束。Redis 3 内核时代的命令说明见 [redis_change_zh.md](redis_change_zh.md)。
+`codis-server` 现在默认构建内嵌 Redis 8（`extern/redis-8.6.3`），`make codis-server` 产出的二进制同时是 Codis 的 slot server。配置 `codis-enabled yes` 后 Redis 8 进入 Codis 1024 slot 模式，本文描述该模式下的配置、slot 模型、扩展命令、tag 索引、RDB HTTP 导出和内部实现约束。历史背景：项目早期曾使用 Redis 3.2 内核，相关支持已移除；当前唯一内置版本为 Redis 8。
 
 ## 启用与配置
 
-构建链路上 `make codis-server` 编译 `extern/redis-8.6.3` 并把 `src/redis-server` 复制为 `bin/codis-server`，同时由上游 `extern/redis-8.6.3/redis.conf` 注入 `codis-enabled yes` 与迁移认证配置生成 `config/redis.conf`（`codis-server-redis8` 目标再同步为 `config/redis8.conf`）。Redis 3 构建需要显式 `ALLOW_INSECURE_REDIS3=1`，不属于默认产物。
+构建链路上 `make codis-server` 编译 `extern/redis-8.6.3` 并把 `src/redis-server` 复制为 `bin/codis-server`，同时由上游 `extern/redis-8.6.3/redis.conf` 注入 `codis-enabled yes` 与迁移认证配置生成 `config/redis.conf`（`codis-server-redis8` 目标再同步为 `config/redis8.conf`）。
 
 Codis 模式配置项在 redis.conf：
 
@@ -33,7 +33,7 @@ Codis 模式固定 1024 slot，与 Redis Cluster 的 CRC16/16384 是两套独立
 - 常量 `CODIS_SLOT_MASK_BITS`（10）、`CODIS_SLOTS`（1024）、`CODIS_SLOT_MASK`（`0x3ff`）定义在 `extern/redis-8.6.3/src/server.h`。
 - `codisHashInfoForKey()` / `codisHashSlot()`：取 key 中第一个 `{...}` 子串作为 hash tag，对整个 key 或 tag 计算 CRC32，再 `& 0x3ff` 得到 0..1023 的 slot。与 Go proxy 侧 `pkg/proxy/mapper.go` 的 `Hash()`（`crc32.ChecksumIEEE(hashTagOrKey(key))`）再对 1024 取模等价。
 - tag 规则差异：Codis 把第一个 `{...}` 视为 tag，即使 `{}` 为空也当作 tag；Redis Cluster 的 `keyHashSlot()` 把 `{}` 视为无 tag。这个差异在 `codisHashInfoForKey()` 中有显式注释。
-- keyspace：`redisDb.keys` / `redisDb.expires` 是 `kvstore`，Codis 模式下以 `slot_count_bits = 10` 创建，per-slot dict 就是主 keyspace。不存在 Redis 3 时代的平行 `hash_slots[1024]` 二级索引。
+- keyspace：`redisDb.keys` / `redisDb.expires` 是 `kvstore`，Codis 模式下以 `slot_count_bits = 10` 创建，per-slot dict 就是主 keyspace。不存在额外的 `hash_slots[1024]` 平行二级索引。
 - `getKeySlot()` / `calculateKeySlot()` 在 Codis 模式返回 CRC32 slot；`SLOTSINFO`、`SLOTSSCAN`、`SLOTSDEL` 和迁移流程都通过 `kvstore` 的 slot dict API 访问，不重建 key 索引。
 - `initTempDb()` 等临时 DB 与主 DB 使用相同 slot 数，不能只改主 DB。
 
@@ -130,9 +130,7 @@ SLOTSRESTORE-ASYNC-ACK errcode message
 - `SLOTSRESTORE` 一次可带多个 `key ttl payload` 三元组，`payload` 是单个对象的 RDB 序列化片段（与 `DUMP`/`RESTORE` 同编码），`ttl` 为 0 表示无过期，重复 key 会先删除再写入。
 - `SLOTSRESTORE-ASYNC` 一条只处理一个 key，`<type>` 取 `object`（不限定类型）、`string`、`list`、`hash`、`dict`（即 set）、`zset`，目标端校验声明类型与 payload 实际类型一致，`delete` 表示在目标端删除该 key。
 - 认证与切库由 `SLOTSRESTORE-ASYNC-AUTH`、`-AUTH2`、`-SELECT` 完成；回复统一是 `["SLOTSRESTORE-ASYNC-ACK", errcode, message]`，errcode 非 0 时目标端关闭连接，避免留下半认证状态。
-- 跨版本迁移：Redis 8 ↔ Redis 8 必须支持当前 Redis 8 RDB fragment 编码；Redis 3 ↔ Redis 8 需要在灰度前实测。遇到 Redis 3 不能识别的新 object encoding 必须显式失败，不能静默丢 key 或按错误类型写入。
-
-Redis 3 内核时代这些命令的逐条说明（含示例返回）见 [redis_change_zh.md](redis_change_zh.md)。
+- 迁移兼容性：只保证 Redis 8 ↔ Redis 8 使用当前 Redis 8 RDB fragment 编码；不承诺跨大版本 fragment 兼容。遇到目标端不能识别的 object encoding 必须显式失败，不能静默丢 key 或按错误类型写入。
 
 ## Tag 索引
 
@@ -146,7 +144,7 @@ Redis 3 内核时代这些命令的逐条说明（含示例返回）见 [redis_c
 
 不做什么：
 
-- 不重建 Redis 3 的 `hash_slots[1024]` 平行 slot 索引。主 keyspace 已按 slot 分区，再维护同维度索引会引入双写一致性负担：expire、evict、rename、move、copy、flush、RDB load 任意一条路径漏写都会留下脏状态。
+- 不重建 `hash_slots[1024]` 平行 slot 索引。主 keyspace 已按 slot 分区，再维护同维度索引会引入双写一致性负担：expire、evict、rename、move、copy、flush、RDB load 任意一条路径漏写都会留下脏状态。
 - 不把 tag 索引做成持久化状态，也不在加载路径上假设“增量 hook 会补齐”；全量重建是权威修复点。
 
 ## RDB HTTP 导出
@@ -222,24 +220,15 @@ rdb_analysis_remote_fetch_max_concurrent = 1
 - 不能放在 `initServerConfig()`：那时 `server.dbnum` 还是默认值，用户配置的 `databases` 要在 `loadServerConfig()` 之后才生效。按默认 16 分配、又在 `SELECT 31` 后索引，就是堆越界。
 - `initServerConfig()` 只把指针置 `NULL`；任何按 DB 编号索引的缓存或指针表都遵守同一时序。
 
-### patch 移植约束
+### 实现约束
 
-- Redis 3 的 Codis patch 不能按文件重放。Redis 8 的 keyspace 已是 `kvstore` 主存储、slot 分区由 `slot_count_bits` 控制，`hash_slots[1024]` 平行索引不再需要；命令注册也从 `server.c` 静态表改为 `src/commands/*.json` → `commands.def`。
-- slot 维度直接复用 `kvstore`，只有 tag 维度补 `codis_tagged_keys`。Redis 3 的 `slots.c` / `slots_async.c` / `crc32.c` 在 Redis 8 是重新实现，不是补丁回放。
+- Redis 8 的 keyspace 已是 `kvstore` 主存储，slot 分区由 `slot_count_bits` 控制，不再需要 `hash_slots[1024]` 平行索引。
+- slot 维度直接复用 `kvstore`，只有 tag 维度补 `codis_tagged_keys`。
 - 新增命令必须同时补 command JSON 并让生成器同步 `commands.def`，不要长期手改生成文件；新增配置必须进 Redis 8 标准 config registry，保证 `CONFIG GET` 与 `CONFIG REWRITE` 行为一致。
-
-| Redis 3 patch 点 | Redis 8 对应 | 处理原则 |
-|---|---|---|
-| `redisDb.hash_slots[1024]` 平行 slot dict | `kvstore *keys` 的 per-slot dict | 不移植平行索引 |
-| `slots_num()` 的 CRC32 & `0x3ff` | `codisHashSlot()` / `getKeySlot()` | Codis 模式返回 CRC32 slot |
-| `redisDb.tagged_keys` zskiplist | 无等价结构 | 新增 `codis_tagged_keys` 并覆盖 key 生命周期 |
-| `server.c` 静态命令表 | `src/commands/*.json` → `commands.def` | 补 JSON 并走生成器 |
-| 手工 config 项 | 标准 config registry | `codis-enabled` 可 parse 且可 rewrite |
-| `slots_async.c` 自建 pthread 延迟释放 | Redis 8 `bio` / lazyfree | 优先复用 Redis 8 机制 |
 
 ## 已知限制
 
-- Redis 3 ↔ Redis 8 的跨版本迁移没有默认保证，需要在灰度前实测；Redis 3 不认识的新 encoding 会让迁移显式失败，而不是降级写入。
+- 迁移只保证 Redis 8 ↔ Redis 8；不承诺跨大版本 fragment 或持久化文件兼容。
 - tag 索引是运行期辅助视图，崩溃恢复或全量加载后依赖 `codisTagIndexRebuild` 重建；它不写 RDB/AOF，故障时只影响按 tag 迁移。
 - `SLOTSINFO` 只返回非空 slot，proxy 侧不要假设返回长度等于请求区间。
 - `SLOTSCHECK` 和 `DEBUG CODIS-TAGINDEX-ASSERT` 会全量扫描当前 DB，适合诊断而非高负载实例的常规巡检。
@@ -247,4 +236,4 @@ rdb_analysis_remote_fetch_max_concurrent = 1
 - 导出限速是进程级总预算，不承诺多连接之间公平。
 - 迁移中的写请求会被拒绝（`SLOTSMGRT-EXEC-WRAPPER` 返回 1），客户端需要依赖 proxy 的重试或等待策略。
 
-相关文档：[redis_change_zh.md](redis_change_zh.md)（Redis 3 内核时代的命令扩展）、[rdb_analysis_zh.md](rdb_analysis_zh.md)（dashboard RDB 分析）、[tutorial_zh.md](tutorial_zh.md)（集群部署与运维）。
+相关文档：[rdb_analysis_zh.md](rdb_analysis_zh.md)（dashboard RDB 分析）、[tutorial_zh.md](tutorial_zh.md)（集群部署与运维）。

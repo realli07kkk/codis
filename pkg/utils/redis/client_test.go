@@ -81,7 +81,7 @@ func TestClientRedis8InfoFullStandaloneDoesNotInventMasterAddr(t *testing.T) {
 	}
 }
 
-func TestClientRedis8SetMasterKeepsSlaveofAlias(t *testing.T) {
+func TestClientRedis8SetMasterUsesSlaveof(t *testing.T) {
 	s := newRedisClientTestServer(t, func(args []string) *redistest.Resp {
 		switch strings.ToUpper(args[0]) {
 		case "MULTI":
@@ -120,7 +120,7 @@ func TestClientRedis8SetMasterKeepsSlaveofAlias(t *testing.T) {
 		t.Fatalf("SLAVEOF command not observed: %v", s.Commands())
 	}
 	if sawReplicaof {
-		t.Fatalf("REPLICAOF should not replace SLAVEOF in Redis 3 compatible path: %v", s.Commands())
+		t.Fatalf("REPLICAOF should not replace SLAVEOF: %v", s.Commands())
 	}
 	if !sawKillNormal {
 		t.Fatalf("CLIENT KILL TYPE normal not observed: %v", s.Commands())

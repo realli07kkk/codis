@@ -65,7 +65,8 @@ flowchart LR
 
 ### Codis Server（内嵌 Redis 8）
 
-- 源码位于 `extern/redis-8.6.3`。`codis-enabled` 与 `cluster-enabled` 互斥；Codis mode 保留 standalone 多 DB 行为，DB keyspace 使用 10-bit `kvstore`/`estore` 分区，slot keyspace 的唯一权威来源是 `kvstore`，不再维护 Redis 3 的 `hash_slots[1024]` 平行索引。slot 命令为 `SLOTSHASHKEY`、`SLOTSINFO`、`SLOTSSCAN`、`SLOTSDEL`、`SLOTSCHECK`：`SLOTSDEL` 先收集 key 快照再走 Redis 正常删除路径，`SLOTSCHECK` 校验 key 所在 dict index 与 Codis hash slot 一致。
+- 历史背景：早期版本基于 Redis 3.2 内核，该支持已移除；当前唯一内置版本为 Redis 8。
+- 源码位于 `extern/redis-8.6.3`。`codis-enabled` 与 `cluster-enabled` 互斥；Codis mode 保留 standalone 多 DB 行为，DB keyspace 使用 10-bit `kvstore`/`estore` 分区，slot keyspace 的唯一权威来源是 `kvstore`，不维护 `hash_slots[1024]` 平行索引。slot 命令为 `SLOTSHASHKEY`、`SLOTSINFO`、`SLOTSSCAN`、`SLOTSDEL`、`SLOTSCHECK`：`SLOTSDEL` 先收集 key 快照再走 Redis 正常删除路径，`SLOTSCHECK` 校验 key 所在 dict index 与 Codis hash slot 一致。
 - 同步迁移：源端 `SLOTSMGRTSLOT`/`SLOTSMGRTONE`/`SLOTSMGRTTAGSLOT`/`SLOTSMGRTTAGONE` 复用 `server.slotsmgrt_cached_sockets` 中按 `host:port` 缓存的裸 TCP 连接，用 `createDumpPayload` 生成 RDB fragment 并发送 `SLOTSRESTORE`；目标端恢复成功后源端才删除本地 key，并把删除传播为确定性 `DEL`。
 - 异步迁移：`src/slots_async.c` 承载 `SLOTSMGRT*-ASYNC`、`SLOTSRESTORE-ASYNC*` ACK 子协议、per-DB cached migration client、`FENCE`/`CANCEL`/`STATUS` 与 `EXEC-WRAPPER` 写保护；`redisDb.codis_tagged_keys` 只记录带 `{...}` hash tag 的 key，score 使用完整 CRC32，供 tag-aware 迁移扩展同 tag key。
 - 本机 RDB export：复用 Redis 端口，`networking.c` 在 parser 前识别精确 HTTP 请求，IO thread 只做标记并转回主线程；auth、文件校验与 streaming 都在主线程完成，`codis-rdb-export-rate-limit` 为 server 级 body bytes/sec 预算。
@@ -183,7 +184,7 @@ flowchart LR
 |---|---|
 | `third_party/jemalloc-go` | `github.com/spinlock/jemalloc-go` 的本地 replace 模块，提供 `cgo_jemalloc` 所需 wrapper、头文件与 C 源码 |
 | `third_party/rdb` | `github.com/hdt3213/rdb` 的最小 fork，支持 Redis 8 RDB version 13 与 Stream type 26 |
-| `Makefile`、`extern/redis-8.6.3/Makefile`、`extern/redis-8.6.3/src/Makefile` | `build-all`、`build-platforms`、`release-platforms`、`build-platform-artifact`、`build-no-redis-platform`、`codis-server-redis3`；Redis 8 源码接入点（`codis_rdb_export.o` 在同一 Makefile 中登记） |
+| `Makefile`、`extern/redis-8.6.3/Makefile`、`extern/redis-8.6.3/src/Makefile` | `build-all`、`build-platforms`、`release-platforms`、`build-platform-artifact`、`build-no-redis-platform`；Redis 8 源码接入点（`codis_rdb_export.o` 在同一 Makefile 中登记） |
 | `config/redis.conf`、`config/sentinel.conf` | Redis 8 Codis Server tracked 默认模板，`redis.conf` 显式包含 `codis-enabled yes` |
 | `go.mod`、`go.sum` | module 依赖、`replace` 指令与校验锁定 |
 | `Dockerfile`、`scripts/docker.sh`、`example/server.py`、`kubernetes/codis-server.yaml`、`scripts/redis8_local_validation.py` | 发布包装与本地示例入口；本地 Mac 非性能 validation gate（临时 filesystem coordinator/dashboard/proxy/Redis 8 group，不是生产入口） |
@@ -201,7 +202,7 @@ flowchart LR
 
 - proxy 通过普通 Redis 协议面向客户端，但不支持全部 Redis 命令（见 [unsupported_cmds.md](unsupported_cmds.md)）。`CLIENT` 命令族只支持 `CLIENT LIST`，语义限定为当前 proxy 实例的活动客户端连接快照：不聚合多 proxy、不下探后端 Redis、不承诺 Redis 8.6.3 全字段 parity，其余 `CLIENT` 子命令仍不支持。
 - `CLUSTER` 命令族默认不可用。只有 `cluster_nodes_compat = "self"` 或 `"all"` 时 `CLUSTER NODES` 才返回伪节点清单；`0-16383` 是 Redis Cluster 逻辑 slot 输出，不代表 Codis 真实路由（真实 `MaxSlotNum` 仍为 1024）。不实现其他 `CLUSTER` 子命令、`MOVED`/`ASK`、cluster bus、gossip、failover 和 cluster 配置文件；`all` 模式只轮询 Jodis/coordinator 注册信息，不做 proxy 间 RPC、探活或广播，也不读取 Consul service catalog、health check 或 service mesh API。
-- Redis Stream support 是 Redis 8 backend 的 proxy 路由子集，不是完整 Stream 支持声明。`XGROUP HELP`、`XINFO HELP`、未知 Stream subcommand、带 `BLOCK` 的 `XREAD`/`XREADGROUP` 和跨 hash tag multi-stream 会被 proxy 直接拒绝；后端仍是 Redis 3 时 proxy 只保证按 stream key 正确路由，最终由后端返回 unknown command。该能力不新增 Vector Set、Hash field expiration、模块数据类型、配置开关、dashboard/FE 页面、coordinator schema 或 proxy admin API。
+- Redis Stream support 是 Redis 8 backend 的 proxy 路由子集，不是完整 Stream 支持声明。`XGROUP HELP`、`XINFO HELP`、未知 Stream subcommand、带 `BLOCK` 的 `XREAD`/`XREADGROUP` 和跨 hash tag multi-stream 会被 proxy 直接拒绝；后端必须是 Redis 8 Codis Server，proxy 不伪造成功响应。该能力不新增 Vector Set、Hash field expiration、模块数据类型、配置开关、dashboard/FE 页面、coordinator schema 或 proxy admin API。
 - Hot key cache 是 opt-in bounded-stale 能力：默认关闭，只缓存 allowlist 中 exact key 的 `GET`/`MGET` string bulk value，写命令不做写穿填充。广播链路 best-effort，失败、队列满、proxy 离线或 dashboard 不可达都不改变客户端写响应，未收到通知的 proxy 靠 TTL 收敛；不做自动热点探测、dashboard 管理页、coordinator 元数据、proxy-to-proxy 通信，也不缓存派生读或非 string value；slot 迁移或锁定状态不从 cache 返回。
 - session auth brute-force guard 默认关闭，只保护 proxy 客户端 `AUTH <password>` 的 `session_auth` 校验。不改变 `product_auth`、dashboard `xauth`、coordinator/Jodis auth 或后端 Redis auth，不实现 ACL username 维度、手动解锁 API、allowlist/denylist/CIDR 或跨 proxy 全局计数；锁定状态只在单 proxy 进程内，重启清空；NAT、四层代理或负载均衡会让多个真实客户端在 proxy 视角共享同一来源 IP；已认证 session 不因后续同 IP 锁定被关闭或降级。
 
@@ -211,8 +212,8 @@ flowchart LR
 - `product_name` 同时参与元数据命名空间、proxy/dashboard 鉴权和运行期路由隔离，格式校验见 `pkg/models/store.go` 的 `ValidateProduct`。
 - Redis 8 同步迁移的安全边界是「目标端确认写入成功后才删除源端 key」：connect/write/read、AUTH、SELECT 或 `SLOTSRESTORE` 任一失败都会关闭对应 socket 缓存并返回错误，不删除源端数据；成功路径只传播 `DEL`，不传播原始 `SLOTSMGRT*` 命令。
 - 异步迁移同样遵守「所有 ACK 成功后才删除源端 key」：connect/write/read、AUTH、SELECT、restore async ACK、timeout、cancel 或 client close 任一失败都保留源端数据；同一 DB 同时只允许一个 async migration，`SLOTSMGRT-ASYNC-STATUS`/`FENCE`/`CANCEL` 按当前 DB 隔离。
-- 跨版本 fragment 方向性是单向的：Redis 3 → Redis 8 的 `SLOTSMGRTTAGONE` 对 string/hash/list/zset 样本成功，Redis 8 → Redis 3 返回可观测的 `SLOTSRESTORE` 错误且源端 key 保留。该结论只约束 slot migration fragment，不等价于 Redis 8 的持久化 RDB/AOF 可降级给 Redis 3。
-- 默认 `make`/`make codis-server` 已切换为 Redis 8 Codis Server，`config/redis.conf` 显式 `codis-enabled yes`，但仍不启用 Redis Cluster 协议；Redis 3 仅作为显式 fallback，`make codis-server-redis8` 只是默认 Redis 8 产物的 suffixed alias。
+- 迁移只保证 Redis 8 ↔ Redis 8；不承诺跨大版本 fragment 或持久化 RDB/AOF 兼容。
+- 默认 `make`/`make codis-server` 构建内嵌 Redis 8 Codis Server，`config/redis.conf` 显式 `codis-enabled yes`，但仍不启用 Redis Cluster 协议；`make codis-server-redis8` 只是默认 Redis 8 产物的 suffixed alias。
 - 本地 Mac validation gate 不产出性能、fork/RDB、复制或网络栈的正式结论；所有 throughput/latency、RDB/fork、replication、Docker 包装和生产 cutover 判断以 Linux 验证为准（见 [redis8_validation_zh.md](redis8_validation_zh.md)）。
 
 ### 配置管理与运维语义
@@ -244,7 +245,6 @@ Consul 后端位于 `pkg/models/consul`，只接入 HashiCorp Go API 模块 `git
 ## 相关文档
 
 - [tutorial_zh.md](tutorial_zh.md)：组件说明、快速启动、HA 与部署。
-- [redis_change_zh.md](redis_change_zh.md)：Codis Server 对 Redis 的命令扩展。
 - [redis8_codis_server_zh.md](redis8_codis_server_zh.md)：Redis 8 Codis Server 的 Codis mode、slot keyspace 与迁移实现。
 - [codis_acl_zh.md](codis_acl_zh.md)：Codis-managed Redis ACL、多账号认证与 db 绑定。
 - [pitr_flashback_zh.md](pitr_flashback_zh.md)：PITR / 数据闪回的状态机与安全边界。

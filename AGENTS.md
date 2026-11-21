@@ -40,7 +40,6 @@ Hard constraints worth repeating here:
 - Regenerate `config/dashboard.toml` with `go run ./cmd/dashboard --default-config` (prints `DefaultConfig` with comments), not `Config.String()`.
 - Embedded Redis 8 sources are pinned under `extern/redis-8.6.3/` and must stay git-tracked so patches show up in `git status`.
 - Building `codis-server` requires a C/C++ toolchain and autotools (`gcc`, `gcc-c++`, `autoconf`, `automake`, `libtool` on EL/Rocky or apt equivalents); jemalloc autogen/configure/make runs automatically.
-- `codis-server-redis3` does not accept the Redis 8 `codis-enabled yes` config; do not reuse Redis 8 configs for the Redis 3 fallback binary in cross-version checks.
 - On darwin, `/bin/true` and `/bin/false` usually live under `/usr/bin`; in `os/exec` tests use `exec.LookPath` or a multi-path fallback instead of hardcoding `/bin/xxx`.
 - Use `python3`, not `python`, for repository scripts.
 - Do not modify Dockerfiles or Docker scripts unless the task explicitly asks for it.

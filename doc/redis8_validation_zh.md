@@ -1,6 +1,8 @@
-# Redis 8 迁移验证与切换
+# Redis 8 验证与切换
 
-默认 `codis-server` 已切到内嵌 Redis 8（`extern/redis-8.6.3`），Redis 3 通过 `codis-server-redis3` 兼容目标保留。本文给出 Redis 3 → Redis 8 迁移的验证门槛、Linux 正式验证要求和灰度切换手顺；本地 macOS 结果只能证明验证编排与协议协作路径，不能替代 Linux 上的性能、fork/RDB、复制和部署包装结论。
+当前 `codis-server` 只内置 Redis 8（`extern/redis-8.6.3`）。本文给出 Redis 8 的验证门槛、Linux 正式验证要求和切换手顺；本地 macOS 结果只能证明验证编排与协议协作路径，不能替代 Linux 上的性能、fork/RDB、复制和部署包装结论。
+
+历史背景：项目早期曾基于 Redis 3.2 内核；Redis 3 源码、构建目标和兼容性测试已从仓库移除，当前不再提供 Redis 3 fallback。
 
 ## 验证 Gate
 
@@ -10,32 +12,30 @@
 | go-regression | `make gotest` | `go test ./cmd/... ./pkg/...` 全部通过 | Go 组件 adapter 或既有测试债务；先确认失败包是否落在 Redis 客户端、迁移编排路径上 |
 | redis-tcl-codis-suite | `cd extern/redis-8.6.3 && ./runtest --single unit/codis --single unit/codis_migration --single unit/codis_slotsrestore --single unit/codis_async_migration` | Redis 8 Codis 四组 Tcl 用例通过 | Redis 8 Codis Server 的 slot、迁移、restore 实现；先看 runtest 日志里第一个失败用例 |
 | e2e-local-codis-cluster | `python3 scripts/redis8_local_validation.py --only e2e --output redis8-evidence.json` | `semi-async` 与 `sync` 两轮临时集群都完成 proxy 写读、slot 分配、slot 迁移与迁移后读回 | 先看 evidence 里的 dashboard、proxy、redis 日志，再判断落在 topom、proxy 还是 server 集成边界 |
-| cross-version-fragment-matrix | `python3 scripts/redis8_local_validation.py --only cross-version --output redis8-evidence.json` | Redis 3 → Redis 8 与 Redis 8 → Redis 3 的 `SLOTSMGRTTAGONE` 为 success 或可观测失败，失败时源端 key 保留 | RDB fragment 兼容性；同一方向重复失败可交 Linux 阶段复核，源端 key 消失必须立即定为阻塞问题 |
 | linux-formal-handoff | 逐项落实下文“Linux 正式验证要求” | 环境字段、功能与性能命令、fork/RDB、复制、部署包装都有结论 | 验证规划缺项：缺什么就算未验证，不得用本地数字补位 |
 | cutover-runbook-draft | 评审下文“切换手顺” | preflight、canary、ramp-up、full cutover、rollback 五阶段齐全 | 运维规划缺项：补阶段与阶段退出条件后再动手 |
 
 判定规则：
 
 - 失败归属：二进制缺失或版本不对归构建与打包；Tcl 失败归 Redis 8 Codis Server；Go 回归失败归 Go 组件 adapter 或既有测试债务；e2e 失败先看 evidence 日志再归集成边界。
-- 跨版本迁移失败但源端 key 保留是可观测失败，交 Linux 阶段复核；失败且源端 key 消失直接阻塞 cutover。
+- 迁移失败但源端 key 保留是可观测失败，交 Linux 阶段复核；失败且源端 key 消失直接阻塞 cutover。
 
 ## 本地验证脚本
 
 `scripts/redis8_local_validation.py` 是本地非性能验证入口，用真实二进制起短生命周期集群跑端到端场景，不跑 `redis-benchmark`，也不给出吞吐或延迟结论：
 
 ```text
-python3 scripts/redis8_local_validation.py [--repo <repo root>] [--only all|e2e|cross-version|...] [--output <evidence.json>] [--keep-temp]
+python3 scripts/redis8_local_validation.py [--repo <repo root>] [--only all|e2e] [--output <evidence.json>] [--keep-temp]
 ```
 
 - `--repo`：仓库根目录，默认取脚本所在仓库。
-- `--only`：默认 `all`，等价于 `e2e` + `cross-version`；也可单选或逗号分隔组合，如 `--only e2e,cross-version`。
+- `--only`：默认 `all`，目前等价于 `e2e`；也可显式写 `--only e2e`。
 - `--output`：把 JSON 证据写入指定路径；不传则只打印到标准输出。
 - `--keep-temp`：保留临时工作目录，便于事后查日志；不加时通过后自动清理。
 
-前置条件是 `bin/` 下已存在 `codis-admin`、`codis-dashboard`、`codis-proxy`、`codis-server`、`codis-server-redis3`、`redis-cli`、`redis-cli-redis3`，缺任何一个直接报错退出。进程退出码 0 表示所选场景全部通过，1 表示存在失败场景，失败原因写在证据 JSON 的 `error` 字段。
+前置条件是 `bin/` 下已存在 `codis-admin`、`codis-dashboard`、`codis-proxy`、`codis-server`、`redis-cli`，缺任何一个直接报错退出。进程退出码 0 表示所选场景全部通过，1 表示存在失败场景，失败原因写在证据 JSON 的 `error` 字段。
 
 - e2e 场景：对 `semi-async` 和 `sync` 各起一套临时集群（dashboard、proxy、两个 Redis 8 group master，端口自动分配），经 proxy 写入普通 key、带 hash tag 的 key 和非 0 DB key，再通过 dashboard 把这些 slot 迁到 group 2 并读回，同时校验源端与目标端的 key 归属。
-- 跨版本场景：同时启动 Redis 3 fallback 与 Redis 8 server，对 string、hash、list、zset 四类样本双向执行 `SLOTSMGRTTAGONE`，按 `success`、`observable_failure`、`unsupported` 归类，并断言成功时源端 key 已删除、失败时源端 key 仍在。
 
 ## Linux 正式验证要求
 
@@ -49,7 +49,7 @@ python3 scripts/redis8_local_validation.py [--repo <repo root>] [--only all|e2e|
 | 操作系统 | 发行版与内核版本 |
 | 硬件 | CPU 型号与核心数、内存、磁盘类型与文件系统 |
 | 构建工具链 | Go 版本、compiler flags、实际执行的 `make` 命令、`bin/version` 内容 |
-| 后端二进制 | Redis 8 默认 server 路径、Redis 3 fallback 路径 |
+| 后端二进制 | Redis 8 Codis Server 路径 |
 | 运行配置 | dashboard、proxy、server 的关键配置 diff |
 | 测试资源 | 测试端口、数据目录、日志目录 |
 | 清理结果 | 临时目录、临时集群与端口是否回收 |
@@ -72,7 +72,6 @@ cd - && python3 scripts/redis8_local_validation.py --output redis8-linux-evidenc
 ```bash
 bin/redis-benchmark -h 127.0.0.1 -p <redis8-direct-port> -t get,set -n <N> -c <C> -P <P>
 bin/redis-benchmark -h 127.0.0.1 -p <codis-proxy-port> -t get,set -n <N> -c <C> -P <P>
-bin/redis-benchmark-redis3 -h 127.0.0.1 -p <redis3-fallback-port> -t get,set -n <N> -c <C> -P <P>
 ```
 
 部署包装 gate：
@@ -86,7 +85,7 @@ Docker daemon 不可用时只能记为 blocked，不能写成已验证。
 
 ### 必须产出的结果
 
-- 三条 benchmark 的原始输出与测试参数；proxy 相对直连 Redis 8 的开销必须用 Linux 实测，不得用 macOS 数字补位。
+- 两条 benchmark 的原始输出与测试参数；proxy 相对直连 Redis 8 的开销必须用 Linux 实测，不得用 macOS 数字补位。
 - fork/RDB：`BGSAVE` 是否成功、日志、耗时、RDB 文件大小。执行前记录 `vm.overcommit_memory`，为 0 时记录 Redis 的 overcommit 警告，并在生产切换前评估改为 1。
 - 复制：master/replica link 状态、初次同步、断连恢复。复制关系必须写入持久配置（`redis.conf` 的 `replicaof` 或服务启动参数），不能只执行运行时 `SLAVEOF`；重启副本后要确认 link 恢复且新增写入可读。
 - 迁移与包装：迁移期间持续读写的表现、slot action 是否清零、失败重试行为；镜像构建、启动命令、默认配置与日志路径。
@@ -105,10 +104,10 @@ Docker daemon 不可用时只能记为 blocked，不能写成已验证。
 
 ### 1. Preflight
 
-- 确认当前 Codis commit、默认 `bin/codis-server` 指向 Redis 8、`bin/codis-server-redis3` fallback 可用。
+- 确认当前 Codis commit、默认 `bin/codis-server` 指向 Redis 8，且只使用仓库内 Redis 8 构建产物。
 - 跑完 Linux 功能 gate 与性能 gate，并完成 fork/RDB、复制、迁移期间读写、Docker 包装检查。
 - 备份 coordinator 元数据、Redis 数据目录、关键配置，记录操作窗口。
-- 明确 Redis 8 的 RDB/AOF 不保证 Redis 3 可读，“换回 Redis 3 二进制”不能当作通用回滚手段。
+- 明确 Redis 8 的 RDB/AOF 与旧大版本不保证兼容；回滚只能依赖已验证的备份或恢复方案。
 
 ### 2. Canary
 
@@ -125,14 +124,14 @@ Docker daemon 不可用时只能记为 blocked，不能写成已验证。
 ### 4. Full cutover
 
 - 全量 slot 迁到 Redis 8 group 后，确认 dashboard/topom 的 slot action 清零，并确认 proxy 列表、group 状态、复制状态和最近一次 RDB/fork 结果。
-- 保留 Redis 3 fallback 二进制与旧 group 数据到既定观察窗口结束。
+- 保留迁移前的旧 group 数据与备份到既定观察窗口结束。
 - 只有 Linux 正式性能与稳定性结论都通过后，才标记切换完成。
 
 ### 5. Rollback
 
-- Canary 阶段：旧 Redis 3 group 仍是权威数据源，可通过 dashboard/topom 把 canary slot 迁回。
-- Ramp-up 阶段：Redis 8 已承接写入时，优先使用已经验证过的反向迁移方向；未验证的方向不能临场假设可用。
-- Full cutover 后：Redis 8 已是唯一写入源，回滚只能依赖已验证的反向迁移或备份恢复。禁止直接编辑文件系统、ZooKeeper、Etcd 等 coordinator 元数据绕过 topom，也禁止用 Redis 8 的 RDB/AOF 直接启动 Redis 3 回滚（除非已有同版本数据文件兼容性验证）。
+- Canary 阶段：迁移前的旧 group 仍是权威数据源，可通过 dashboard/topom 把 canary slot 迁回。
+- Ramp-up 阶段：Redis 8 已承接写入时，优先使用已经验证过的反向迁移方向或恢复备份；未验证的方向不能临场假设可用。
+- Full cutover 后：Redis 8 已是唯一写入源，回滚只能依赖已验证的反向迁移或备份恢复。禁止直接编辑文件系统、ZooKeeper、Etcd 等 coordinator 元数据绕过 topom，也禁止用不兼容的数据文件直接启动旧版本回滚。
 
 ## Go 组件兼容矩阵
 
@@ -142,7 +141,7 @@ Docker daemon 不可用时只能记为 blocked，不能写成已验证。
 | --- | --- | --- |
 | `pkg/utils/redis.Client.InfoFull` | `INFO` 返回普通 `key:value` 文本，replica 字段名 `master_host`、`master_port`、`master_link_status` 保持可解析，无副本时不生成 `master_addr`；`CONFIG GET maxmemory` 返回 `[maxmemory, integer]` | fake test + smoke |
 | `pkg/proxy.BackendConn.KeepAlive` | `loading` 为 1 或 `master_link_status` 为 down 时不恢复 connected | proxy fake test |
-| `pkg/utils/redis.Client.SetMaster`、`cmd/admin`、`cmd/ha` | `CONFIG REWRITE` 不丢 `codis-enabled` 等 Codis 自定义配置；`CLIENT KILL TYPE normal` 可用，事务子命令 error 必须冒泡；继续优先发送 `SLAVEOF`，Redis 8 alias 应可用 | fake test + smoke |
+| `pkg/utils/redis.Client.SetMaster`、`cmd/admin`、`cmd/ha` | `CONFIG REWRITE` 不丢 `codis-enabled` 等 Codis 自定义配置；`CLIENT KILL TYPE normal` 可用，事务子命令 error 必须冒泡；发送 `SLAVEOF`（Redis 8 支持的别名） | fake test + smoke |
 | `pkg/utils/redis.NewClient`、`pkg/proxy.BackendConn.verifyAuth` | `AUTH <password>` 对 default user 成功；失败返回错误且不泄露密码 | fake test + smoke |
 | `pkg/utils/redis.Client.Select`、`pkg/proxy.BackendConn.selectDatabase` | `SELECT <db>` 后 slot 命令和迁移只作用当前 DB | fake test + smoke |
 | `pkg/utils/redis.Client.SlotsInfo`、proxy `SLOTSINFO` | `[[slot_id,key_count], ...]`；畸形返回报错 | fake test + smoke |

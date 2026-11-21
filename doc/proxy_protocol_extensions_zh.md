@@ -119,7 +119,7 @@ Stream 支持是 proxy 的**受控路由子集**：命令属性写进 `pkg/proxy
 - 被拒绝的请求由 proxy 直接返回 Redis error，不转发到任何后端 slot，也不关闭连接。
 - `XGROUP HELP`、`XINFO HELP` 和未知 Stream 子命令返回 `ERR unsupported Stream subcommand for '<cmd>'`，不为静态 help 文本随机挑一个后端。
 - Stream 支持不改变 `MULTI` / `EXEC`、`EVAL` / `EVALSHA`、`SCRIPT`、pub/sub、Redis Cluster 和 Codis 迁移命令的既有 allow/deny 策略，不扩大危险命令面。
-- 后端仍是 Redis 3 时 proxy 仍按 stream key 正确路由，但最终由后端返回 unknown command；proxy 不伪造成功响应。
+- 后端必须是 Redis 8 Codis Server；其他旧版后端不在支持范围，proxy 不伪造成功响应。
 
 ## 已知路由缺口
 

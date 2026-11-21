@@ -5,7 +5,7 @@ Codis is a distributed Redis solution, there is no obvious difference between co
 
 Codis 3.x consists of the following components:
 
-* **Codis Server**: based on redis-3.2.8 branch development. Added additional data structures to support slot-related operations and data migration instructions. Specific changes can refer to the document [redis changes](redis_change_zh.md).
+* **Codis Server**: based on the embedded Redis 8 (`extern/redis-8.6.3`). Added additional data structures to support slot-related operations and data migration instructions. Specific changes can refer to the document [Redis 8 Codis Server extensions](redis8_codis_server_zh.md).
 
 * **Codis Proxy**: is the proxy service of client connections. Codis Proxy Implements Redis Protocol. In addition to some commands do not support ([unsupported command list](unsupported_cmds.md)).
 
@@ -77,7 +77,7 @@ $ cd $_ && git clone https://github.com/CodisLabs/codis.git -b release3.2
 ```bash
 $ cd $GOPATH/src/github.com/CodisLabs/codis
 $ make
-make -j -C extern/redis-3.2.8/
+make -j4 -C extern/redis-8.6.3/
 ... ...
 go build -i -o bin/codis-dashboard ./cmd/dashboard
 go build -i -o bin/codis-proxy ./cmd/proxy
