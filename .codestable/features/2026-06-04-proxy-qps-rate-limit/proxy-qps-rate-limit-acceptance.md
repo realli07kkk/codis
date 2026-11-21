@@ -80,3 +80,17 @@
 - FE 交互已完成静态资源和语法验证；本环境没有可用 in-app Browser 工具，且 Playwright 未安装，因此未做真实浏览器提交表单 E2E。提交语义由 FE 控制器代码、dashboard/topom API 测试和本地 `codis-fe` 静态 HTTP 资源验证覆盖。
 - 首版按设计不实现跨 proxy 分布式 token bucket、自动调参、细粒度限流或 Redis protocol `CONFIG SET proxy_qps_limit` 例外。
 - 后续若继续新增 dashboard-managed runtime config，建议先沉淀 shared pattern，避免每个 feature 重复处理 model/store/fan-out/sync status。
+
+## 10. 2026-11-21 Linux 真机复验
+
+在 ECS-B 两个 proxy（19000/19001）上通过 dashboard API 实测：
+
+- 初始 rev0/limit0/`not_configured`；PUT limit=5 → rev1/limit5/`ready`，两个 proxy stats 均 rev1/limit5。
+- 两个 proxy 各发 20 个 pipeline PING：均 **5 accepted / 15 rejected**；等待 1.2s 后 5 PING 全 accepted。
+- PUT limit=-1 → HTTP 800 `proxy qps limit must be >= 0`，rev1/limit5 未变；PUT limit=0 → rev2/limit0，20 PING 全 accepted。
+- PUT limit=7 后重启 19000，stats 仍 rev3/limit7，证明 reinit 重放。
+- limit=1 时 AUTH 返回 `ERR Client sent AUTH, but no password is set`（非 QPS 错误），QUIT 返回 OK；10 PING 为 1 accepted / 9 rejected。
+- 最终 rev5/limit0，两个 proxy stats 均 rev5/limit0；ACL 测试后恢复 `codis_acl_enabled=false` 并重启，无认证 PING=PONG。
+- FE `/`、`qps-limit.js` 均 200；**浏览器表单 E2E 仍未做**（本机无 Chrome tab/Chromium）。
+
+未独立测量被拒绝请求的后端 commandstats delta；`ops.redis.errors` 未增长，QPS 拒绝计入 request fails。证据：`.runtime/acl-qps-e2e/REPORT.md` 及同目录脚本；测试未修改产品代码。

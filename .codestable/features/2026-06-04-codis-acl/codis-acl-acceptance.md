@@ -81,3 +81,17 @@
 - 首版不实现 Redis Cluster ACL、RESP3/HELLO parity、Pub/Sub channel ACL、Redis Stack/module key-spec 语义，也不承诺 proxy rollout 的分布式原子切换。
 - FE 已完成静态渲染和控制器语法核对；未在本轮单独启动真实 dashboard 做浏览器端提交表单 E2E，提交语义由 topom API 测试和 FE 控制器代码核对覆盖。
 - 后续适合补用户指南：ACL 配置示例、服务账号最小权限、客户端 AUTH 迁移方式、回滚步骤、partial `sync_status` 排障和 Redis 8 smoke 操作手册。
+
+## 10. 2026-11-21 Linux 真机复验
+
+在 ECS-A/ECS-B（Redis 8.6.3，group1/2/3）上通过 dashboard API 和两个 proxy 实测：
+
+- 初始 `not_configured`；启用 `app`（+@all）、`reader`（+@read）、`db3`（+@all，db=3）后 rev1 `ready`，6 个 Redis server 均同步出对应用户，default 仍 nopass。
+- 两个 proxy 临时 `codis_acl_enabled=true`：未认证 PING 返回 `NOAUTH`；`app` 可 SET/GET；`reader` GET 成功、SET 返回 `NOPERM`；`db3` 的 SELECT 5 返回 OK 但实际落 DB3，直连 master DB3 可读到值、DB0 为空。
+- `ACL SETUSER` 经 proxy 返回 `ERR unsupported ACL subcommand 'SETUSER'`；`AUTH password` 单参数（default）返回 `WRONGPASS`；失败 reauth 后 `ACL WHOAMI` 仍保留原用户。
+- revision 切换：改密码到 rev2 后旧会话 `ACL WHOAMI`/`GET` 返回 `NOAUTH`，重新 AUTH 新密码恢复。
+- 空 rules、明文密码规则被 800 拒绝；db=99 被 topom 接受但 proxy AUTH fail-closed（`exceeds backend db count 16`），随后移除。
+- `--acl-sync` 返回 rev4 `ready`；清理后 rev5 disabled、users=null，6 个后端均只剩 default，两个 proxy 恢复 `codis_acl_enabled=false`，无认证 PING=PONG。
+- FE `/`、`acl.js` 均 200；**浏览器表单 E2E 仍未做**（本机无 Chrome tab/Chromium）。
+
+证据：`.runtime/acl-qps-e2e/REPORT.md` 及同目录脚本；测试未修改产品代码。
