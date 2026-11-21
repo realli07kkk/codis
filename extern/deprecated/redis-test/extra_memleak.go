@@ -26,7 +26,7 @@ func (tc *ExtraMemleakTestCase) init() {
 }
 
 func (tc *ExtraMemleakTestCase) main() {
-	fmt.Println(`
+	fmt.Print(`
 !! PLEASE MAKE SURE !!
 - compile : make MALLOC=libc -j4
 - run     : valgrind --leak-check=full

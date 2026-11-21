@@ -51,7 +51,7 @@ func (tc *TestPttlTestCase) player(gid int, tg *TestGroup, tags *ZeroTags) {
 	defer c.Close()
 	us := UnitSlice(make([]*Unit, tc.nkeys))
 	for i := 0; i < len(us); i++ {
-		key := fmt.Sprintf("test_pttl_%d_tag{%d}", gid, i, tags.Get(i))
+		key := fmt.Sprintf("test_pttl_%d_%d_tag{%s}", gid, i, tags.Get(i))
 		us[i] = NewUnit(key)
 	}
 	ttls := make(map[string]*TTL)

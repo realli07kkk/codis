@@ -399,7 +399,7 @@ func (u *Unit) Lpush(c *Conn, s string) {
 	}
 	v := c.Int(rsp)
 	if x := l.Len() + 1; x != v {
-		panic(fmt.Sprintf("return = %d, except = %d", s, v, x))
+		panic(fmt.Sprintf("return = %d, expect = %d", v, x))
 	}
 	l.PushFront(s)
 }
