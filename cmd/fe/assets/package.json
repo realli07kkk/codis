@@ -1,8 +1,6 @@
 {
   "dependencies": {
     "angular": "1.8.3",
-    "bootstrap": "3.4.1",
-    "bootstrap-dialog": "1.34.6",
     "highcharts": "13.1.1",
     "jquery": "3.7.1",
     "sha256": "0.2.0"
