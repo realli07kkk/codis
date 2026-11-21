@@ -19,6 +19,10 @@ PROXY_JEMALLOC ?= 1
 SUPPORTED_TARGET_OSES := darwin linux
 SUPPORTED_TARGET_ARCHES := amd64 arm64
 
+ifeq ($(HOST_OS),linux)
+JEMALLOC_CONFIG_DEP := jemalloc-config
+endif
+
 TARGET_CC_VAR := PLATFORM_CC_$(TARGET_VAR)
 TARGET_CXX_VAR := PLATFORM_CXX_$(TARGET_VAR)
 TARGET_CGO_ENABLED_VAR := PLATFORM_CGO_ENABLED_$(TARGET_VAR)
@@ -30,7 +34,7 @@ TARGET_REDIS_MAKE_ARGS := $($(TARGET_REDIS_MAKE_ARGS_VAR))
 GO_BUILD_ENV = GOOS=$(TARGET_OS) GOARCH=$(TARGET_ARCH) CGO_ENABLED=$(TARGET_CGO_ENABLED) $(if $(TARGET_CC),CC="$(TARGET_CC)")
 REDIS_BUILD_ENV = $(if $(TARGET_CC),CC="$(TARGET_CC)") $(if $(TARGET_CXX),CXX="$(TARGET_CXX)") $(TARGET_REDIS_MAKE_ARGS)
 
-.PHONY: build-all host-build-all build-host codis-deps validate-target-platform check-target-platforms check-target-platform default-configs build-platforms release-platforms build-platform build-platform-artifact build-no-redis-platform codis-dashboard codis-proxy codis-admin codis-ha codis-fe codis-server codis-server-redis3 codis-server-redis8 clean-gotest clean distclean gotest gobench docker demo
+.PHONY: build-all host-build-all build-host codis-deps jemalloc-config validate-target-platform check-target-platforms check-target-platform default-configs build-platforms release-platforms build-platform build-platform-artifact build-no-redis-platform codis-dashboard codis-proxy codis-admin codis-ha codis-fe codis-server codis-server-redis3 codis-server-redis8 clean-gotest clean distclean gotest gobench docker demo
 
 build-all: host-build-all
 
@@ -52,6 +56,9 @@ release-platforms: build-platforms
 
 codis-deps:
 	@mkdir -p bin config scripts/tmp && bash version
+
+jemalloc-config:
+	@$(MAKE) --no-print-directory -C third_party/jemalloc-go -f config.mk config
 
 validate-target-platform:
 	@if [ -z "$(TARGET_OS)" ] || [ -z "$(TARGET_ARCH)" ]; then \
@@ -95,7 +102,7 @@ check-target-platform: validate-target-platform
 		fi; \
 	fi
 
-default-configs: codis-deps
+default-configs: codis-deps $(JEMALLOC_CONFIG_DEP)
 	@mkdir -p $(HOST_CONFIG_BIN) config
 	go build $(VERSION_LDFLAGS) -o $(HOST_CONFIG_BIN)/codis-dashboard ./cmd/dashboard
 	@$(HOST_CONFIG_BIN)/codis-dashboard --default-config > config/dashboard.toml
@@ -127,6 +134,8 @@ build-platform-artifact: codis-deps
 	@cp -f $(REDIS8_DIR)/src/redis-benchmark $(TARGET_DIR)/
 	@cp -f $(REDIS8_DIR)/src/redis-cli $(TARGET_DIR)/
 	@cp -f $(REDIS8_DIR)/src/redis-sentinel $(TARGET_DIR)/
+	@cp -f $(REDIS8_DIR)/src/redis-check-aof $(TARGET_DIR)/
+	@cp -f $(REDIS8_DIR)/src/redis-check-rdb $(TARGET_DIR)/
 	@cp -f config/dashboard.toml config/proxy.toml config/redis.conf config/sentinel.conf $(TARGET_DIR)/
 	@test -x $(TARGET_DIR)/codis-dashboard
 	@test -x $(TARGET_DIR)/codis-proxy
@@ -173,7 +182,7 @@ codis-dashboard: codis-deps
 	go build $(VERSION_LDFLAGS) -o bin/codis-dashboard ./cmd/dashboard
 	@./bin/codis-dashboard --default-config > config/dashboard.toml
 
-codis-proxy: codis-deps
+codis-proxy: codis-deps $(JEMALLOC_CONFIG_DEP)
 	go build -tags "cgo_jemalloc" $(VERSION_LDFLAGS) -o bin/codis-proxy ./cmd/proxy
 	@./bin/codis-proxy --default-config > config/proxy.toml
 
@@ -197,6 +206,8 @@ codis-server:
 	@cp -f $(REDIS8_DIR)/src/redis-benchmark bin/
 	@cp -f $(REDIS8_DIR)/src/redis-cli bin/
 	@cp -f $(REDIS8_DIR)/src/redis-sentinel bin/
+	@cp -f $(REDIS8_DIR)/src/redis-check-aof bin/
+	@cp -f $(REDIS8_DIR)/src/redis-check-rdb bin/
 	@awk '1; /^[[:space:]]*databases[[:space:]]+[0-9]+([[:space:]]*#.*)?$$/ && !injected { print ""; print "# Enable Codis 1024-slot mode for the packaged Codis Server."; print "codis-enabled yes"; print ""; print "# Codis Redis 8 slot migration auth. Empty values keep using requirepass for"; print "# backward-compatible migration auth. Set both fields to use Redis ACL named user."; print "codis-migration-auth-user \"\""; print "codis-migration-auth-pass \"\""; injected=1 }' $(REDIS8_DIR)/redis.conf | sed -e 's/[[:blank:]]*$$//' > config/redis.conf
 	@grep -q '^codis-enabled yes$$' config/redis.conf
 	@sed -e "s/^sentinel/# sentinel/g" -e 's/[[:blank:]]*$$//' $(REDIS8_DIR)/sentinel.conf > config/sentinel.conf

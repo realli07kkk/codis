@@ -33,6 +33,8 @@ cd -
 python3 scripts/redis8_local_validation.py --output .codestable/features/2026-05-17-redis8-validation-cutover/redis8-linux-evidence.json
 ```
 
+Linux 上 `codis-proxy` 依赖 `jemalloc-config`，会运行 jemalloc autogen；构建机需要 `autoconf`、`automake`、`libtool` 和 `gawk`，不能复用仓库里 macOS 生成的 jemalloc 头文件。
+
 性能 gate 只在 Linux 执行：
 
 ```bash
@@ -55,7 +57,8 @@ docker run --rm <codis-image> <smoke-command>
 - direct Redis 8、proxy + Redis 8、Redis 3 fallback 的 throughput/latency 原始输出和测试参数。
 - proxy 路径相对 direct Redis 8 的开销，不用 Mac 数字补位。
 - Redis 8 fork/RDB 行为：`BGSAVE` 成功、日志、耗时、RDB 文件大小。
-- replication 行为：master/replica link、初次同步、断连恢复。
+- replication 行为：master/replica link、初次同步、断连恢复。复制关系必须写入持久配置（`redis.conf` 的 `replicaof` 或服务启动参数），不能只执行运行时 `SLAVEOF`；重启副本后要确认 link 恢复且新增写入可读。
+- 执行 fork/RDB 前记录 `vm.overcommit_memory`；若为 0，记录 Redis 的 overcommit 警告，并在生产 cutover 前评估设为 1。
 - migration 行为：迁移期间持续写读、slot action 清零、失败重试行为。
 - Docker/部署包装行为：镜像构建、启动命令、默认配置、日志路径。
 

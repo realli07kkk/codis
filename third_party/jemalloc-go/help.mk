@@ -7,8 +7,14 @@ SRC := jemalloc-5.2.1
 
 relink: unlink
 	@for i in $(C_SRCS); do \
-		rm -f            je_$$(basename $$i); \
-		ln -s $(SRC)/$$i je_$$(basename $$i); \
+		name=$$(basename $$i); \
+		if [ "$$name" = "zone.c" ]; then \
+			target=je_zone_darwin.c; \
+		else \
+			target=je_$$name; \
+		fi; \
+		rm -f "$$target"; \
+		ln -s $(SRC)/$$i "$$target"; \
 	done
 
 unlink:

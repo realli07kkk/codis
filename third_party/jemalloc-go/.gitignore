@@ -3,4 +3,5 @@
 /VERSION
 
 je_*.c
+!je_zone_darwin.c
 *.swp

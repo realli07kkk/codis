@@ -725,7 +725,7 @@ def main():
             "machine": platform.machine(),
             "python": sys.version.split()[0],
         },
-        "scope": "local Mac non-performance validation only; benchmark and formal cutover verdict are excluded",
+        "scope": "non-performance validation only; benchmark and formal cutover verdict are excluded",
         "gate_definitions": build_gate_definitions(),
         "versions": {},
         "e2e": [],
