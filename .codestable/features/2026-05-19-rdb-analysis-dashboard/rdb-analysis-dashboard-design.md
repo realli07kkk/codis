@@ -35,7 +35,7 @@ tags: [dashboard, fe, rdb, observability, memory-analysis]
 
 假设：
 
-- 首版使用 `github.com/hdt3213/rdb` v1.3.2 对应的本地 clone `v1.3.2-0-g7ebe18a`。实现时 `go.mod` 应依赖正式 module 版本；如必须使用本地未发布改动，只在开发环境临时使用 `replace`，不要把 `/Users/liyiming/gitcode/rdb` 这类绝对路径提交进仓库。
+- 首版使用 `github.com/hdt3213/rdb` v1.3.2 对应的本地 clone `v1.3.2-0-g7ebe18a`。实现时 `go.mod` 应依赖正式 module 版本；如必须使用本地未发布改动，只在开发环境临时使用 `replace`，不要把 `/Users/liyiming/gitcode/rdb` 这类绝对路径提交进仓库。2026-11-21 为 Redis 8 RDB version 13 在仓库内 `third_party/rdb` 保留相对路径 fork，见第 11 节。
 - 首版的输入是“已有 RDB 文件”。如果产品目标是“点击某个 Codis Server 后自动生成并抓取 RDB”，那是另一个更大的数据采集 feature，需要先设计远端文件获取、权限和生产风险。
 
 明确不做：
@@ -298,3 +298,15 @@ flowchart TD
 - 在 FE/dashboard 交互中补充：Codis FE 可通过 dashboard API 启动 RDB analysis job 并轮询结果。
 - 在 dashboard/topom 内存状态中补充：topom 持有进程内 RDB analysis manager，任务不进入 coordinator，dashboard 重启后任务消失。
 - 在已知约束中补充：RDB analysis 首版只分析已有 RDB 文件，不自动从远端 Redis Server 生成或拉取 RDB；分析结果可能包含 key 名，需要 `xauth`。
+
+## 11. 2026-11-21 Redis 8 RDB version 13 适配
+
+Redis 8.6.3 生成 `REDIS0013`，上游 `github.com/hdt3213/rdb v1.3.2` 只支持 1..12，RDB Analysis 在真机首次验证时阻塞。实现采用最小 fork：
+
+- 源码放在 `third_party/rdb`，根 `go.mod` 使用相对路径 `replace github.com/hdt3213/rdb => ./third_party/rdb`，不提交绝对路径；
+- 接受 RDB version 13；
+- 支持 `RDB_TYPE_STREAM_LISTPACKS_4`（26）及 Redis 8.6 IDMP 元数据；
+- 跳过 `RDB_OPCODE_KEY_META`（243）和 `RDB_OPCODE_SLOT_INFO`（244）；
+- stream 的 `GetElemCount()` 返回 `Length`，避免大 key 表元素计数为 0。
+
+新增 `third_party/rdb/core/redis8_test.go` 覆盖真实 Redis 8 fixture 和 metadata opcode 合成用例；主模块仍通过 `parser.NewDecoder` / `core.NewDecoder` 使用该 fork。

@@ -75,3 +75,6 @@ require (
 )
 
 replace github.com/spinlock/jemalloc-go => ./third_party/jemalloc-go
+
+// Local fork adds Redis 8 RDB version 13 and stream IDMP parsing.
+replace github.com/hdt3213/rdb => ./third_party/rdb

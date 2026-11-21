@@ -54,7 +54,7 @@ tags: [dashboard, fe, rdb, observability, acceptance]
 - [x] 未修改 `pkg/proxy` 命令处理、router、backend 或 Redis 协议 mapper；反向 grep 无命中。
 - [x] 未在 `cmd/fe/main.go` 实现后端分析任务；`codis-fe` 仍只负责静态资源和 reverse proxy。
 - [x] 未向 coordinator 写入 RDB analysis job 或结果。
-- [x] `go.mod` 依赖 `github.com/hdt3213/rdb v1.3.2`，没有 `/Users/liyiming/gitcode/rdb` 绝对路径 `replace`。
+- [x] `go.mod` 依赖 `github.com/hdt3213/rdb v1.3.2`，通过仓库内相对路径 `replace ./third_party/rdb` 接入 Redis 8 补丁；没有 `/Users/liyiming/gitcode/rdb` 绝对路径 `replace`。
 - [x] 未自动执行 `BGSAVE` / `SAVE`，未读取 Redis Server 机器任意文件，未实现 replication stream 抓取。
 - [x] 未把完整 JSON/AOF/全量 key 列表返回浏览器；只返回 summary 和 top N。
 
@@ -82,7 +82,7 @@ tags: [dashboard, fe, rdb, observability, acceptance]
 - [x] M2 `pkg/topom/topom_rdb_analysis.go` / `_api.go` / `_test.go`：任务状态、解析聚合、API handler 和测试。
 - [x] M3 `pkg/topom/config.go` / `config/dashboard.toml`：新增 workspace、上传大小、并发、保留数、top N 上限配置。
 - [x] M4 `cmd/fe/assets/index.html` / `dashboard-fe.js` / `rdb-analysis.js`：新增浏览器入口和轮询展示。
-- [x] M5 `go.mod` / `go.sum`：新增 `github.com/hdt3213/rdb v1.3.2`。
+- [x] M5 `go.mod` / `go.sum`：新增 `github.com/hdt3213/rdb v1.3.2`；2026-11-21 追加仓库内 `third_party/rdb` fork 以支持 Redis 8 RDB version 13。
 - [x] 反向 grep：`RDBAnalysis|rdb-analysis|rdb_analysis|hdt3213/rdb` 的生产命中都落在上述挂载点；`pkg/proxy`、`cmd/fe/main.go`、`cmd/admin`、`cmd/ha`、`pkg/models`、`extern` 无命中。
 - [x] 拔除沙盘推演：删除 M1-M5 后，RDB Analysis 能力被移除，Codis 原有 dashboard/proxy/server 行为不应残留依赖。
 
@@ -188,3 +188,26 @@ make gotest
 - 实现阶段顺手发现：`context` import 必须保留 `stdcontext` alias，因为 `pkg/topom/context.go` 已有包内 `context` 类型。
 
 验收通过。实现与设计一致，架构与 requirement 已回写，checklist checks 已全部标记为 `passed`。等待用户终审确认。
+
+## 10. 2026-11-21 Linux 真机复验（PASS / Redis 8 parser upgrade）
+
+首次复验发现 Redis 8.6.3 生成的 `REDIS0013` 无法被上游 `github.com/hdt3213/rdb v1.3.2` 解析（`cannot parse version: 13`）。随后在 `third_party/rdb` 建立最小 fork，并通过根 `go.mod` 的 `replace` 接入：
+
+- 接受 RDB version 13；
+- 支持 `RDB_TYPE_STREAM_LISTPACKS_4`（26）及 Redis 8.6 IDMP 元数据；
+- 跳过 Redis 8 `RDB_OPCODE_KEY_META`（243）和 `RDB_OPCODE_SLOT_INFO`（244）；
+- 为 stream 补齐 `GetElemCount()`，大 key 表不再显示 0。
+
+验证结果：
+
+- fork 单测：`TestParseRedis8RDB`、`TestParseRedis8MetadataOpcodes` 通过；Redis 8 fixture 含 2 个 stream（含 IDMP stream）。
+- 主模块：`go test ./cmd/... ./pkg/...` 全部通过。
+- 真机 remote fetch：698 bytes / 11 objects / 2 DB，stream 元素计数正确（3）。
+- 真机 upload：456 bytes / 7 objects，`fork:stream=2`、`fork:idmp=1`。
+- 大 RDB upload：12473 bytes / 285 objects / 2 DB，string/list/hash/set/zset 汇总正常。
+- `codis-admin --rdb-analysis-remote-fetch`：job done。
+- 鉴权/边界：错误 export auth=403；非 product server、带 scheme 的 `server_addr`、错误 xauth=800；remote fetch 关闭=800。
+- FE `/`、`rdb-analysis.js` 均 200；真实浏览器表单 E2E 仍未做。
+- 测试后已恢复 export/remote fetch 为关闭，删除测试 key、临时 token 和临时文件；dashboard 保留升级后的二进制。
+
+**结论：Redis 8 RDB version 13 的 remote fetch、upload、workspace、codis-admin 分析均已在真机通过。** 证据：`.runtime/rdb-analysis-e2e/REPORT.md` 及同目录 JSON/RDB。

@@ -106,3 +106,26 @@ tags:
 - 已知产品限制：首版不支持下载阶段实时进度、不支持断点续传、不支持 Range/tus，不支持任意 URL，不触发 SAVE/BGSAVE，export auth 采用 dashboard 持久化单密钥配置。
 
 结论：设计、实现、架构文档、需求文档和 checklist 已闭环；本 feature 通过 acceptance。
+
+## 10. 2026-11-21 Linux 真机复验（PASS / Redis 8 parser upgrade）
+
+首次复验发现 Redis 8.6.3 生成的 `REDIS0013` 无法被上游 `github.com/hdt3213/rdb v1.3.2` 解析（`cannot parse version: 13`）。随后在 `third_party/rdb` 建立最小 fork，并通过根 `go.mod` 的 `replace` 接入：
+
+- 接受 RDB version 13；
+- 支持 `RDB_TYPE_STREAM_LISTPACKS_4`（26）及 Redis 8.6 IDMP 元数据；
+- 跳过 Redis 8 `RDB_OPCODE_KEY_META`（243）和 `RDB_OPCODE_SLOT_INFO`（244）；
+- 为 stream 补齐 `GetElemCount()`。
+
+验证结果：
+
+- **传输**：`GET /codis/rdb/latest` 返回 200；698 bytes 的 Redis 8 stream dump 与源 `dump.rdb` SHA256 一致；错误/缺失 auth 均 403；export 关闭 404。
+- **remote fetch**：698 bytes / 11 objects / 2 DB，stream 元素计数正确；source 为 `remote-http:192.168.0.8:6379/dump.rdb`。
+- **upload / workspace**：Redis 8 fixture 456 bytes / 7 objects，含 `fork:stream=2`、`fork:idmp=1`。
+- **大 RDB**：12473 bytes / 285 objects / 2 DB，string/list/hash/set/zset 汇总正常。
+- **codis-admin**：remote fetch job done。
+- **边界**：非 product server、带 scheme 的 `server_addr`、错误 xauth=800；remote fetch 关闭=800。
+- **单测**：fork 的 Redis 8 fixture、KEY_META/SLOT_INFO 合成用例通过；主模块 `go test ./cmd/... ./pkg/...` 全部通过。
+- FE `/`、`rdb-analysis.js` 均 200；真实浏览器表单 E2E 未做。
+- 测试后已恢复 export/remote fetch 为关闭，删除测试 key、临时 token 和临时文件；dashboard 保留升级后的二进制。
+
+**结论：remote fetch 传输/鉴权及 Redis 8 RDB version 13 解析均在真机通过。** 证据：`.runtime/rdb-analysis-e2e/REPORT.md` 及同目录 JSON/RDB。

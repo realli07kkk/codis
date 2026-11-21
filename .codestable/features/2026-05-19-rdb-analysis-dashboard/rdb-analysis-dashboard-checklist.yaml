@@ -43,7 +43,7 @@ checks:
   - item: "删除 API 路由、analysis job manager、FE 区域和 Go module 依赖后，Codis 原有 dashboard/proxy/server 行为不变"
     source: 挂载点
     status: passed
-  - item: "go.mod 依赖 github.com/hdt3213/rdb 正式 module 版本，不提交指向 /Users/liyiming/gitcode/rdb 的绝对路径 replace"
+  - item: "go.mod 依赖 github.com/hdt3213/rdb，使用仓库内相对路径 replace ./third_party/rdb（v1.3.2 + Redis 8 补丁），不提交指向 /Users/liyiming/gitcode/rdb 的绝对路径 replace"
     source: 范围守护
     status: passed
   - item: "不在 proxy 业务请求路径中解析 RDB，不改 proxy 命令 allow-list，不向业务客户端暴露新 Redis 命令"
