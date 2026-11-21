@@ -437,6 +437,49 @@ func TestPitrSnapshotCopiesAndRecordsStat(t *testing.T) {
 	}
 }
 
+// TestPitrTruncateUsesTimestampModeOnly pins the redis-check-aof invocation:
+// Redis 8.6.3 accepts --fix or --truncate-to-timestamp, but not both. Passing
+// --fix makes the real binary exit with a usage error before touching the AOF.
+func TestPitrTruncateUsesTimestampModeOnly(t *testing.T) {
+	aofDir, manifestPath, lastSeg := setupAofDir(t, 1000)
+	dir := t.TempDir()
+	argFile := filepath.Join(dir, "args.txt")
+	bin := filepath.Join(dir, "check-aof.sh")
+	script := "#!/bin/sh\nprintf '%s\\n' \"$@\" > " + argFile + "\n"
+	if err := os.WriteFile(bin, []byte(script), 0755); err != nil {
+		t.Fatal(err)
+	}
+	job := &PitrJob{
+		ID:              "test-trunc-args",
+		AofDir:          aofDir,
+		AofManifest:     manifestPath,
+		LastSegmentFile: lastSeg,
+		TruncateTs:      500,
+		mu:              &sync.Mutex{},
+	}
+	pm := &PitrManager{redisCheckBin: bin}
+	if err := pm.stepSnapshot(stdcontext.Background(), job, nil); err != nil {
+		t.Fatalf("stepSnapshot failed: %v", err)
+	}
+	if err := pm.stepTruncate(stdcontext.Background(), job, nil); err != nil {
+		t.Fatalf("stepTruncate failed: %v", err)
+	}
+	args, err := os.ReadFile(argFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := strings.Split(strings.TrimSpace(string(args)), "\n")
+	want := []string{"--truncate-to-timestamp", "500", manifestPath}
+	if len(got) != len(want) {
+		t.Fatalf("args = %q, want %q", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("args = %q, want %q", got, want)
+		}
+	}
+}
+
 // TestPitrTruncateFailureKeepsSnapshot verifies stepTruncate surfaces a
 // restore-from-snapshot pointer when redis-check-aof exits non-zero (server is
 // already down in this step).
@@ -744,6 +787,42 @@ func TestPitrTruncateStatDiffReverseDisappeared(t *testing.T) {
 	err = pm.stepTruncate(stdcontext.Background(), job, nil)
 	if err == nil || !strings.Contains(err.Error(), "disappeared after truncate") {
 		t.Fatalf("expected reverse-compare 'disappeared' drift, got %v", err)
+	}
+}
+
+// TestPitrCancelBetweenStepsBecomesCancelled covers a cancel observed after a
+// successful step and before the next one. There is no failed step, so run()
+// must mark the job terminal cancelled; leaving it at the previous step's
+// in-progress state held the per-server lock forever.
+func TestPitrCancelBetweenStepsBecomesCancelled(t *testing.T) {
+	m := newTestPitrManager(t, true)
+	ctx, cancel := stdcontext.WithCancel(stdcontext.Background())
+	deps := fakePitrDeps{
+		groupOfServer: func(addr string) (int, bool, error) { return 3, true, nil },
+		configGet: func(addr, pattern string) (map[string]string, error) {
+			v := map[string]string{
+				"appendonly":            "yes",
+				"aof-timestamp-enabled": "yes",
+				"dir":                   "/tmp/pitr-cancel",
+				"appendfilename":        "appendonly.aof",
+				"appenddirname":         "appendonlydir",
+			}
+			if pattern == "appenddirname" {
+				cancel()
+			}
+			return v, nil
+		},
+	}
+	job := &PitrJob{
+		ID:         "test-cancel-between-steps",
+		ServerAddr: "1.1.1.1:6379",
+		TruncateTs: 1716000000,
+		mu:         &sync.Mutex{},
+	}
+	m.run(ctx, job, deps)
+	got := job.Snapshot()
+	if got.State != PitrStateCancelled {
+		t.Fatalf("state = %s, want %s; steps=%+v", got.State, PitrStateCancelled, got.Steps)
 	}
 }
 

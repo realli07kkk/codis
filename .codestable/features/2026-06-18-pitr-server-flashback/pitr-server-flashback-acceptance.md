@@ -51,7 +51,7 @@
 
 **关键决策落地**：
 
-- [x] D1 复用 Redis 8 原生 aof-timestamp-enabled + redis-check-aof（不改 C）：实测 `exec.CommandContext(m.redisCheckBin, "--truncate-to-timestamp", ts, "--fix", manifest)`。
+- [x] D1 复用 Redis 8 原生 aof-timestamp-enabled + redis-check-aof（不改 C）：实测 `exec.CommandContext(m.redisCheckBin, "--truncate-to-timestamp", ts, manifest)`；`--fix` 与 `--truncate-to-timestamp` 互斥，不能同时传。
 - [x] D7 不 fork redis-server：restart 走"可选 pitr_restart_command kick + 始终轮询 INFO"，代码 `stepRestart` 实测。
 - [x] D8 snapshot = manifest + last file：`stepSnapshot` 只 copyFile 这两个。
 - [x] D8 stat diff 兜底：`stepTruncate` 双向 compare（forward appeared / reverse disappeared / non-last changed），`TestPitrTruncateStatDiffForwardAppeared` + `TestPitrTruncateStatDiffReverseDisappeared` 钉住。
@@ -189,3 +189,18 @@
 **实现阶段顺手发现**：
 
 - `cmd/admin/dashboard.go` 已较大（混合 ACL + RDB analysis remote fetch + PITR 的 flag 分发）。建议后续走 `cs-refactor` 把每个能力的 admin 分发拆成 `cmd/admin/<capability>.go`（`rdb_analysis_remote_fetch.go` 已是此模式），让 `dashboard.go` 只做公共参数解析。本 feature 未动（design 2.5 超出范围观察）。
+
+## 10. 2026-11-21 Linux 真机复验
+
+在 ECS-A（Ubuntu，Redis 8.6.3）+ group3 `6383` master / `6384` replica 上执行；不是本地 mock。结果：
+
+- **happy path 通过**：最终 job `01a1fe4c-2882-7e9a-b028-50e372ea40af`，`succeeded`，写入 `pitr:final:before`、`pitr:final:after` 后指定中间 ts；重启后 before 保留、after 不存在；`6383`/`6384` 最终 DBSIZE 一致。
+- **首次 happy path 暴露 `--fix` bug**：Redis 8.6.3 `redis-check-aof` 的 `--fix` 与 `--truncate-to-timestamp` 互斥；已改为只传 timestamp，并补 `TestPitrTruncateUsesTimestampModeOnly`。
+- **cancel-before 暴露状态机 bug**：在 feasibility 后 cancel，job 停在 `checking_feasibility`，日志已 failed，但 API 永远不 terminal；已修 `run()` 并在 `runSteps` 返回 ctx 错误时区分“有 failed step 的真实错误”和“step 间 clean cancel”，补 `TestPitrCancelBetweenStepsBecomesCancelled`。复测 cancel-before 为 `cancelled` 且 server UP。
+- **cancel 在 truncate 中**：实际为 `failed`（server down，snapshot 保留），与 S17/时序图写 `cancelled` 冲突；与 design §7“AOF 不确定绝不静默 cancelled”一致。需定稿语义。
+- **replica resync 未等待完成**：job `succeeded` 后立即查 6384 仍能看到截断点之后的 key，几秒后才消失；`stepResync` 只发 `SLAVEOF`，未轮询 `master_sync_in_progress=0`。S16 不能仅以 job success 判一致。
+- **系统前置**：`6383` 的 systemd `Restart=always` 在 `SHUTDOWN NOSAVE` 后会立刻拉起，和 PITR 停服窗口竞争；本轮改为 `Restart=on-failure`，并实测 clean SHUTDOWN 后 service inactive、手动 start 后 PONG、6384 复制恢复。生产必须要求 `no`/`on-failure`。
+- **FE**：页面与 `pitr.js` 均 200，API 200；浏览器肉眼验证仍未完成（本机无 Chrome 扩展/Chromium）。
+- `make gotest` 全部包 ok（RC=0）；`make codis-dashboard` 成功。
+
+证据：`.runtime/pitr-e2e/REPORT.md` 及同目录 JSON/manifest；ECS-A `/data/backup/pitr-e2e/`。**结论：happy path 通过，但 S16/S17/S3 仍未闭环，不能据此把 PITR 标为完全验收。**

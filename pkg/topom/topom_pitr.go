@@ -132,6 +132,20 @@ func (j *PitrJob) setState(state string, err error) {
 	}
 }
 
+// hasFailedStep reports whether any recorded step ended in failure. It lets
+// run() distinguish a real step error from a cancellation observed between
+// steps, which has no failed step and must become a terminal cancelled job.
+func (j *PitrJob) hasFailedStep() bool {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	for _, s := range j.Steps {
+		if s.Status == pitrStepStatusFailed {
+			return true
+		}
+	}
+	return false
+}
+
 // step records the execution of a named state-machine step. The callback
 // receives the job (under its own lock) and returns an error; the step's
 // status and the job state are updated accordingly. A non-nil error from the

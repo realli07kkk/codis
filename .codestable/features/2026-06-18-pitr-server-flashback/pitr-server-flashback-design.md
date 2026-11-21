@@ -16,7 +16,7 @@ tags: [pitr, flashback, aof, dashboard, redis8, recovery]
 - **目标 server / target**：用户指定的、要被恢复的 Redis 8 Codis Server。必须精确匹配当前 topom model 中某个 group 的 server addr；首版只允许对该 server 所在 group 的 master 执行。
 - **截断时间点 / truncate-ts**：用户指定的 unix 秒时间戳，AOF 将被截断到该时间点之前最后一条带 `#TS:` 注释的命令。
 - **AOF timestamp 注释**：Redis 8 `aof-timestamp-enabled yes` 开启后，`feedAppendOnlyFile` / `rewriteAppendOnlyFileRio` 在每条命令前写入的 `#TS:<unix秒>` 行。实现锚点 `extern/redis-8.6.3/src/aof.c:1415` 和 `extern/redis-8.6.3/src/aof.c:2489`。
-- **redis-check-aof truncate**：Redis 8 自带的 `redis-check-aof --truncate-to-timestamp <TS> --fix <manifest|file>` 离线截断工具。它扫描 `#TS:` 注释，把超过 TS 的部分截断并就地改文件；实现锚点 `extern/redis-8.6.3/src/redis-check-aof.c:185` 和 `:543`。
+- **redis-check-aof truncate**：Redis 8 自带的 `redis-check-aof --truncate-to-timestamp <TS> <manifest|file>` 离线截断工具。它扫描 `#TS:` 注释，把超过 TS 的部分截断并就地改文件；`--fix` 是另一种独立模式，不能与 `--truncate-to-timestamp` 同时传。实现锚点 `extern/redis-8.6.3/src/redis-check-aof.c:185` 和 `:543`。
 - **AOF manifest**：Redis 8 MP-AOF（multi-part AOF）清单文件，描述 base + incr 文件序列。实现锚点 `extern/redis-8.6.3/src/aof.c:65` 和 `aofLoadManifestFromFile`。
 
 防冲突结论：
@@ -105,7 +105,7 @@ tags: [pitr, flashback, aof, dashboard, redis8, recovery]
 6. **截断用外部 `redis-check-aof` 子进程，不内嵌解析**。
    - 依据：MP-AOF manifest + base/incr 多文件解析逻辑复杂且 Redis 版本相关；`redis-check-aof` 是 Redis 自带、与 server 同源同版本的权威工具。内嵌解析会有"我方解析和 Redis load 不一致"风险。
    - 名词层影响：`PitrManager` 配置项含 `pitr_redis_check_aof_bin`（默认 `bin/redis-check-aof`）。
-   - 编排层影响：truncate 步骤是 `exec.Command(bin, "--truncate-to-timestamp", ts, "--fix", manifestPath)`，检查 stdout/exit code。
+   - 编排层影响：truncate 步骤是 `exec.Command(bin, "--truncate-to-timestamp", ts, manifestPath)`，检查 stdout/exit code；不能附加 `--fix`。
 
 7. **不 fork redis-server，重启走"等外部拉起 + 轮询 INFO loading"为默认主路径，`pitr_restart_command` 只是同机便利项**。
    - 依据：进程监管（crash 自动重启、cgroup、ulimit、日志重定向、降权）是 systemd/supervisor/k8s 的职责，dashboard fork 出来的 redis 会变成 dashboard 的子进程——dashboard 自己重启/崩溃，这台生产 redis 跟着死或变孤儿。PITR 是低频高危人发操作，full automation 的价值点是"正确和安全"，不是省掉进程管理那一步。fork 不买任何东西。
@@ -249,7 +249,7 @@ flowchart TD
   Shut -->|fail| ErrJob
   Shut -->|ok| Snap[SNAPSHOT manifest + last segment file to sibling snapshot dir, same fs; record PreStatSnapshot size+mtime of all AOF files]
   Snap -->|disk full / io err| FailedCleanSnap[failed but AOF untouched, clean restart possible - server down]
-  Snap -->|ok| Trunc[exec redis-check-aof --truncate-to-timestamp ts --fix manifest]
+  Snap -->|ok| Trunc[exec redis-check-aof --truncate-to-timestamp ts manifest]
   Trunc -->|non-zero exit| FailedWithSnap[failed, server down, RESTORE FROM SNAPSHOT guidance in job error]
   Trunc -->|exit 0| StatDiff[re-stat all AOF files, diff vs PreStatSnapshot]
   StatDiff -->|non-last file changed| FailedModelDrift[failed: UNCERTAIN, redis-check-aof behavior drift, keep snapshot, alert loudly]
@@ -281,7 +281,7 @@ flowchart TD
 4. **feasibility check（server 仍在 UP）**：Go 侧读 manifest 定位最后 segment，扫描该文件 `#TS:` 注释得到 [min,max]，确认 `truncate_ts` 落在该文件内且 ≥ min。不满足 → failed，**server 未被触碰**。这一步把 `redis-check-aof` 在 `ftruncate` 前就会 exit 的失败（TS 不在最后文件、TS 早于全部记录、注释非法）提前拦截，让真正走到"停服后 truncate 才失败"的只剩磁盘 I/O 这类真·不确定。
 5. **SHUTDOWN NOSAVE + 后置探活**：`Client.Do("SHUTDOWN", "NOSAVE")`，避免 Redis 在退出时写 RDB 覆盖。**关键**：发送后无论返回什么错误（transport close vs Redis command error 如 NOAUTH/unknown command），都必须**用一条新连接探活**确认 server 真的不可达，才视为成功；若探活仍能 PING 通 → failed（server 仍在线），**绝不进入 snapshot/truncate**（否则会截到一个正在写的 AOF）。这是 CR-001 的硬约束。
 6. **snapshot manifest + last file**：把 manifest 文件 + 最后一个 segment 文件拷到 `<aofdir>.pitr-snapshot-<jobid>/`（AOF 目录同级、同文件系统，保证拷贝不跨盘）。只拷这两个（redis-check-aof 只对最后文件就地 `ftruncate`，已验证不改 manifest/更早文件）。拷贝失败（磁盘满/IO）→ failed，但此时 AOF 未被任何 truncate 触碰、干净如初，运维只需手动重启。同时记录 AOF 目录每个文件的 size+mtime（`PreStatSnapshot`）。
-7. **truncate**：`exec.CommandContext(ctx, redisCheckAofBin, "--truncate-to-timestamp", strconv(ts), "--fix", manifestPath)`——用 CommandContext 以便 cancel 能真正杀死子进程，捕获 stdout/stderr/exit code。
+7. **truncate**：`exec.CommandContext(ctx, redisCheckAofBin, "--truncate-to-timestamp", strconv(ts), manifestPath)`——`--truncate-to-timestamp` 与 `--fix` 互斥，不能同时传；用 CommandContext 以便 cancel 能真正杀死子进程，捕获 stdout/stderr/exit code。
    - 非 0 → failed，job error 显式给出"从快照 `<snapshotdir>` 恢复 `<lastsegmentfile>` 后重启"指引，保留 snapshot。
    - cancel 触发（`ctx.Err()!=nil`）→ failed（AOF 状态不确定，server 已停），保留 snapshot，绝不静默标 cancelled。
    - exit 0 但 **stat diff 复查**（双向 compare：post 新增、pre 缺失、非 last 文件 size/mtime 变化都算 model drift）发现异常 → failed，归"不确定"类（redis-check-aof 行为偏离模型/版本漂移），大声告警，保留 snapshot，job error 显式列出变化的文件。

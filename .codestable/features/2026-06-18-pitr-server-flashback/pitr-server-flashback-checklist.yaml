@@ -10,7 +10,7 @@ steps:
     exit_signal: "单测覆盖正常路径 + 未开 AOF + 非 master + ts 越界 + ts 不在最后文件 + 可用空间不足 + 重复 job；校验失败时 server 未被触碰（未发 SHUTDOWN）"
     status: done
 
-  - action: "计算节点 - 副作用步骤：实现 SHUTDOWN NOSAVE、snapshot（拷 manifest + 最后一个文件到 <aofdir>.pitr-snapshot-<jobid>/，记录 PreStatSnapshot）、exec redis-check-aof --truncate-to-timestamp ts --fix manifest（捕获 stdout/stderr/exit code）、post-truncate stat diff（复查 AOF 目录所有文件 size+mtime，最后一个文件以外任何变化即归不确定失败）、restart（可选 pitr_restart_command kick + 无论是否 kick 都轮询 INFO loading）、wait-load、resync replicas（SetMaster 全量 resync，部分失败记 warning）"
+  - action: "计算节点 - 副作用步骤：实现 SHUTDOWN NOSAVE、snapshot（拷 manifest + 最后一个文件到 <aofdir>.pitr-snapshot-<jobid>/，记录 PreStatSnapshot）、exec redis-check-aof --truncate-to-timestamp ts manifest（不附加 --fix；捕获 stdout/stderr/exit code）、post-truncate stat diff（复查 AOF 目录所有文件 size+mtime，最后一个文件以外任何变化即归不确定失败）、restart（可选 pitr_restart_command kick + 无论是否 kick 都轮询 INFO loading）、wait-load、resync replicas（SetMaster 全量 resync，部分失败记 warning）"
     exit_signal: "单测覆盖 exit code 解析、snapshot 失败时半成品清理、stat diff 漂移检测、轮询超时、部分副本失败；集成测试用本地 Redis 8 跑通完整 happy path（恢复后 GET key 返回 ts 时间点值）"
     status: done
 

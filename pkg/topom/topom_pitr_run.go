@@ -51,17 +51,22 @@ func (m *PitrManager) run(ctx stdcontext.Context, job *PitrJob, deps PitrDeps) {
 	// Decide the terminal state. A step error takes precedence over a cancelled
 	// context: if a step already returned an error (e.g. AOF drift detected),
 	// we must report failed, not cancelled — masking a real failure behind
-	// "cancelled" would hide AOF damage from the operator. The per-server lock
-	// is NOT released here: it stays held until the operator Removes the
-	// terminal job (PITR is non-idempotent; a terminal-but-unacknowledged job
-	// must keep blocking new jobs on the same server).
+	// "cancelled" would hide AOF damage from the operator. A cancellation
+	// observed *between* steps has no failed step; that is a clean cancel and
+	// must become terminal here, otherwise the per-server lock blocks forever.
+	// The per-server lock is NOT released here: it stays held until the
+	// operator Removes the terminal job (PITR is non-idempotent; a
+	// terminal-but-unacknowledged job must keep blocking new jobs).
 	switch {
-	case err != nil:
+	case err != nil && job.hasFailedStep():
 		// runSteps already set the failing step and job state=failed; only log.
 		log.WarnErrorf(err, "pitr job-[%s] failed in %v", job.ID, time.Since(start))
 	case ctx.Err() != nil:
 		job.setState(PitrStateCancelled, nil)
 		log.Warnf("pitr job-[%s] cancelled in %v", job.ID, time.Since(start))
+	case err != nil:
+		job.setState(PitrStateFailed, err)
+		log.WarnErrorf(err, "pitr job-[%s] failed in %v", job.ID, time.Since(start))
 	default:
 		job.setState(PitrStateSucceeded, nil)
 		log.Warnf("pitr job-[%s] succeeded in %v", job.ID, time.Since(start))
@@ -409,10 +414,11 @@ func (m *PitrManager) stepSnapshot(ctx stdcontext.Context, job *PitrJob, deps Pi
 	return nil
 }
 
-// stepTruncate runs `redis-check-aof --truncate-to-timestamp <ts> --fix
-// <manifest>`, then re-stats the AOF dir and compares to PreStatSnapshot. The
-// --fix flag is required for ftruncate; redis-check-aof would otherwise exit
-// non-zero without modifying anything. A non-zero exit OR a detected drift in
+// stepTruncate runs `redis-check-aof --truncate-to-timestamp <ts> <manifest>`,
+// then re-stats the AOF dir and compares to PreStatSnapshot. Redis 8.6.3 treats
+// --fix and --truncate-to-timestamp as mutually exclusive modes; timestamp mode
+// itself performs the in-place ftruncate. Passing --fix makes the tool exit with
+// its usage message and no truncation. A non-zero exit OR a detected drift in
 // any non-last file leaves the job failed with a restore-from-snapshot pointer.
 func (m *PitrManager) stepTruncate(ctx stdcontext.Context, job *PitrJob, deps PitrDeps) error {
 	// Use CommandContext so a cancel (Cancel/Remove/Close) actually kills the
@@ -420,7 +426,7 @@ func (m *PitrManager) stepTruncate(ctx stdcontext.Context, job *PitrJob, deps Pi
 	// after the job is reported cancelled.
 	cmd := exec.CommandContext(ctx, m.redisCheckBin,
 		"--truncate-to-timestamp", strconv.FormatInt(job.TruncateTs, 10),
-		"--fix", job.AofManifest,
+		job.AofManifest,
 	)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
