@@ -5,6 +5,7 @@ package rpc
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -13,8 +14,10 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
+	"github.com/CodisLabs/codis/pkg/utils"
 	"github.com/CodisLabs/codis/pkg/utils/errors"
 	"github.com/CodisLabs/codis/pkg/utils/log"
 	"github.com/CodisLabs/codis/pkg/utils/sync2/atomic2"
@@ -27,13 +30,17 @@ const (
 	MethodPost = "POST"
 )
 
-var client *http.Client
+var (
+	client *http.Client
+
+	defaultIdleCleaner *idleConnCleaner
+)
 
 func init() {
 	var dials atomic2.Int64
 	tr := &http.Transport{}
-	tr.Dial = func(network, addr string) (net.Conn, error) {
-		c, err := net.DialTimeout(network, addr, time.Second)
+	tr.DialContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
+		c, err := (&net.Dialer{Timeout: time.Second}).DialContext(ctx, network, addr)
 		if err == nil {
 			log.Debugf("rpc: dial new connection to [%d] %s - %s",
 				dials.Incr()-1, network, addr)
@@ -44,12 +51,89 @@ func init() {
 		Transport: tr,
 		Timeout:   time.Minute,
 	}
+	defaultIdleCleaner = newIdleConnCleaner(tr.CloseIdleConnections, time.Minute)
+}
+
+// idleConnCleaner periodically drops idle connections of a transport. It has an
+// explicit Start/Close lifecycle so a caller (a test, or a process shutdown
+// path) can stop it and wait for the loop instead of leaking a goroutine that
+// sleeps forever.
+type idleConnCleaner struct {
+	closeIdle func()
+	interval  time.Duration
+
+	mu   sync.Mutex
+	stop chan struct{}
+	wg   sync.WaitGroup
+}
+
+func newIdleConnCleaner(closeIdle func(), interval time.Duration) *idleConnCleaner {
+	return &idleConnCleaner{closeIdle: closeIdle, interval: interval}
+}
+
+// Start runs the cleanup loop. It is a no-op while the loop is running.
+func (c *idleConnCleaner) Start() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.stop != nil {
+		return
+	}
+	stop := make(chan struct{})
+	c.stop = stop
+
+	c.wg.Add(1)
 	go func() {
+		defer c.wg.Done()
+		defer utils.Recover("rpc idle connection cleaner")
+		ticker := time.NewTicker(c.interval)
+		defer ticker.Stop()
 		for {
-			time.Sleep(time.Minute)
-			tr.CloseIdleConnections()
+			select {
+			case <-stop:
+				return
+			case <-ticker.C:
+				c.closeIdle()
+			}
 		}
 	}()
+}
+
+// Close stops the cleanup loop, waits for it and drops the idle connections
+// once more. It is safe to call without Start and safe to call twice. The
+// mutex is held across stop and wait so a concurrent Start cannot attach a new
+// loop to the WaitGroup Close is waiting on.
+func (c *idleConnCleaner) Close() error {
+	c.mu.Lock()
+	if c.stop != nil {
+		close(c.stop)
+		c.stop = nil
+		c.wg.Wait()
+	}
+	c.mu.Unlock()
+
+	c.closeIdle()
+	return nil
+}
+
+func (c *idleConnCleaner) running() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.stop != nil
+}
+
+// CloseDefaultClient stops the shared client's idle connection cleanup loop and
+// drops idle connections. Requests already in flight are unaffected, and a
+// later request starts the loop again. Shutdown paths and tests should call it
+// so no background goroutine outlives the process work.
+func CloseDefaultClient() error {
+	return defaultIdleCleaner.Close()
+}
+
+// ApiPostJsonWithContext posts args to url and aborts the request when ctx is
+// canceled, which keeps metrics reporters from blocking proxy shutdown on a
+// slow remote endpoint.
+func ApiPostJsonWithContext(ctx context.Context, url string, args any) error {
+	return apiRequestJsonContext(ctx, client, MethodPost, url, args, nil)
 }
 
 type RemoteError struct {
@@ -109,7 +193,8 @@ func apiMarshalJson(v any) ([]byte, error) {
 }
 
 func apiRequestJson(method string, url string, args, reply any) error {
-	return apiRequestJsonWithClient(client, method, url, args, reply)
+	defaultIdleCleaner.Start()
+	return apiRequestJsonContext(context.Background(), client, method, url, args, reply)
 }
 
 func redactRPCURL(raw string) string {
@@ -129,6 +214,10 @@ func redactRPCURL(raw string) string {
 }
 
 func apiRequestJsonWithClient(c *http.Client, method string, url string, args, reply any) error {
+	return apiRequestJsonContext(context.Background(), c, method, url, args, reply)
+}
+
+func apiRequestJsonContext(ctx context.Context, c *http.Client, method string, url string, args, reply any) error {
 	var body []byte
 	if args != nil {
 		b, err := apiMarshalJson(args)
@@ -138,7 +227,7 @@ func apiRequestJsonWithClient(c *http.Client, method string, url string, args, r
 		body = b
 	}
 
-	req, err := http.NewRequest(method, url, bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, method, url, bytes.NewReader(body))
 	if err != nil {
 		return errors.Trace(err)
 	}

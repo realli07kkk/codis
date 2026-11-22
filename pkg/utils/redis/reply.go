@@ -112,22 +112,6 @@ func replyValues(reply any, errs ...error) ([]any, error) {
 	}
 }
 
-func replyStrings(reply any, errs ...error) ([]string, error) {
-	values, err := replyValues(reply, errs...)
-	if err != nil {
-		return nil, err
-	}
-	strings := make([]string, len(values))
-	for i, value := range values {
-		s, err := replyString(value)
-		if err != nil {
-			return nil, err
-		}
-		strings[i] = s
-	}
-	return strings, nil
-}
-
 func replyInts(reply any, errs ...error) ([]int, error) {
 	values, err := replyValues(reply, errs...)
 	if err != nil {

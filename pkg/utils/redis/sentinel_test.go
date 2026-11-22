@@ -4,6 +4,9 @@
 package redis
 
 import (
+	"context"
+	"errors"
+	"fmt"
 	"net"
 	"strings"
 	"sync"
@@ -12,6 +15,7 @@ import (
 
 	proxyredis "github.com/CodisLabs/codis/pkg/proxy/redis"
 	"github.com/CodisLabs/codis/pkg/proxy/redis/redistest"
+	codiserrors "github.com/CodisLabs/codis/pkg/utils/errors"
 )
 
 func TestSentinelSubscribeCommandWaitsForAckAndSwitchMaster(t *testing.T) {
@@ -137,6 +141,33 @@ func TestSentinelMonitorRemoveAndFlushConfigCommands(t *testing.T) {
 		if !redisCommandExistsFold(commands, want) {
 			t.Fatalf("command %v not observed: %v", want, commands)
 		}
+	}
+}
+
+func TestSentinelContextErrorClassification(t *testing.T) {
+	unrelated := errors.New("unrelated")
+	cases := []struct {
+		name     string
+		err      error
+		canceled bool
+		done     bool
+	}{
+		{"nil", nil, false, false},
+		{"context.Canceled", context.Canceled, true, true},
+		{"context.DeadlineExceeded", context.DeadlineExceeded, false, true},
+		{"wrapped canceled", codiserrors.Trace(fmt.Errorf("dispatch: %w", context.Canceled)), true, true},
+		{"multi-layer deadline", codiserrors.Trace(fmt.Errorf("dispatch: %w", fmt.Errorf("inner: %w", context.DeadlineExceeded))), false, true},
+		{"unrelated", codiserrors.Trace(fmt.Errorf("dispatch: %w", unrelated)), false, false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := isContextCanceled(c.err); got != c.canceled {
+				t.Fatalf("isContextCanceled(%v) = %v, want %v", c.err, got, c.canceled)
+			}
+			if got := isContextDone(c.err); got != c.done {
+				t.Fatalf("isContextDone(%v) = %v, want %v", c.err, got, c.done)
+			}
+		})
 	}
 }
 

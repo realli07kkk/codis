@@ -87,22 +87,36 @@ func (p *Int64) UnmarshalText(text []byte) error {
 	return nil
 }
 
-var (
-	fullRegexp = regexp.MustCompile(`^\s*(\-?[\d\.]+)\s*([kmgtp]?b|[bkmgtp]|)\s*$`)
-	digitsOnly = regexp.MustCompile(`^\-?\d+$`)
-)
+// sizeRegexp accepts an optional minus sign, a decimal number, an optional
+// unit ([k|m|g|t|p][b] or a bare [b|k|m|g|t|p]) and surrounding whitespace.
+// It is the only pattern used for validation, so parsing does a single regexp
+// pass and the number itself is classified by isInteger below.
+var sizeRegexp = regexp.MustCompile(`^\s*(\-?[\d\.]+)\s*([kmgtp]?b|[bkmgtp]|)\s*$`)
 
 var (
 	ErrBadByteSize     = errors.New("invalid bytesize")
 	ErrBadByteSizeUnit = errors.New("invalid bytesize unit")
 )
 
-func Parse(s string) (int64, error) {
-	if !fullRegexp.MatchString(s) {
-		return 0, errors.Trace(ErrBadByteSize)
+// isInteger reports whether s is an optionally negative run of ASCII digits,
+// i.e. what the former `^\-?\d+$` pattern matched.
+func isInteger(s string) bool {
+	if s != "" && s[0] == '-' {
+		s = s[1:]
 	}
+	if s == "" {
+		return false
+	}
+	for i := 0; i < len(s); i++ {
+		if s[i] < '0' || s[i] > '9' {
+			return false
+		}
+	}
+	return true
+}
 
-	subs := fullRegexp.FindStringSubmatch(s)
+func Parse(s string) (int64, error) {
+	subs := sizeRegexp.FindStringSubmatch(s)
 	if len(subs) != 3 {
 		return 0, errors.Trace(ErrBadByteSize)
 	}
@@ -127,7 +141,7 @@ func Parse(s string) (int64, error) {
 		return 0, errors.Trace(ErrBadByteSizeUnit)
 	}
 
-	if digitsOnly.MatchString(text) {
+	if isInteger(text) {
 		n, err := strconv.ParseInt(text, 10, 64)
 		if err != nil {
 			return 0, errors.Trace(ErrBadByteSize)

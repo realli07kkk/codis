@@ -13,5 +13,5 @@ func TestCastString(t *testing.T) {
 	var b = []byte("hello")
 	var s = CastString(b)
 	b[0] = 'w'
-	assert.Must(s == "wello")
+	assert.Must(t, s == "wello")
 }

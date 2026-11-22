@@ -3,18 +3,22 @@
 
 package assert
 
-import "github.com/CodisLabs/codis/pkg/utils/log"
+import "testing"
 
-func Must(b bool) {
+// Must fails the test immediately when b is false.
+func Must(t testing.TB, b bool) {
 	if b {
 		return
 	}
-	log.Panic("assertion failed")
+	t.Helper()
+	t.Fatal("assertion failed")
 }
 
-func MustNoError(err error) {
+// MustNoError fails the test immediately when err is non-nil.
+func MustNoError(t testing.TB, err error) {
 	if err == nil {
 		return
 	}
-	log.PanicError(err, "error happens, assertion failed")
+	t.Helper()
+	t.Fatalf("error happens, assertion failed: %v", err)
 }

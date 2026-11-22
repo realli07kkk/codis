@@ -65,19 +65,33 @@ func (p *Duration) UnmarshalText(text []byte) error {
 	return nil
 }
 
-var (
-	fullRegexp = regexp.MustCompile(`^\s*(\-?[\d\.]+)\s*([a-z]+|)\s*$`)
-	digitsOnly = regexp.MustCompile(`^\-?\d+$`)
-)
+// sizeRegexp accepts an optional minus sign, a decimal number, an optional
+// unit made of ASCII letters and surrounding whitespace. It is the only
+// pattern used for validation, so parsing does a single regexp pass and the
+// number itself is classified by isInteger below.
+var sizeRegexp = regexp.MustCompile(`^\s*(\-?[\d\.]+)\s*([a-z]+|)\s*$`)
 
 var ErrBadTimeSize = errors.New("invalid timesize")
 
-func Parse(s string) (time.Duration, error) {
-	if !fullRegexp.MatchString(s) {
-		return 0, errors.Trace(ErrBadTimeSize)
+// isInteger reports whether s is an optionally negative run of ASCII digits,
+// i.e. what the former `^\-?\d+$` pattern matched.
+func isInteger(s string) bool {
+	if s != "" && s[0] == '-' {
+		s = s[1:]
 	}
+	if s == "" {
+		return false
+	}
+	for i := 0; i < len(s); i++ {
+		if s[i] < '0' || s[i] > '9' {
+			return false
+		}
+	}
+	return true
+}
 
-	subs := fullRegexp.FindStringSubmatch(s)
+func Parse(s string) (time.Duration, error) {
+	subs := sizeRegexp.FindStringSubmatch(s)
 	if len(subs) != 3 {
 		return 0, errors.Trace(ErrBadTimeSize)
 	}
@@ -88,7 +102,7 @@ func Parse(s string) (time.Duration, error) {
 	switch {
 	case unit != "":
 		return time.ParseDuration(text + unit)
-	case digitsOnly.MatchString(text):
+	case isInteger(text):
 		n, err := strconv.ParseInt(text, 10, 64)
 		if err != nil {
 			return 0, errors.Trace(ErrBadTimeSize)

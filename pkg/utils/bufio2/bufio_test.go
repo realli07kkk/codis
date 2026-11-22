@@ -18,6 +18,7 @@ func newReader(n int, input string) *Reader {
 }
 
 func TestRead(t *testing.T) {
+	t.Parallel()
 	var b bytes.Buffer
 	for i := 0; i < 10; i++ {
 		fmt.Fprintf(&b, "hello world %d", i)
@@ -27,29 +28,31 @@ func TestRead(t *testing.T) {
 		r := newReader(n, input)
 		b := make([]byte, len(input))
 		_, err := io.ReadFull(r, b)
-		assert.MustNoError(err)
-		assert.Must(string(b) == input)
+		assert.MustNoError(t, err)
+		assert.Must(t, string(b) == input)
 	}
 }
 
 func TestReadByte(t *testing.T) {
+	t.Parallel()
 	var input = "hello world"
 	for n := 1; n < len(input); n++ {
 		r := newReader(n, input)
 		var s string
 		for i := 0; i < len(input); i++ {
 			b1, err := r.PeekByte()
-			assert.MustNoError(err)
+			assert.MustNoError(t, err)
 			b2, err := r.ReadByte()
-			assert.MustNoError(err)
-			assert.Must(b1 == b2)
+			assert.MustNoError(t, err)
+			assert.Must(t, b1 == b2)
 			s += string(b1)
 		}
-		assert.Must(s == input)
+		assert.Must(t, s == input)
 	}
 }
 
 func TestReadBytes(t *testing.T) {
+	t.Parallel()
 	var b bytes.Buffer
 	for i := 0; i < 10; i++ {
 		fmt.Fprintf(&b, "hello world %d ", i)
@@ -60,14 +63,15 @@ func TestReadBytes(t *testing.T) {
 		var s string
 		for i := 0; i < 30; i++ {
 			b, err := r.ReadBytes(' ')
-			assert.MustNoError(err)
+			assert.MustNoError(t, err)
 			s += string(b)
 		}
-		assert.Must(s == input)
+		assert.Must(t, s == input)
 	}
 }
 
 func TestReadFull(t *testing.T) {
+	t.Parallel()
 	var b bytes.Buffer
 	for i := 0; i < 10; i++ {
 		fmt.Fprintf(&b, "hello world %d ", i)
@@ -76,8 +80,8 @@ func TestReadFull(t *testing.T) {
 	for n := 1; n < len(input); n++ {
 		r := newReader(n, input)
 		b, err := r.ReadFull(len(input))
-		assert.MustNoError(err)
-		assert.Must(string(b) == input)
+		assert.MustNoError(t, err)
+		assert.Must(t, string(b) == input)
 	}
 }
 
@@ -86,6 +90,7 @@ func newWriter(n int, b *bytes.Buffer) *Writer {
 }
 
 func TestWrite(t *testing.T) {
+	t.Parallel()
 	for n := 1; n < 20; n++ {
 		var input string
 		var b bytes.Buffer
@@ -93,28 +98,30 @@ func TestWrite(t *testing.T) {
 		for i := 0; i < 10; i++ {
 			s := fmt.Sprintf("hello world %d", i)
 			_, err := w.Write([]byte(s))
-			assert.MustNoError(err)
+			assert.MustNoError(t, err)
 			input += s
 		}
-		assert.MustNoError(w.Flush())
-		assert.Must(b.String() == input)
+		assert.MustNoError(t, w.Flush())
+		assert.Must(t, b.String() == input)
 	}
 }
 
 func TestWriteBytes(t *testing.T) {
+	t.Parallel()
 	var input = "hello world!!"
 	for n := 1; n < 20; n++ {
 		var b bytes.Buffer
 		var w = newWriter(n, &b)
 		for i := 0; i < len(input); i++ {
-			assert.MustNoError(w.WriteByte(input[i]))
+			assert.MustNoError(t, w.WriteByte(input[i]))
 		}
-		assert.MustNoError(w.Flush())
-		assert.Must(b.String() == input)
+		assert.MustNoError(t, w.Flush())
+		assert.Must(t, b.String() == input)
 	}
 }
 
 func TestWriteString(t *testing.T) {
+	t.Parallel()
 	for n := 1; n < 20; n++ {
 		var input string
 		var b bytes.Buffer
@@ -122,10 +129,10 @@ func TestWriteString(t *testing.T) {
 		for i := 0; i < 10; i++ {
 			s := fmt.Sprintf("hello world %d", i)
 			_, err := w.WriteString(s)
-			assert.MustNoError(err)
+			assert.MustNoError(t, err)
 			input += s
 		}
-		assert.MustNoError(w.Flush())
-		assert.Must(b.String() == input)
+		assert.MustNoError(t, w.Flush())
+		assert.Must(t, b.String() == input)
 	}
 }

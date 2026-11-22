@@ -55,17 +55,23 @@ func Errorf(format string, v ...any) error {
 	}
 }
 
+// Stack returns the stack captured when the TracedError in err's chain was
+// created. Wrapping the traced error with %w keeps the stack discoverable.
 func Stack(err error) trace.Stack {
 	if err == nil {
 		return nil
 	}
-	e, ok := err.(*TracedError)
-	if ok {
+	var e *TracedError
+	if errors.As(err, &e) {
 		return e.Stack
 	}
 	return nil
 }
 
+// Cause is kept for compatibility. It unwraps consecutive TracedError layers
+// only; new code should use errors.Is/errors.As for classification.
+//
+// Deprecated: use errors.Is/errors.As directly.
 func Cause(err error) error {
 	for err != nil {
 		e, ok := err.(*TracedError)
@@ -78,18 +84,20 @@ func Cause(err error) error {
 	return nil
 }
 
+// Equal reports whether err1 and err2 match according to errors.Is, checking
+// both directions so the legacy symmetric comparison remains symmetric.
+//
+// Deprecated: use errors.Is directly.
 func Equal(err1, err2 error) bool {
-	e1 := Cause(err1)
-	e2 := Cause(err2)
-	if e1 == e2 {
-		return true
+	if err1 == nil || err2 == nil {
+		return err1 == nil && err2 == nil
 	}
-	if e1 == nil || e2 == nil {
-		return e1 == e2
-	}
-	return e1.Error() == e2.Error()
+	return errors.Is(err1, err2) || errors.Is(err2, err1)
 }
 
+// NotEqual is the negation of Equal.
+//
+// Deprecated: use !errors.Is directly.
 func NotEqual(err1, err2 error) bool {
 	return !Equal(err1, err2)
 }

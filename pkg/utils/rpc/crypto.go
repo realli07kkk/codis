@@ -10,7 +10,7 @@ import (
 	"crypto/subtle"
 	"fmt"
 	"net"
-	"sort"
+	"slices"
 )
 
 // ConstantTimeCompareString compares two strings without leaking their
@@ -31,7 +31,7 @@ func NewToken(segs ...string) string {
 			list = append(list, addr)
 		}
 	}
-	sort.Strings(list)
+	slices.Sort(list)
 
 	t := &bytes.Buffer{}
 	fmt.Fprintf(t, "Codis-Token@%v", list)

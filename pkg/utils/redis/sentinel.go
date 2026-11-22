@@ -4,13 +4,13 @@
 package redis
 
 import (
+	"context"
+	stderrors "errors"
 	"fmt"
 	"net"
 	"strconv"
 	"strings"
 	"time"
-
-	"golang.org/x/net/context"
 
 	"github.com/CodisLabs/codis/pkg/utils/errors"
 	"github.com/CodisLabs/codis/pkg/utils/sync2/atomic2"
@@ -72,6 +72,17 @@ func (s *Sentinel) errorf(err error, format string, args ...any) {
 	if s.ErrFunc != nil {
 		s.ErrFunc(err, format, args...)
 	}
+}
+
+// isContextCanceled and isContextDone classify errors via errors.Is so that
+// %w wrapping around context sentinels (for example inside go-redis) keeps the
+// original cancellation semantics.
+func isContextCanceled(err error) bool {
+	return stderrors.Is(err, context.Canceled)
+}
+
+func isContextDone(err error) bool {
+	return isContextCanceled(err) || stderrors.Is(err, context.DeadlineExceeded)
 }
 
 func (s *Sentinel) do(sentinel string, timeout time.Duration,
@@ -155,12 +166,10 @@ func (s *Sentinel) subscribeDispatch(ctx context.Context, sentinel string, timeo
 		return s.subscribeCommand(c, sentinel, onSubscribed)
 	})
 	if err != nil {
-		switch errors.Cause(err) {
-		case context.Canceled, context.DeadlineExceeded:
+		if isContextDone(err) {
 			return false, nil
-		default:
-			return false, err
 		}
+		return false, err
 	}
 	return true, nil
 }
@@ -337,12 +346,10 @@ func (s *Sentinel) mastersDispatch(ctx context.Context, sentinel string, timeout
 		return nil
 	})
 	if err != nil {
-		switch errors.Cause(err) {
-		case context.Canceled:
+		if isContextCanceled(err) {
 			return nil, nil
-		default:
-			return nil, err
 		}
+		return nil, err
 	}
 	return masters, nil
 }
@@ -502,12 +509,10 @@ func (s *Sentinel) monitorGroupsDispatch(ctx context.Context, sentinel string, t
 		return s.monitorGroupsCommand(c, sentinel, config, groups)
 	})
 	if err != nil {
-		switch errors.Cause(err) {
-		case context.Canceled:
+		if isContextCanceled(err) {
 			return nil
-		default:
-			return err
 		}
+		return err
 	}
 	return nil
 }
@@ -629,12 +634,10 @@ func (s *Sentinel) removeGroupsDispatch(ctx context.Context, sentinel string, ti
 		return s.removeCommand(c, names)
 	})
 	if err != nil {
-		switch errors.Cause(err) {
-		case context.Canceled:
+		if isContextCanceled(err) {
 			return nil
-		default:
-			return err
 		}
+		return err
 	}
 	return nil
 }
@@ -686,12 +689,10 @@ func (s *Sentinel) removeGroupsAllDispatch(ctx context.Context, sentinel string,
 		return s.removeCommand(c, names)
 	})
 	if err != nil {
-		switch errors.Cause(err) {
-		case context.Canceled:
+		if isContextCanceled(err) {
 			return nil
-		default:
-			return err
 		}
+		return err
 	}
 	return nil
 }

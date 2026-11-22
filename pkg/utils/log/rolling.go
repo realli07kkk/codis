@@ -33,10 +33,10 @@ type RollingFormat string
 
 const (
 	MonthlyRolling  RollingFormat = "2006-01"
-	DailyRolling                  = "2006-01-02"
-	HourlyRolling                 = "2006-01-02-15"
-	MinutelyRolling               = "2006-01-02-15-04"
-	SecondlyRolling               = "2006-01-02-15-04-05"
+	DailyRolling    RollingFormat = "2006-01-02"
+	HourlyRolling   RollingFormat = "2006-01-02-15"
+	MinutelyRolling RollingFormat = "2006-01-02-15-04"
+	SecondlyRolling RollingFormat = "2006-01-02-15-04-05"
 )
 
 func (r *rollingFile) roll() error {
