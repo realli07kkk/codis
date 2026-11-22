@@ -30,10 +30,10 @@ func init() {
 
 func TestItoa(t *testing.T) {
 	for i, b := range tmap {
-		assert.Must(itoa(i) == string(b))
+		assert.Must(t, itoa(i) == string(b))
 	}
 	for i := int64(minItoa); i <= maxItoa; i++ {
-		assert.Must(itoa(i) == strconv.Itoa(int(i)))
+		assert.Must(t, itoa(i) == strconv.Itoa(int(i)))
 	}
 }
 
@@ -79,8 +79,8 @@ func TestEncodeArray(t *testing.T) {
 
 func testEncodeAndCheck(t *testing.T, resp *Resp, expect []byte) {
 	b, err := EncodeToBytes(resp)
-	assert.MustNoError(err)
-	assert.Must(bytes.Equal(b, expect))
+	assert.MustNoError(t, err)
+	assert.Must(t, bytes.Equal(b, expect))
 }
 
 func newBenchmarkEncoder(n int) *Encoder {
@@ -92,10 +92,12 @@ func benchmarkEncode(b *testing.B, n int) {
 		NewBulkBytes(make([]byte, n)),
 	}
 	e := newBenchmarkEncoder(n)
-	for i := 0; i < b.N; i++ {
-		assert.MustNoError(e.EncodeMultiBulk(multi, false))
+	for b.Loop() {
+		if err := e.EncodeMultiBulk(multi, false); err != nil {
+			b.Fatal(err)
+		}
 	}
-	assert.MustNoError(e.Flush())
+	assert.MustNoError(b, e.Flush())
 }
 
 func BenchmarkEncode16B(b *testing.B)  { benchmarkEncode(b, 16) }

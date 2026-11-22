@@ -4,6 +4,8 @@
 package proxy
 
 import (
+	"context"
+	stderrors "errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -14,6 +16,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/CodisLabs/codis/pkg/models"
@@ -36,6 +39,15 @@ type Proxy struct {
 	}
 	online bool
 	closed bool
+
+	// ctx is the root context of the proxy. Close cancels it before it closes
+	// the listeners, so every background task can observe shutdown without
+	// polling. exit.C is closed at the same point and kept for select callers.
+	ctx       context.Context
+	cancel    context.CancelFunc
+	bg        sync.WaitGroup
+	closeDone chan struct{}
+	releases  []func()
 
 	config         *Config
 	router         *Router
@@ -66,6 +78,8 @@ func New(config *Config) (*Proxy, error) {
 	s := &Proxy{}
 	s.config = config
 	s.exit.C = make(chan struct{})
+	s.closeDone = make(chan struct{})
+	s.ctx, s.cancel = context.WithCancel(context.Background())
 	s.router = NewRouter(config)
 	s.ignore = make([]byte, config.ProxyHeapPlaceholder.Int64())
 	s.authBruteforce = newAuthBruteforceGuard(config)
@@ -92,6 +106,11 @@ func New(config *Config) (*Proxy, error) {
 	log.Warnf("[%p] create new proxy:\n%s", s, s.model.Encode())
 
 	unsafe2.SetMaxOffheapBytes(config.ProxyMaxOffheapBytes.Int64())
+
+	s.releases = append(s.releases,
+		startStatsReporter(),
+		startKeepAliveCallbacks(),
+	)
 
 	go s.serveAdmin()
 	go s.serveProxy()
@@ -183,13 +202,32 @@ func (s *Proxy) Start() error {
 	return nil
 }
 
+// Close shuts the proxy down. It is idempotent and safe to call from an API
+// handler (the admin server calls it) or from a serving goroutine: it never
+// waits for the callers of Close. The order is
+//
+//  1. mark closed and cancel the root context / close exit.C,
+//  2. close the listeners and the router so blocked accept/read users wake up,
+//  3. wait for the registered background tasks and release the process-wide
+//     workers.
+//
+// Step 3 only waits for tasks with a definite exit (tickers, accept loop,
+// sentinel watchers, metrics reporters); no task is allowed to call Close.
 func (s *Proxy) Close() error {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	if s.closed {
+		done := s.closeDone
+		s.mu.Unlock()
+		<-done
 		return nil
 	}
 	s.closed = true
+	// Wake concurrent and future Close callers even if a downstream Close
+	// hook panics and the panic is recovered by an HTTP or serving boundary.
+	defer close(s.closeDone)
+	if s.cancel != nil {
+		s.cancel()
+	}
 	close(s.exit.C)
 
 	if s.jodis != nil {
@@ -206,8 +244,60 @@ func (s *Proxy) Close() error {
 	}
 	if s.ha.monitor != nil {
 		s.ha.monitor.Cancel()
+		s.ha.monitor = nil
+	}
+	s.mu.Unlock()
+
+	s.bg.Wait()
+
+	for _, release := range s.releases {
+		release()
 	}
 	return nil
+}
+
+// startBackground registers a background task with the proxy lifecycle. The
+// task must return once Close cancels the root context and closes the
+// listeners; Close waits for every registered task, so a task must never need
+// Close to make progress. Registering after Close is a no-op, which keeps
+// sync.WaitGroup free of Add-during-Wait misuse.
+func (s *Proxy) startBackground(scope string, fn func()) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.startBackgroundLocked(scope, fn)
+}
+
+// startBackgroundLocked is startBackground for callers that already hold s.mu.
+func (s *Proxy) startBackgroundLocked(scope string, fn func()) bool {
+	if s.closed {
+		return false
+	}
+	s.bg.Add(1)
+	go func() {
+		defer s.bg.Done()
+		// A recovered panic ends this task for good: the panic is logged with
+		// its stack and the task is not restarted behind the owner's back.
+		defer utils.Recover(scope)
+		fn()
+	}()
+	return true
+}
+
+// sleepFor waits for d, returning false if the proxy starts shutting down
+// first. It replaces time.Sleep in backoff paths so Close does not have to wait
+// for a full backoff window. exit.C is closed together with the root context.
+func (s *Proxy) sleepFor(d time.Duration) bool {
+	if d <= 0 {
+		return !s.IsClosed()
+	}
+	timer := time.NewTimer(d)
+	defer timer.Stop()
+	select {
+	case <-s.exit.C:
+		return false
+	case <-timer.C:
+		return true
+	}
 }
 
 func (s *Proxy) XAuth() string {
@@ -353,6 +443,9 @@ func (s *Proxy) RewatchSentinels() error {
 	return nil
 }
 
+// rewatchSentinels replaces the sentinel monitor and starts one registered
+// watcher task for it. Callers must hold s.mu; the previous monitor is canceled
+// so its watcher observes a definite exit.
 func (s *Proxy) rewatchSentinels(servers []string) {
 	if s.ha.monitor != nil {
 		s.ha.monitor.Cancel()
@@ -363,62 +456,95 @@ func (s *Proxy) rewatchSentinels(servers []string) {
 		s.ha.monitor = redis.NewSentinel(s.config.ProductName, s.config.ProductAuth)
 		s.ha.monitor.LogFunc = log.Warnf
 		s.ha.monitor.ErrFunc = log.WarnErrorf
-		go func(p *redis.Sentinel) {
-			var trigger = make(chan struct{}, 1)
-			delayUntil := func(deadline time.Time) {
-				for !p.IsCanceled() {
-					var d = deadline.Sub(time.Now())
-					if d <= 0 {
-						return
-					}
-					time.Sleep(min(d, time.Second))
-				}
-			}
-			go func() {
-				defer close(trigger)
-				callback := func() {
-					select {
-					case trigger <- struct{}{}:
-					default:
-					}
-				}
-				for !p.IsCanceled() {
-					timeout := time.Minute * 15
-					retryAt := time.Now().Add(time.Second * 10)
-					if !p.Subscribe(servers, timeout, callback) {
-						delayUntil(retryAt)
-					} else {
-						callback()
-					}
-				}
-			}()
-			go func() {
-				for range trigger {
-					var success int
-					for i := 0; i != 10 && !p.IsCanceled() && success != 2; i++ {
-						timeout := time.Second * 5
-						masters, err := p.Masters(servers, timeout)
-						if err != nil {
-							log.WarnErrorf(err, "[%p] fetch group masters failed", s)
-						} else {
-							if !p.IsCanceled() {
-								s.SwitchMasters(masters)
-							}
-							success += 1
-						}
-						delayUntil(time.Now().Add(time.Second * 5))
-					}
-				}
-			}()
-		}(s.ha.monitor)
+		monitor := s.ha.monitor
+		s.startBackgroundLocked("sentinel watcher", func() {
+			s.watchSentinels(monitor, servers)
+		})
 	}
 }
 
+// watchSentinels keeps the sentinel subscription and the master fetch on two
+// goroutines so a slow fetch cannot delay the subscription, and joins them
+// before returning: the registered task only completes when both are gone.
+func (s *Proxy) watchSentinels(p *redis.Sentinel, servers []string) {
+	var wg sync.WaitGroup
+	var trigger = make(chan struct{}, 1)
+
+	delayUntil := func(deadline time.Time) bool {
+		for !p.IsCanceled() {
+			var d = time.Until(deadline)
+			if d <= 0 {
+				return true
+			}
+			if !s.sleepFor(min(d, time.Second)) {
+				return false
+			}
+		}
+		return false
+	}
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		// A panic here must not leave the master-fetch goroutine waiting on a
+		// trigger that nobody closes.
+		defer utils.Recover("sentinel subscribe watcher")
+		defer close(trigger)
+		callback := func() {
+			select {
+			case trigger <- struct{}{}:
+			default:
+			}
+		}
+		for !p.IsCanceled() && !s.IsClosed() {
+			timeout := time.Minute * 15
+			retryAt := time.Now().Add(time.Second * 10)
+			if !p.Subscribe(servers, timeout, callback) {
+				if !delayUntil(retryAt) {
+					return
+				}
+			} else {
+				callback()
+			}
+		}
+	}()
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		defer utils.Recover("sentinel masters watcher")
+		for range trigger {
+			var success int
+			for i := 0; i != 10 && !p.IsCanceled() && success != 2; i++ {
+				timeout := time.Second * 5
+				masters, err := p.Masters(servers, timeout)
+				if err != nil {
+					log.WarnErrorf(err, "[%p] fetch group masters failed", s)
+				} else {
+					if !p.IsCanceled() {
+						s.SwitchMasters(masters)
+					}
+					success += 1
+				}
+				if !delayUntil(time.Now().Add(time.Second * 5)) {
+					return
+				}
+			}
+		}
+	}()
+
+	wg.Wait()
+}
+
+// serveAdmin owns the admin HTTP server and shuts the proxy down if it fails.
+// It is not part of the proxy WaitGroup on purpose: the API "shutdown" handler
+// calls Close from inside this server, so Close must never wait for it.
 func (s *Proxy) serveAdmin() {
 	if s.IsClosed() {
 		return
 	}
 	defer s.Close()
+	defer utils.Recover("proxy admin server")
 
 	log.Warnf("[%p] admin start service on %s", s, s.ladmin.Addr())
 
@@ -427,49 +553,69 @@ func (s *Proxy) serveAdmin() {
 	h.Handle("/", newApiServer(s))
 	hs := utils.NewAdminHTTPServer(h)
 	go func(l net.Listener) {
-		eh <- hs.Serve(l)
+		var err error
+		defer func() {
+			eh <- err
+		}()
+		defer utils.RecoverAsError("proxy admin http server", &err)
+		err = hs.Serve(l)
 	}(s.ladmin)
 
 	select {
-	case <-s.exit.C:
+	case <-s.ctx.Done():
 		utils.ShutdownHTTPServer(hs, 5*time.Second)
 		log.Warnf("[%p] admin shutdown", s)
 	case err := <-eh:
-		log.ErrorErrorf(err, "[%p] admin exit on error", s)
+		if !s.IsClosed() {
+			log.ErrorErrorf(err, "[%p] admin exit on error", s)
+		}
 	}
 }
 
+// serveProxy owns the client listener and shuts the proxy down if it fails.
+// It is not part of the proxy WaitGroup for the same reason as serveAdmin.
 func (s *Proxy) serveProxy() {
 	if s.IsClosed() {
 		return
 	}
 	defer s.Close()
+	defer utils.Recover("proxy server")
 
 	log.Warnf("[%p] proxy start service on %s", s, s.lproxy.Addr())
 
 	eh := make(chan error, 1)
-	go func(l net.Listener) (err error) {
-		defer func() {
-			eh <- err
-		}()
-		for {
-			c, err := s.acceptConn(l)
-			if err != nil {
-				return err
-			}
-			NewSessionWithAuthBruteforceGuard(c, s.config, s.authBruteforce).Start(s.router)
-		}
-	}(s.lproxy)
+	s.startBackground("proxy accept loop", func() {
+		eh <- s.acceptLoop(s.lproxy)
+	})
 
 	if d := s.config.BackendPingPeriod.Duration(); d != 0 {
-		go s.keepAlive(d)
+		s.startBackground("backend keepalive", func() {
+			s.keepAlive(d)
+		})
 	}
 
 	select {
-	case <-s.exit.C:
+	case <-s.ctx.Done():
 		log.Warnf("[%p] proxy shutdown", s)
 	case err := <-eh:
-		log.ErrorErrorf(err, "[%p] proxy exit on error", s)
+		if !s.IsClosed() {
+			log.ErrorErrorf(err, "[%p] proxy exit on error", s)
+		}
+	}
+}
+
+// acceptLoop accepts client connections until the listener is closed or fails
+// with a fatal error. A panic is converted into an error so the owning
+// serveProxy shuts the proxy down instead of leaving a listener that looks
+// healthy but accepts nothing.
+func (s *Proxy) acceptLoop(l net.Listener) (err error) {
+	defer utils.RecoverAsError("proxy accept loop", &err)
+	for {
+		c, err := s.acceptConn(l)
+		if err != nil {
+			return err
+		}
+		NewSessionWithAuthBruteforceGuard(c, s.config, s.authBruteforce).Start(s.router)
 	}
 }
 
@@ -478,12 +624,39 @@ func (s *Proxy) keepAlive(d time.Duration) {
 	defer ticker.Stop()
 	for {
 		select {
-		case <-s.exit.C:
+		case <-s.ctx.Done():
 			return
 		case <-ticker.C:
 			s.router.KeepAlive()
 		}
 	}
+}
+
+// acceptErrorRetryable classifies accept failures without the deprecated
+// net.Error.Temporary. A closed listener (or a canceled proxy) is fatal so
+// serveProxy can exit; resource exhaustion, interrupted accepts, accept
+// timeouts and connections aborted before accept completed are transient and
+// retried with backoff.
+func acceptErrorRetryable(err error) bool {
+	switch {
+	case err == nil:
+		return false
+	case stderrors.Is(err, net.ErrClosed), stderrors.Is(err, context.Canceled):
+		return false
+	case stderrors.Is(err, syscall.EINTR):
+		return true
+	case stderrors.Is(err, syscall.EMFILE), stderrors.Is(err, syscall.ENFILE),
+		stderrors.Is(err, syscall.ENOBUFS), stderrors.Is(err, syscall.ENOMEM):
+		return true
+	case stderrors.Is(err, syscall.ECONNRESET), stderrors.Is(err, syscall.ECONNABORTED):
+		// net.OpError has always reported these as temporary for accept.
+		return true
+	}
+	var ne net.Error
+	if stderrors.As(err, &ne) && ne.Timeout() {
+		return true
+	}
+	return false
 }
 
 func (s *Proxy) acceptConn(l net.Listener) (net.Conn, error) {
@@ -493,14 +666,16 @@ func (s *Proxy) acceptConn(l net.Listener) (net.Conn, error) {
 	}
 	for {
 		c, err := l.Accept()
-		if err != nil {
-			if e, ok := err.(net.Error); ok && e.Temporary() {
-				log.WarnErrorf(err, "[%p] proxy accept new connection failed", s)
-				delay.Sleep()
-				continue
-			}
+		if err == nil {
+			return c, nil
 		}
-		return c, err
+		if !acceptErrorRetryable(err) || s.IsClosed() {
+			return nil, err
+		}
+		log.WarnErrorf(err, "[%p] proxy accept new connection failed", s)
+		if !s.sleepFor(time.Duration(delay.NextValue()) * delay.Unit) {
+			return nil, err
+		}
 	}
 }
 

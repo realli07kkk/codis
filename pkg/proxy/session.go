@@ -6,9 +6,11 @@ package proxy
 import (
 	"encoding/json"
 	"fmt"
+	"math/rand/v2"
 	"net"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/CodisLabs/codis/pkg/models"
@@ -32,6 +34,11 @@ type Session struct {
 	lastOpStr  string
 
 	database int32
+
+	// seedBase is the random per-session offset of the request rotation seed
+	// and seedSeq gives every request of the session its own seed.
+	seedBase uint64
+	seedSeq  atomic.Uint64
 
 	quit bool
 	exit sync.Once
@@ -92,6 +99,7 @@ func NewSessionWithAuthBruteforceGuard(sock net.Conn, config *Config, guard *Aut
 		config:         config,
 		authBruteforce: guard,
 		CreateUnix:     time.Now().Unix(),
+		seedBase:       rand.Uint64(),
 	}
 	s.stats.opmap = make(map[string]*opStats, 16)
 	log.Infof("session [%p] create: %s", s, s)
@@ -198,9 +206,9 @@ func (s *Session) loopReader(tasks *RequestChan, d *Router) (err error) {
 		start := time.Now()
 		s.recordOperationStart(start)
 
-		r := &Request{}
+		r := newRequest()
 		r.Multi = multi
-		r.Batch = &sync.WaitGroup{}
+		r.seed = s.nextSeed()
 		r.Database = s.getDatabase()
 		r.UnixNano = start.UnixNano()
 
@@ -700,6 +708,14 @@ func (s *Session) recordOperationStart(start time.Time) {
 	s.LastOpUnix = start.Unix()
 	s.Ops++
 	s.mu.Unlock()
+}
+
+// nextSeed returns the rotation seed for the next request of this session. The
+// random per-session base decorrelates concurrent sessions, while the atomic
+// sequence keeps every request on its own seed: consecutive requests, and
+// requests that happen to share one UnixNano, still get different seeds.
+func (s *Session) nextSeed() uint32 {
+	return uint32(s.seedBase) + uint32(s.seedSeq.Add(1))
 }
 
 func (s *Session) setLastOpStr(opstr string) {

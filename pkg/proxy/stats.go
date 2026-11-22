@@ -4,8 +4,10 @@
 package proxy
 
 import (
+	stderrors "errors"
 	"math"
-	"sort"
+	"slices"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -47,7 +49,7 @@ type OpStats struct {
 	RedisErrType int64  `json:"redis_errtype"`
 }
 
-var cmdstats struct {
+var cmdstats = struct {
 	sync.RWMutex
 
 	opmap map[string]*opStats
@@ -58,20 +60,158 @@ var cmdstats struct {
 	}
 
 	qps atomic2.Int64
+}{
+	opmap: make(map[string]*opStats, 128),
 }
 
-func init() {
-	cmdstats.opmap = make(map[string]*opStats, 128)
+var errStatsReporterStopped = stderrors.New("stats reporter stopped")
+
+// statsReporter owns the two process-wide sampling loops behind OpQPS and
+// GetSysUsage. Both loops are explicit tasks with a stop channel so a Proxy can
+// shut them down and tests can drive an isolated reporter.
+type statsReporter struct {
+	qpsPeriod time.Duration
+	sysSample time.Duration
+	sysRetry  time.Duration
+
+	mu   sync.Mutex
+	stop chan struct{}
+	wg   sync.WaitGroup
+}
+
+func newStatsReporter() *statsReporter {
+	return &statsReporter{
+		qpsPeriod: time.Second,
+		sysSample: time.Second,
+		sysRetry:  5 * time.Second,
+	}
+}
+
+// Start launches the sampling loops. It is a no-op while they are running, so
+// a shared reporter can be started by several owners.
+func (r *statsReporter) Start() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.stop != nil {
+		return
+	}
+	stop := make(chan struct{})
+	r.stop = stop
+
+	r.wg.Add(1)
 	go func() {
-		for {
-			start := time.Now()
-			total := cmdstats.total.Int64()
-			time.Sleep(time.Second)
-			delta := cmdstats.total.Int64() - total
-			normalized := math.Max(0, float64(delta)) * float64(time.Second) / float64(time.Since(start))
-			cmdstats.qps.Set(int64(normalized + 0.5))
-		}
+		defer r.wg.Done()
+		defer utils.Recover("proxy op qps reporter")
+		r.loopQPS(stop)
 	}()
+	r.wg.Add(1)
+	go func() {
+		defer r.wg.Done()
+		defer utils.Recover("proxy sys usage reporter")
+		r.loopSysUsage(stop)
+	}()
+}
+
+// Close stops the sampling loops and waits for them to exit. It is safe to call
+// without Start and safe to call more than once. The mutex is held across stop
+// and wait so a concurrent Start cannot attach new loops to the WaitGroup this
+// Close is waiting on.
+func (r *statsReporter) Close() {
+	r.mu.Lock()
+	if r.stop != nil {
+		close(r.stop)
+		r.stop = nil
+		r.wg.Wait()
+	}
+	r.mu.Unlock()
+}
+
+func (r *statsReporter) running() bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.stop != nil
+}
+
+// loopQPS samples cmdstats.total on its own ticker instead of sleeping in a
+// bare for loop, so Close wakes it immediately.
+func (r *statsReporter) loopQPS(stop <-chan struct{}) {
+	var ticker = time.NewTicker(r.qpsPeriod)
+	defer ticker.Stop()
+
+	var last = time.Now()
+	var total = cmdstats.total.Int64()
+	for {
+		select {
+		case <-stop:
+			return
+		case now := <-ticker.C:
+			cur := cmdstats.total.Int64()
+			delta := cur - total
+			normalized := math.Max(0, float64(delta)) * float64(time.Second) / float64(now.Sub(last))
+			cmdstats.qps.Set(int64(normalized + 0.5))
+			last, total = now, cur
+		}
+	}
+}
+
+func (r *statsReporter) loopSysUsage(stop <-chan struct{}) {
+	for {
+		err := r.sampleSysUsage(stop)
+		switch {
+		case err == errStatsReporterStopped:
+			return
+		case err != nil:
+			select {
+			case <-stop:
+				return
+			case <-time.After(r.sysRetry):
+			}
+		}
+	}
+}
+
+// sampleSysUsage mirrors utils.CPUUsage but waits for the sample window with a
+// timer that Close can interrupt. It returns errStatsReporterStopped when the
+// reporter is shutting down.
+func (r *statsReporter) sampleSysUsage(stop <-chan struct{}) error {
+	start := time.Now()
+
+	b, err := utils.GetUsage()
+	if err != nil {
+		lastSysUsage.Store(&SysUsage{Now: time.Now()})
+		return err
+	}
+
+	timer := time.NewTimer(r.sysSample)
+	defer timer.Stop()
+	select {
+	case <-stop:
+		return errStatsReporterStopped
+	case <-timer.C:
+	}
+
+	e, err := utils.GetUsage()
+	if err != nil {
+		lastSysUsage.Store(&SysUsage{Now: time.Now()})
+		return err
+	}
+
+	usage := e.CPUTotal() - b.CPUTotal()
+	lastSysUsage.Store(&SysUsage{
+		Now:   time.Now(),
+		CPU:   float64(usage) / float64(time.Since(start)),
+		Usage: e,
+	})
+	return nil
+}
+
+var opStatsReporter = newSharedWorker(newStatsReporter(),
+	(*statsReporter).Start, (*statsReporter).Close)
+
+// startStatsReporter starts the process-wide stats loops if needed and returns
+// the release hook for the caller (a Proxy) lifecycle.
+func startStatsReporter() func() {
+	return opStatsReporter.acquire()
 }
 
 func OpTotal() int64 {
@@ -109,18 +249,12 @@ func getOpStats(opstr string, create bool) *opStats {
 	return s
 }
 
-type sliceOpStats []*OpStats
-
-func (s sliceOpStats) Len() int {
-	return len(s)
-}
-
-func (s sliceOpStats) Swap(i, j int) {
-	s[i], s[j] = s[j], s[i]
-}
-
-func (s sliceOpStats) Less(i, j int) bool {
-	return s[i].OpStr < s[j].OpStr
+// sortOpStats orders per-command snapshots by operation name so the stats API
+// returns them in a deterministic order.
+func sortOpStats(all []*OpStats) {
+	slices.SortFunc(all, func(a, b *OpStats) int {
+		return strings.Compare(a.OpStr, b.OpStr)
+	})
 }
 
 func GetOpStatsAll() []*OpStats {
@@ -130,7 +264,7 @@ func GetOpStatsAll() []*OpStats {
 		all = append(all, s.OpStats())
 	}
 	cmdstats.RUnlock()
-	sort.Sort(sliceOpStats(all))
+	sortOpStats(all)
 	return all
 }
 
@@ -190,27 +324,6 @@ type SysUsage struct {
 }
 
 var lastSysUsage atomic.Value
-
-func init() {
-	go func() {
-		for {
-			cpu, usage, err := utils.CPUUsage(time.Second)
-			if err != nil {
-				lastSysUsage.Store(&SysUsage{
-					Now: time.Now(),
-				})
-			} else {
-				lastSysUsage.Store(&SysUsage{
-					Now: time.Now(),
-					CPU: cpu, Usage: usage,
-				})
-			}
-			if err != nil {
-				time.Sleep(time.Second * 5)
-			}
-		}
-	}()
-}
 
 func GetSysUsage() *SysUsage {
 	if p := lastSysUsage.Load(); p != nil {

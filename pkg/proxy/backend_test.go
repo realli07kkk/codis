@@ -16,23 +16,31 @@ import (
 	"github.com/CodisLabs/codis/pkg/utils/assert"
 )
 
-func newConnPair(config *Config) (*redis.Conn, *BackendConn) {
+func newConnPair(t *testing.T, config *Config) (*redis.Conn, *BackendConn) {
 	l, err := net.Listen("tcp", "127.0.0.1:0")
-	assert.MustNoError(err)
+	assert.MustNoError(t, err)
 	defer l.Close()
 
 	const bufsize = 128 * 1024
 
-	cc := make(chan *redis.Conn, 1)
+	type acceptResult struct {
+		conn *redis.Conn
+		err  error
+	}
+	cc := make(chan acceptResult, 1)
 	go func() {
-		defer close(cc)
 		c, err := l.Accept()
-		assert.MustNoError(err)
-		cc <- redis.NewConn(c, bufsize, bufsize)
+		if err != nil {
+			cc <- acceptResult{err: err}
+			return
+		}
+		cc <- acceptResult{conn: redis.NewConn(c, bufsize, bufsize)}
 	}()
 
 	bc := NewBackendConn(l.Addr().String(), 0, config)
-	return <-cc, bc
+	result := <-cc
+	assert.MustNoError(t, result.err)
+	return result.conn, bc
 }
 
 func TestBackend(t *testing.T) {
@@ -41,22 +49,29 @@ func TestBackend(t *testing.T) {
 	config.BackendSendTimeout.Set(time.Second)
 	config.BackendRecvTimeout.Set(time.Minute)
 
-	conn, bc := newConnPair(config)
+	conn, bc := newConnPair(t, config)
 
 	var array = make([]*Request, 16384)
 	for i := range array {
 		array[i] = &Request{Batch: &sync.WaitGroup{}}
 	}
 
+	errCh := make(chan error, 1)
 	go func() {
 		defer conn.Close()
 		time.Sleep(time.Millisecond * 300)
-		for i, _ := range array {
-			_, err := conn.Decode()
-			assert.MustNoError(err)
+		for i := range array {
+			if _, err := conn.Decode(); err != nil {
+				errCh <- err
+				return
+			}
 			resp := redis.NewString([]byte(strconv.Itoa(i)))
-			assert.MustNoError(conn.Encode(resp, true))
+			if err := conn.Encode(resp, true); err != nil {
+				errCh <- err
+				return
+			}
 		}
+		errCh <- nil
 	}()
 
 	defer bc.Close()
@@ -76,10 +91,11 @@ func TestBackend(t *testing.T) {
 
 	for i, r := range array {
 		r.Batch.Wait()
-		assert.MustNoError(r.Err)
-		assert.Must(r.Resp != nil)
-		assert.Must(string(r.Resp.Value) == strconv.Itoa(i))
+		assert.MustNoError(t, r.Err)
+		assert.Must(t, r.Resp != nil)
+		assert.Must(t, string(r.Resp.Value) == strconv.Itoa(i))
 	}
+	assert.MustNoError(t, <-errCh)
 }
 
 func TestSharedBackendConnPoolConcurrentGetOrCreateAndClose(t *testing.T) {

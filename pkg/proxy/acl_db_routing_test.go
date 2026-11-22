@@ -27,11 +27,11 @@ func aclBoundDB(s *Proxy, name string) *int {
 }
 
 func TestACLSnapshotCopiesBoundDB(t *testing.T) {
-	s, _ := openProxy()
+	s, _ := openProxy(t)
 	defer s.Close()
 
 	db3 := 3
-	assert.MustNoError(s.SetACL(&models.ACL{
+	assert.MustNoError(t, s.SetACL(&models.ACL{
 		Revision: 1,
 		Enabled:  true,
 		Users: []*models.ACLUser{{
@@ -44,7 +44,7 @@ func TestACLSnapshotCopiesBoundDB(t *testing.T) {
 	}))
 
 	got := aclBoundDB(s, "app1")
-	assert.Must(got != nil && *got == 3)
+	assert.Must(t, got != nil && *got == 3)
 }
 
 // TestACLDBBoundUserRoutesToBoundDB: AUTH app1 (bound db=3) -> SET k v must
@@ -52,7 +52,7 @@ func TestACLSnapshotCopiesBoundDB(t *testing.T) {
 func TestACLDBBoundUserRoutesToBoundDB(t *testing.T) {
 	config := newProxyConfig()
 	config.CodisACLEnabled = true
-	assert.Must(config.BackendNumberDatabases >= 4)
+	assert.Must(t, config.BackendNumberDatabases >= 4)
 
 	backend := redistest.NewServer(t, func(args []string) *redistest.Resp {
 		switch strings.ToUpper(args[0]) {
@@ -69,11 +69,11 @@ func TestACLDBBoundUserRoutesToBoundDB(t *testing.T) {
 		}
 	})
 
-	s, addr := openStartedProxy(config)
+	s, addr := openStartedProxy(t, config)
 	defer s.Close()
 
 	db3 := 3
-	assert.MustNoError(s.SetACL(&models.ACL{
+	assert.MustNoError(t, s.SetACL(&models.ACL{
 		Revision: 1,
 		Enabled:  true,
 		Users: []*models.ACLUser{{
@@ -86,15 +86,15 @@ func TestACLDBBoundUserRoutesToBoundDB(t *testing.T) {
 	}))
 	fillProxySlotForKey(t, s, []byte("app:k"), backend.Addr())
 
-	c := dialProxy(addr)
+	c := dialProxy(t, addr)
 	defer c.Close()
-	assert.Must(proxyCall(c, "AUTH", "app1", "secret").IsString())
+	assert.Must(t, proxyCall(t, c, "AUTH", "app1", "secret").IsString())
 
-	resp := proxyCall(c, "SET", "app:k", "v")
-	assert.Must(resp.IsString() && string(resp.Value) == "OK")
+	resp := proxyCall(t, c, "SET", "app:k", "v")
+	assert.Must(t, resp.IsString() && string(resp.Value) == "OK")
 
 	// Backend user-pool must have issued SELECT 3 on its bound conn for app1.
-	assert.Must(commandExists(backend.Commands(), []string{"SELECT", "3"}))
+	assert.Must(t, commandExists(backend.Commands(), []string{"SELECT", "3"}))
 }
 
 // TestACLDBBoundSessionSelectIsNoOp: after AUTH, SELECT 5 returns OK but
@@ -110,11 +110,11 @@ func TestACLDBBoundSessionSelectIsNoOp(t *testing.T) {
 		return redistest.OK()
 	})
 
-	s, addr := openStartedProxy(config)
+	s, addr := openStartedProxy(t, config)
 	defer s.Close()
 
 	db3 := 3
-	assert.MustNoError(s.SetACL(&models.ACL{
+	assert.MustNoError(t, s.SetACL(&models.ACL{
 		Revision: 1,
 		Enabled:  true,
 		Users: []*models.ACLUser{{
@@ -127,21 +127,21 @@ func TestACLDBBoundSessionSelectIsNoOp(t *testing.T) {
 	}))
 	fillProxySlotForKey(t, s, []byte("app:k"), backend.Addr())
 
-	c := dialProxy(addr)
+	c := dialProxy(t, addr)
 	defer c.Close()
-	assert.Must(proxyCall(c, "AUTH", "app1", "secret").IsString())
+	assert.Must(t, proxyCall(t, c, "AUTH", "app1", "secret").IsString())
 
 	// SELECT 5 must return OK (client compatibility) — but must be a no-op.
-	resp := proxyCall(c, "SELECT", "5")
-	assert.Must(resp.IsString() && string(resp.Value) == "OK")
+	resp := proxyCall(t, c, "SELECT", "5")
+	assert.Must(t, resp.IsString() && string(resp.Value) == "OK")
 
 	// Trigger a backend round-trip. The bound db=3 conn is opened by the
 	// pool; a forwarded SELECT 5 would open a separate db=5 conn — but
 	// pool only spans db 0..3, so any SELECT 5 here can only come from the
 	// client command being forwarded.
-	assert.Must(proxyCall(c, "GET", "app:k").IsString())
-	assert.Must(commandExists(backend.Commands(), []string{"SELECT", "3"}))
-	assert.Must(!commandExists(backend.Commands(), []string{"SELECT", "5"}))
+	assert.Must(t, proxyCall(t, c, "GET", "app:k").IsString())
+	assert.Must(t, commandExists(backend.Commands(), []string{"SELECT", "3"}))
+	assert.Must(t, !commandExists(backend.Commands(), []string{"SELECT", "5"}))
 }
 
 // TestACLDBBoundDefaultUser: AUTH <pwd> (no username) resolves to default user
@@ -159,11 +159,11 @@ func TestACLDBBoundDefaultUser(t *testing.T) {
 		}
 	})
 
-	s, addr := openStartedProxy(config)
+	s, addr := openStartedProxy(t, config)
 	defer s.Close()
 
 	db2 := 2
-	assert.MustNoError(s.SetACL(&models.ACL{
+	assert.MustNoError(t, s.SetACL(&models.ACL{
 		Revision: 1,
 		Enabled:  true,
 		Users: []*models.ACLUser{{
@@ -176,14 +176,14 @@ func TestACLDBBoundDefaultUser(t *testing.T) {
 	}))
 	fillProxySlotForKey(t, s, []byte("k"), backend.Addr())
 
-	c := dialProxy(addr)
+	c := dialProxy(t, addr)
 	defer c.Close()
-	assert.Must(proxyCall(c, "AUTH", "secret").IsString())
+	assert.Must(t, proxyCall(t, c, "AUTH", "secret").IsString())
 
-	resp := proxyCall(c, "SET", "k", "v")
-	assert.Must(resp.IsString())
+	resp := proxyCall(t, c, "SET", "k", "v")
+	assert.Must(t, resp.IsString())
 
-	assert.Must(commandExists(backend.Commands(), []string{"SELECT", "2"}))
+	assert.Must(t, commandExists(backend.Commands(), []string{"SELECT", "2"}))
 }
 
 // TestACLDBUnboundUserSelectTakesEffect: a user without DB binding keeps
@@ -201,10 +201,10 @@ func TestACLDBUnboundUserSelectTakesEffect(t *testing.T) {
 		}
 	})
 
-	s, addr := openStartedProxy(config)
+	s, addr := openStartedProxy(t, config)
 	defer s.Close()
 
-	assert.MustNoError(s.SetACL(&models.ACL{
+	assert.MustNoError(t, s.SetACL(&models.ACL{
 		Revision: 1,
 		Enabled:  true,
 		Users: []*models.ACLUser{{
@@ -216,14 +216,14 @@ func TestACLDBUnboundUserSelectTakesEffect(t *testing.T) {
 	}))
 	fillProxySlotForKey(t, s, []byte("app:k"), backend.Addr())
 
-	c := dialProxy(addr)
+	c := dialProxy(t, addr)
 	defer c.Close()
-	assert.Must(proxyCall(c, "AUTH", "app_ro", "secret").IsString())
+	assert.Must(t, proxyCall(t, c, "AUTH", "app_ro", "secret").IsString())
 
 	// Unbound session: SELECT 4 must change routing db.
-	resp := proxyCall(c, "SELECT", "4")
-	assert.Must(resp.IsString() && string(resp.Value) == "OK")
-	assert.Must(commandExists(backend.Commands(), []string{"SELECT", "4"}))
+	resp := proxyCall(t, c, "SELECT", "4")
+	assert.Must(t, resp.IsString() && string(resp.Value) == "OK")
+	assert.Must(t, commandExists(backend.Commands(), []string{"SELECT", "4"}))
 }
 
 // TestACLDBBoundOutOfRangeFailClosed: db=99 with backend_number_databases=16
@@ -236,11 +236,11 @@ func TestACLDBBoundOutOfRangeFailClosed(t *testing.T) {
 		return redistest.OK()
 	})
 
-	s, addr := openStartedProxy(config)
+	s, addr := openStartedProxy(t, config)
 	defer s.Close()
 
 	dbBad := 99
-	assert.MustNoError(s.SetACL(&models.ACL{
+	assert.MustNoError(t, s.SetACL(&models.ACL{
 		Revision: 1,
 		Enabled:  true,
 		Users: []*models.ACLUser{{
@@ -253,17 +253,17 @@ func TestACLDBBoundOutOfRangeFailClosed(t *testing.T) {
 	}))
 	fillProxySlotForKey(t, s, []byte("app:k"), backend.Addr())
 
-	c := dialProxy(addr)
+	c := dialProxy(t, addr)
 	defer c.Close()
 
-	resp := proxyCall(c, "AUTH", "app_bad", "secret")
-	assert.Must(resp.IsError())
-	assert.Must(strings.Contains(string(resp.Value), "exceeds backend db count"))
+	resp := proxyCall(t, c, "AUTH", "app_bad", "secret")
+	assert.Must(t, resp.IsError())
+	assert.Must(t, strings.Contains(string(resp.Value), "exceeds backend db count"))
 
 	// No identity written -> next non-AUTH command must be NOAUTH.
-	resp = proxyCall(c, "GET", "app:k")
-	assert.Must(resp.IsError())
-	assert.Must(string(resp.Value) == "NOAUTH Authentication required")
+	resp = proxyCall(t, c, "GET", "app:k")
+	assert.Must(t, resp.IsError())
+	assert.Must(t, string(resp.Value) == "NOAUTH Authentication required")
 
 	// No backend command beyond AUTH/SELECT must have been emitted for app_bad.
 	for _, cmd := range backend.Commands() {
@@ -288,7 +288,7 @@ func TestACLDBBoundUserRevisionReAuthUsesNewDB(t *testing.T) {
 		}
 	})
 
-	s, addr := openStartedProxy(config)
+	s, addr := openStartedProxy(t, config)
 	defer s.Close()
 
 	db3 := 3
@@ -303,28 +303,28 @@ func TestACLDBBoundUserRevisionReAuthUsesNewDB(t *testing.T) {
 			Rules:          []string{"+@all", "~*"},
 		}},
 	}
-	assert.MustNoError(s.SetACL(acl))
+	assert.MustNoError(t, s.SetACL(acl))
 	fillProxySlotForKey(t, s, []byte("app:k"), backend.Addr())
 
-	c := dialProxy(addr)
+	c := dialProxy(t, addr)
 	defer c.Close()
-	assert.Must(proxyCall(c, "AUTH", "app1", "secret").IsString())
+	assert.Must(t, proxyCall(t, c, "AUTH", "app1", "secret").IsString())
 
 	// Flip bound db 3 -> 7 and bump revision; old session must go stale.
 	db7 := 7
 	acl.Revision = 2
 	acl.Users[0].DB = &db7
-	assert.MustNoError(s.SetACL(acl))
+	assert.MustNoError(t, s.SetACL(acl))
 
 	// Pre-re-auth non-AUTH command: NOAUTH (stale).
-	resp := proxyCall(c, "GET", "app:k")
-	assert.Must(resp.IsError())
-	assert.Must(string(resp.Value) == "NOAUTH Authentication required")
+	resp := proxyCall(t, c, "GET", "app:k")
+	assert.Must(t, resp.IsError())
+	assert.Must(t, string(resp.Value) == "NOAUTH Authentication required")
 
 	// Re-auth routes to the new bound db 7.
-	assert.Must(proxyCall(c, "AUTH", "app1", "secret").IsString())
-	assert.Must(proxyCall(c, "SET", "app:k", "v").IsString())
-	assert.Must(commandExists(backend.Commands(), []string{"SELECT", "7"}))
+	assert.Must(t, proxyCall(t, c, "AUTH", "app1", "secret").IsString())
+	assert.Must(t, proxyCall(t, c, "SET", "app:k", "v").IsString())
+	assert.Must(t, commandExists(backend.Commands(), []string{"SELECT", "7"}))
 }
 
 // TestACLDBBoundUserMigratingSlotDryRunSucceeds: a DB-bound user issuing an
@@ -366,11 +366,11 @@ func TestACLDBBoundUserMigratingSlotDryRunSucceeds(t *testing.T) {
 		}
 	})
 
-	s, addr := openStartedProxy(config)
+	s, addr := openStartedProxy(t, config)
 	defer s.Close()
 
 	db3 := 3
-	assert.MustNoError(s.SetACL(&models.ACL{
+	assert.MustNoError(t, s.SetACL(&models.ACL{
 		Revision: 1,
 		Enabled:  true,
 		Users: []*models.ACLUser{{
@@ -385,7 +385,7 @@ func TestACLDBBoundUserMigratingSlotDryRunSucceeds(t *testing.T) {
 	// Place the key's slot in migration: target = backend, source = migrate-from.
 	key := []byte("app:k")
 	slot := int(Hash(key) % MaxSlotNum)
-	assert.MustNoError(s.FillSlot(&models.Slot{
+	assert.MustNoError(t, s.FillSlot(&models.Slot{
 		Id:                 slot,
 		BackendAddr:        target.Addr(),
 		BackendAddrGroupId: 1,
@@ -393,17 +393,17 @@ func TestACLDBBoundUserMigratingSlotDryRunSucceeds(t *testing.T) {
 		ForwardMethod:      models.ForwardSemiAsync,
 	}))
 
-	c := dialProxy(addr)
+	c := dialProxy(t, addr)
 	defer c.Close()
-	assert.Must(proxyCall(c, "AUTH", "app1", "secret").IsString())
+	assert.Must(t, proxyCall(t, c, "AUTH", "app1", "secret").IsString())
 
 	// Allowed command on a migrating slot must succeed (DRYRUN passes on
 	// source, then the wrapper routes the command).
-	resp := proxyCall(c, "GET", "app:k")
-	assert.Must(resp.IsString() && string(resp.Value) == "OK")
+	resp := proxyCall(t, c, "GET", "app:k")
+	assert.Must(t, resp.IsString() && string(resp.Value) == "OK")
 
 	// The migration wrapper issued ACL DRYRUN on the source backend using the
 	// bound db 3 conn — ForcedDB propagated consistently, not corrupted.
-	assert.Must(sourceSawDryRunOnBoundDB)
-	assert.Must(commandExists(source.Commands(), []string{"SELECT", "3"}))
+	assert.Must(t, sourceSawDryRunOnBoundDB)
+	assert.Must(t, commandExists(source.Commands(), []string{"SELECT", "3"}))
 }

@@ -6,7 +6,6 @@ package proxy
 import (
 	"sync"
 	"sync/atomic"
-	"unsafe"
 
 	"github.com/CodisLabs/codis/pkg/proxy/redis"
 	"github.com/CodisLabs/codis/pkg/utils/sync2/atomic2"
@@ -25,6 +24,10 @@ type Request struct {
 	Database int32
 	UnixNano int64
 
+	// seed is computed once when the session creates the request. Seed16 only
+	// reads it, so repeated calls return the same value for the same request.
+	seed uint32
+
 	ACLIdentity         *SessionACLIdentity
 	SkipRedisErrorStats bool
 
@@ -34,6 +37,24 @@ type Request struct {
 	Coalesce func() error
 
 	done uint32
+}
+
+// requestAlloc joins a Request with the WaitGroup that tracks its backend
+// writes in a single allocation. The inner Request is never copied: callers
+// only ever hold a pointer into the allocation and Batch points at the
+// embedded WaitGroup.
+type requestAlloc struct {
+	r  Request
+	wg sync.WaitGroup
+}
+
+// newRequest allocates a Request whose Batch is ready for backend writes with
+// one heap allocation instead of one for the Request and one for the
+// WaitGroup.
+func newRequest() *Request {
+	a := &requestAlloc{}
+	a.r.Batch = &a.wg
+	return &a.r
 }
 
 // IsDone reports whether the backend response has been written. It is safe to
@@ -60,18 +81,24 @@ func (r *Request) MakeSubRequest(n int) []Request {
 		x.Broken = r.Broken
 		x.Database = r.Database
 		x.UnixNano = r.UnixNano
+		// Keep each subrequest idempotent while spreading children over
+		// backend connections, as the old per-address seeds did.
+		x.seed = r.seed + uint32(i)
 		x.ACLIdentity = r.ACLIdentity
 		x.SkipRedisErrorStats = r.SkipRedisErrorStats
 	}
 	return sub
 }
 
-const GOLDEN_RATIO_PRIME_32 = 0x9e370001
+// seed16Mask keeps Seed16 inside the 16-bit range its callers expect when
+// they rotate over replica groups and backend connections.
+const seed16Mask = 0xffff
 
+// Seed16 returns the rotation seed precomputed for this request. It only reads
+// a field, so it is idempotent and safe to call after the request was handed
+// to a backend.
 func (r *Request) Seed16() uint {
-	h32 := uint32(r.UnixNano) + uint32(uintptr(unsafe.Pointer(r)))
-	h32 *= GOLDEN_RATIO_PRIME_32
-	return uint(h32 >> 16)
+	return uint(r.seed & seed16Mask)
 }
 
 type RequestChan struct {

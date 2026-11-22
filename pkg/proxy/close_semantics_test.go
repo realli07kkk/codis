@@ -4,11 +4,10 @@
 package proxy
 
 import (
+	"errors"
 	"sync"
 	"testing"
 	"time"
-
-	"github.com/CodisLabs/codis/pkg/utils/errors"
 )
 
 func TestBackendConnCloseUnblocksFullQueue(t *testing.T) {
@@ -45,7 +44,7 @@ func TestBackendConnCloseUnblocksFullQueue(t *testing.T) {
 		t.Fatal("PushBack did not return after Close")
 	}
 
-	if !errors.Equal(r.Err, ErrBackendConnReset) {
+	if !errors.Is(r.Err, ErrBackendConnReset) {
 		t.Fatalf("err = %v, want %v", r.Err, ErrBackendConnReset)
 	}
 }
@@ -59,7 +58,7 @@ func TestBackendConnPushBackAfterClose(t *testing.T) {
 	bc.PushBack(r)
 	r.Batch.Wait()
 
-	if !errors.Equal(r.Err, ErrBackendConnReset) {
+	if !errors.Is(r.Err, ErrBackendConnReset) {
 		t.Fatalf("err = %v, want %v", r.Err, ErrBackendConnReset)
 	}
 }

@@ -4,21 +4,22 @@
 package proxy
 
 import (
+	"context"
 	"strings"
 	"time"
 
-	influxdbClient "github.com/influxdata/influxdb/client/v2"
-	statsdClient "gopkg.in/alexcesaro/statsd.v2"
+	influxdbClient "github.com/influxdata/influxdb1-client/v2"
 
-	"github.com/CodisLabs/codis/pkg/utils"
 	"github.com/CodisLabs/codis/pkg/utils/errors"
 	"github.com/CodisLabs/codis/pkg/utils/log"
 	"github.com/CodisLabs/codis/pkg/utils/rpc"
 )
 
-func (p *Proxy) startMetricsReporter(d time.Duration, do, cleanup func() error) {
-	go func() {
-		defer utils.Recover("metrics reporter")
+// startMetricsReporter registers a metrics reporter with the proxy lifecycle.
+// The reporter stops on the root context, the ticker is stopped with it, and
+// the optional cleanup runs before the task leaves the WaitGroup.
+func (p *Proxy) startMetricsReporter(scope string, d time.Duration, do func(context.Context) error, cleanup func() error) {
+	registered := p.startBackground("metrics reporter: "+scope, func() {
 		if cleanup != nil {
 			defer cleanup()
 		}
@@ -30,18 +31,27 @@ func (p *Proxy) startMetricsReporter(d time.Duration, do, cleanup func() error) 
 		}
 		for {
 			select {
-			case <-p.exit.C:
+			case <-p.ctx.Done():
 				return
 			case <-ticker.C:
 			}
-			if err := do(); err != nil {
+			if err := do(p.ctx); err != nil {
+				if p.ctx.Err() != nil {
+					return
+				}
 				log.WarnErrorf(err, "report metrics failed")
-				delay.SleepWithCancel(p.IsClosed)
+				delay.SleepWithCancel(func() bool {
+					return p.ctx.Err() != nil
+				})
 			} else {
 				delay.Reset()
 			}
 		}
-	}()
+	})
+	if !registered && cleanup != nil {
+		// startBackground rejects tasks after Close without running fn.
+		_ = cleanup()
+	}
 }
 
 func (p *Proxy) startMetricsJson() {
@@ -52,8 +62,8 @@ func (p *Proxy) startMetricsJson() {
 	}
 	period = max(time.Second, period)
 
-	p.startMetricsReporter(period, func() error {
-		return rpc.ApiPostJson(server, p.Overview(StatsRuntime))
+	p.startMetricsReporter("json", period, func(ctx context.Context) error {
+		return rpc.ApiPostJsonWithContext(ctx, server, p.Overview(StatsRuntime))
 	}, nil)
 }
 
@@ -78,7 +88,7 @@ func (p *Proxy) startMetricsInfluxdb() {
 
 	database := p.config.MetricsReportInfluxdbDatabase
 
-	p.startMetricsReporter(period, func() error {
+	p.startMetricsReporter("influxdb", period, func(ctx context.Context) error {
 		b, err := influxdbClient.NewBatchPoints(influxdbClient.BatchPointsConfig{
 			Database:  database,
 			Precision: "ns",
@@ -131,7 +141,7 @@ func (p *Proxy) startMetricsStatsd() {
 	}
 	period = max(time.Second, period)
 
-	c, err := statsdClient.New(statsdClient.Address(server))
+	c, err := newStatsdClient(server)
 	if err != nil {
 		log.WarnErrorf(err, "create statsd client failed")
 		return
@@ -142,7 +152,7 @@ func (p *Proxy) startMetricsStatsd() {
 		replacer = strings.NewReplacer(".", "_", ":", "_")
 	)
 
-	p.startMetricsReporter(period, func() error {
+	p.startMetricsReporter("statsd", period, func(ctx context.Context) error {
 		model := p.Model()
 		stats := p.Stats(StatsRuntime)
 
@@ -171,9 +181,9 @@ func (p *Proxy) startMetricsStatsd() {
 		for key, value := range fields {
 			c.Gauge(strings.Join(append(segs, key), "."), value)
 		}
+		// Flush once per report cycle. Write errors retain the old reporter's
+		// best-effort behavior and do not trigger a retry.
+		_ = c.Flush()
 		return nil
-	}, func() error {
-		c.Close()
-		return nil
-	})
+	}, c.Close)
 }

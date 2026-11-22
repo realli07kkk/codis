@@ -5,13 +5,23 @@ package proxy
 
 import (
 	"fmt"
-	"sync"
 	"time"
 
 	"github.com/CodisLabs/codis/pkg/models"
 	"github.com/CodisLabs/codis/pkg/proxy/redis"
 	"github.com/CodisLabs/codis/pkg/utils/errors"
 	"github.com/CodisLabs/codis/pkg/utils/log"
+)
+
+var (
+	// Read-only command literals shared by the migration and ACL wrappers. The
+	// RESP encoder only reads Resp.Value and these requests are never exposed to
+	// callers that could write to the bytes, so one copy per process is enough.
+	cmdSlotsMgrttagOne      = []byte("SLOTSMGRTTAGONE")
+	cmdSlotsMgrttagTimeout  = []byte("3000")
+	cmdSlotsMgrtExecWrapper = []byte("SLOTSMGRT-EXEC-WRAPPER")
+	cmdACL                  = []byte("ACL")
+	cmdACLDryRun            = []byte("DRYRUN")
 )
 
 type forwardMethod interface {
@@ -143,15 +153,14 @@ type forwardHelper struct {
 }
 
 func (d *forwardHelper) slotsmgrt(s *Slot, hkey []byte, database int32, seed uint) error {
-	m := &Request{}
+	m := newRequest()
 	m.Multi = []*redis.Resp{
-		redis.NewBulkBytes([]byte("SLOTSMGRTTAGONE")),
+		redis.NewBulkBytes(cmdSlotsMgrttagOne),
 		redis.NewBulkBytes(s.backend.bc.host),
 		redis.NewBulkBytes(s.backend.bc.port),
-		redis.NewBulkBytes([]byte("3000")),
+		redis.NewBulkBytes(cmdSlotsMgrttagTimeout),
 		redis.NewBulkBytes(hkey),
 	}
-	m.Batch = &sync.WaitGroup{}
 
 	s.migrate.bc.BackendConn(database, seed, true).PushBack(m)
 
@@ -181,14 +190,13 @@ func (d *forwardHelper) slotsmgrtExecWrapper(s *Slot, hkey []byte, database int3
 			return resp, false, err
 		}
 	}
-	m := &Request{}
+	m := newRequest()
 	m.Multi = make([]*redis.Resp, 0, 2+len(multi))
 	m.Multi = append(m.Multi,
-		redis.NewBulkBytes([]byte("SLOTSMGRT-EXEC-WRAPPER")),
+		redis.NewBulkBytes(cmdSlotsMgrtExecWrapper),
 		redis.NewBulkBytes(hkey),
 	)
 	m.Multi = append(m.Multi, multi...)
-	m.Batch = &sync.WaitGroup{}
 
 	s.migrate.bc.BackendConn(database, seed, true).PushBack(m)
 
@@ -256,15 +264,14 @@ func (d *forwardHelper) aclDryRunOnBackend(bc *sharedBackendConn, database int32
 	if bc == nil {
 		return nil, ErrSlotIsNotReady
 	}
-	m := &Request{}
+	m := newRequest()
 	m.Multi = make([]*redis.Resp, 0, 3+len(multi))
 	m.Multi = append(m.Multi,
-		redis.NewBulkBytes([]byte("ACL")),
-		redis.NewBulkBytes([]byte("DRYRUN")),
+		redis.NewBulkBytes(cmdACL),
+		redis.NewBulkBytes(cmdACLDryRun),
 		redis.NewBulkBytes([]byte(username)),
 	)
 	m.Multi = append(m.Multi, multi...)
-	m.Batch = &sync.WaitGroup{}
 
 	bc.BackendConn(database, seed, true).PushBack(m)
 	m.Batch.Wait()

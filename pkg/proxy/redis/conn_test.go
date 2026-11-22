@@ -4,42 +4,19 @@
 package redis
 
 import (
+	stderrors "errors"
+	"fmt"
 	"net"
+	"os"
 	"testing"
-	"time"
 
-	"github.com/CodisLabs/codis/pkg/utils/assert"
+	codiserrors "github.com/CodisLabs/codis/pkg/utils/errors"
 	"github.com/CodisLabs/codis/pkg/utils/unsafe2"
 )
 
-func newConnPair() (*Conn, *Conn) {
-	l, err := net.Listen("tcp", "127.0.0.1:0")
-	assert.MustNoError(err)
-	defer l.Close()
-
-	const bufsize = 128 * 1024
-
-	cc := make(chan *Conn, 1)
-	go func() {
-		defer close(cc)
-		c, err := l.Accept()
-		assert.MustNoError(err)
-		cc <- NewConn(c, bufsize, bufsize)
-	}()
-
-	const timeout = time.Millisecond * 50
-
-	conn1, err := DialTimeout(l.Addr().String(), timeout, bufsize, bufsize)
-	assert.MustNoError(err)
-
-	conn2, ok := <-cc
-	assert.Must(ok)
-	return conn1, conn2
-}
-
 func benchmarkConn(b *testing.B, n int) {
 	unsafe2.SetMaxOffheapBytes(0)
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		c := NewConn(&net.TCPConn{}, n, n)
 		c.Close()
 	}
@@ -47,7 +24,7 @@ func benchmarkConn(b *testing.B, n int) {
 
 func benchmarkConnOffheap(b *testing.B, n int) {
 	unsafe2.SetMaxOffheapBytes(1024 * 1024 * 512)
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		c := NewConn(&net.TCPConn{}, n, n)
 		c.Close()
 	}
@@ -64,3 +41,28 @@ func BenchmarkConnOffheap32K(b *testing.B)  { benchmarkConnOffheap(b, 1024*32) }
 func BenchmarkConnOffheap64K(b *testing.B)  { benchmarkConnOffheap(b, 1024*64) }
 func BenchmarkConnOffheap128K(b *testing.B) { benchmarkConnOffheap(b, 1024*128) }
 func BenchmarkConnOffheap256K(b *testing.B) { benchmarkConnOffheap(b, 1024*256) }
+
+func TestIsTimeoutClassifiesWrappedNetErrors(t *testing.T) {
+	timeout := &net.OpError{Op: "read", Net: "tcp", Err: os.ErrDeadlineExceeded}
+	nonTimeout := &net.OpError{Op: "read", Net: "tcp", Err: stderrors.New("boom")}
+
+	cases := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{"nil", nil, false},
+		{"plain timeout", timeout, true},
+		{"plain non-timeout", nonTimeout, false},
+		{"traced timeout", codiserrors.Trace(timeout), true},
+		{"multi-layer timeout", codiserrors.Trace(fmt.Errorf("redis: %w", fmt.Errorf("read: %w", timeout))), true},
+		{"multi-layer non-timeout", codiserrors.Trace(fmt.Errorf("redis: %w", nonTimeout)), false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := IsTimeout(c.err); got != c.want {
+				t.Fatalf("IsTimeout(%v) = %v, want %v", c.err, got, c.want)
+			}
+		})
+	}
+}

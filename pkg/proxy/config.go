@@ -5,6 +5,7 @@ package proxy
 
 import (
 	"bytes"
+	"math"
 
 	"github.com/BurntSushi/toml"
 
@@ -366,7 +367,7 @@ func (c *Config) Validate() error {
 		return errors.New("invalid proxy_qps_limit")
 	}
 
-	const MaxInt = bytesize.Int64(^uint(0) >> 1)
+	const MaxInt = bytesize.Int64(math.MaxInt)
 
 	if d := c.ProxyMaxOffheapBytes; d < 0 || d > MaxInt {
 		return errors.New("invalid proxy_max_offheap_size")

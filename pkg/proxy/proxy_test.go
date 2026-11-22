@@ -26,57 +26,57 @@ func newProxyConfig() *Config {
 	return config
 }
 
-func openProxy() (*Proxy, string) {
+func openProxy(t *testing.T) (*Proxy, string) {
 	s, err := New(config)
-	assert.MustNoError(err)
+	assert.MustNoError(t, err)
 	return s, s.Model().AdminAddr
 }
 
 func TestModel(x *testing.T) {
-	s, addr := openProxy()
+	s, addr := openProxy(x)
 	defer s.Close()
 
 	var c = NewApiClient(addr)
 
 	p, err := c.Model()
-	assert.MustNoError(err)
-	assert.Must(p.Token == s.Model().Token)
-	assert.Must(p.ProductName == config.ProductName)
+	assert.MustNoError(x, err)
+	assert.Must(x, p.Token == s.Model().Token)
+	assert.Must(x, p.ProductName == config.ProductName)
 }
 
 func TestStats(x *testing.T) {
-	s, addr := openProxy()
+	s, addr := openProxy(x)
 	defer s.Close()
 
 	var c = NewApiClient(addr)
 
 	c.SetXAuth(config.ProductName, config.ProductAuth, "")
 	_, err1 := c.StatsSimple()
-	assert.Must(err1 != nil)
+	assert.Must(x, err1 != nil)
 
 	c.SetXAuth(config.ProductName, config.ProductAuth, s.Model().Token)
 	_, err2 := c.Stats(0)
-	assert.MustNoError(err2)
+	assert.MustNoError(x, err2)
 }
 
-func verifySlots(c *ApiClient, expect map[int]*models.Slot) {
+func verifySlots(t *testing.T, c *ApiClient, expect map[int]*models.Slot) {
 	slots, err := c.Slots()
-	assert.MustNoError(err)
+	assert.MustNoError(t, err)
 
-	assert.Must(len(slots) == models.MaxSlotNum)
+	assert.Must(t, len(slots) == models.MaxSlotNum)
 
 	for i, slot := range expect {
 		if slot != nil {
-			assert.Must(slots[i].Id == i)
-			assert.Must(slot.Locked == slots[i].Locked)
-			assert.Must(slot.BackendAddr == slots[i].BackendAddr)
-			assert.Must(slot.MigrateFrom == slots[i].MigrateFrom)
+			assert.Must(t, slots[i].Id == i)
+			assert.Must(t, slot.Locked == slots[i].Locked)
+			assert.Must(t, slot.BackendAddr == slots[i].BackendAddr)
+			assert.Must(t, slot.MigrateFrom == slots[i].MigrateFrom)
 		}
 	}
 }
 
 func TestFillSlot(x *testing.T) {
-	s, addr := openProxy()
+	s, addr := openProxy(x)
 	defer s.Close()
 
 	var c = NewApiClient(addr)
@@ -90,10 +90,10 @@ func TestFillSlot(x *testing.T) {
 			Locked:      i%2 == 0,
 			BackendAddr: "x.x.x.x:xxxx",
 		}
-		assert.MustNoError(c.FillSlots(slot))
+		assert.MustNoError(x, c.FillSlots(slot))
 		expect[i] = slot
 	}
-	verifySlots(c, expect)
+	verifySlots(x, c, expect)
 
 	slots := []*models.Slot{}
 	for i := 0; i < 16; i++ {
@@ -106,12 +106,12 @@ func TestFillSlot(x *testing.T) {
 		slots = append(slots, slot)
 		expect[i] = slot
 	}
-	assert.MustNoError(c.FillSlots(slots...))
-	verifySlots(c, expect)
+	assert.MustNoError(x, c.FillSlots(slots...))
+	verifySlots(x, c, expect)
 }
 
 func TestStartAndShutdown(x *testing.T) {
-	s, addr := openProxy()
+	s, addr := openProxy(x)
 	defer s.Close()
 
 	var c = NewApiClient(addr)
@@ -124,17 +124,17 @@ func TestStartAndShutdown(x *testing.T) {
 			Id:          i,
 			BackendAddr: "x.x.x.x:xxxx",
 		}
-		assert.MustNoError(c.FillSlots(slot))
+		assert.MustNoError(x, c.FillSlots(slot))
 		expect[i] = slot
 	}
-	verifySlots(c, expect)
+	verifySlots(x, c, expect)
 
 	err1 := c.Start()
-	assert.MustNoError(err1)
+	assert.MustNoError(x, err1)
 
 	err2 := c.Shutdown()
-	assert.MustNoError(err2)
+	assert.MustNoError(x, err2)
 
 	err3 := c.Start()
-	assert.Must(err3 != nil)
+	assert.Must(x, err3 != nil)
 }

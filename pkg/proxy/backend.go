@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"net"
 	"strconv"
-	"strings"
 	"sync"
 	"time"
 
@@ -122,12 +121,40 @@ func (bc *BackendConn) PushBack(r *Request) {
 	}
 }
 
+// parseKeepAliveInfo extracts the two INFO fields that decide whether a stale
+// backend connection may go back to Connected. It walks the bulk payload as
+// bytes instead of splitting it into a map of strings, and keeps the last value
+// of duplicated keys like the map-based parse it replaces. Missing keys and
+// keys with an empty name are ignored.
+func parseKeepAliveInfo(value []byte) (linkStatus, loading string) {
+	for len(value) != 0 {
+		var line []byte
+		if i := bytes.IndexByte(value, '\n'); i >= 0 {
+			line, value = value[:i], value[i+1:]
+		} else {
+			line, value = value, nil
+		}
+		field, raw, ok := bytes.Cut(line, []byte(":"))
+		if !ok {
+			continue
+		}
+		switch string(bytes.TrimSpace(field)) {
+		case "master_link_status":
+			linkStatus = string(bytes.TrimSpace(raw))
+		case "loading":
+			loading = string(bytes.TrimSpace(raw))
+		}
+	}
+	return linkStatus, loading
+}
+
 func (bc *BackendConn) KeepAlive() bool {
 	if len(bc.input) != 0 {
 		return false
 	}
 	switch bc.state.Int64() {
 	default:
+		// PING needs no join, so Batch stays nil and PushBack does not track it.
 		m := &Request{}
 		m.Multi = []*redis.Resp{
 			redis.NewBulkBytes([]byte("PING")),
@@ -135,14 +162,13 @@ func (bc *BackendConn) KeepAlive() bool {
 		bc.PushBack(m)
 
 	case stateDataStale:
-		m := &Request{}
+		m := newRequest()
 		m.Multi = []*redis.Resp{
 			redis.NewBulkBytes([]byte("INFO")),
 		}
-		m.Batch = &sync.WaitGroup{}
 		bc.PushBack(m)
 
-		keepAliveCallback <- func() {
+		keepAliveCallbacks.value.dispatch(func() {
 			m.Batch.Wait()
 			var err = func() error {
 				if err := m.Err; err != nil {
@@ -154,20 +180,11 @@ func (bc *BackendConn) KeepAlive() bool {
 				case resp.IsError():
 					return fmt.Errorf("bad info resp: %s", resp.Value)
 				case resp.IsBulkBytes():
-					var info = make(map[string]string)
-					for _, line := range strings.Split(string(resp.Value), "\n") {
-						kv := strings.SplitN(line, ":", 2)
-						if len(kv) != 2 {
-							continue
-						}
-						if key := strings.TrimSpace(kv[0]); key != "" {
-							info[key] = strings.TrimSpace(kv[1])
-						}
-					}
-					if info["master_link_status"] == "down" {
+					linkStatus, loading := parseKeepAliveInfo(resp.Value)
+					if linkStatus == "down" {
 						return nil
 					}
-					if info["loading"] == "1" {
+					if loading == "1" {
 						return nil
 					}
 					if bc.state.CompareAndSwap(stateDataStale, stateConnected) {
@@ -183,19 +200,109 @@ func (bc *BackendConn) KeepAlive() bool {
 				log.WarnErrorf(err, "backend conn [%p] to %s, db-%d recover from DataStale failed",
 					bc, bc.addr, bc.database)
 			}
-		}
+		})
 	}
 	return true
 }
 
-var keepAliveCallback = make(chan func(), 128)
+// keepAliveDispatcher runs the INFO callbacks that move a stale backend
+// connection back to Connected. Keeping them on a dispatcher loop means a slow
+// INFO round trip never blocks the proxy keepalive ticker, and giving the loop
+// an explicit Start/Close means it is owned by the proxy lifecycle instead of
+// an init() goroutine that outlives every user of this package.
+type keepAliveDispatcher struct {
+	queue chan func()
 
-func init() {
+	// dead is set when the loop died from a panic. dispatch then runs callbacks
+	// on the caller instead of filling a queue that nobody drains.
+	dead atomic2.Bool
+
+	mu   sync.Mutex
+	stop chan struct{}
+	wg   sync.WaitGroup
+}
+
+func newKeepAliveDispatcher() *keepAliveDispatcher {
+	return &keepAliveDispatcher{queue: make(chan func(), 128)}
+}
+
+// Start runs the dispatcher loop. It is a no-op while the loop is running.
+func (d *keepAliveDispatcher) Start() {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.stop != nil {
+		return
+	}
+	stop := make(chan struct{})
+	d.stop = stop
+	d.dead.Set(false)
+
+	d.wg.Add(1)
 	go func() {
-		for fn := range keepAliveCallback {
-			fn()
+		defer d.wg.Done()
+		var err error
+		defer func() {
+			if err != nil {
+				d.dead.Set(true)
+			}
+		}()
+		defer utils.RecoverAsError("backend keepalive callback", &err)
+		for {
+			select {
+			case <-stop:
+				return
+			case fn := <-d.queue:
+				fn()
+			}
 		}
 	}()
+}
+
+// Close stops the dispatcher loop and waits for it. Callbacks that are still
+// queued are dropped: the requests they refer to are completed by the backend
+// reader or by BackendConn.Close, so nothing waits for them. The mutex is held
+// across stop and wait so a concurrent Start cannot attach a new loop to the
+// WaitGroup this Close is waiting on.
+func (d *keepAliveDispatcher) Close() {
+	d.mu.Lock()
+	if d.stop != nil {
+		close(d.stop)
+		d.stop = nil
+		d.wg.Wait()
+	}
+	d.mu.Unlock()
+}
+
+// dispatch hands fn to the dispatcher loop. When no proxy owns the dispatcher
+// (a BackendConn built directly by a test, or a connection outliving its proxy)
+// or when the loop died from a panic, fn runs on the caller: the INFO state
+// transition keeps working and no producer is left blocking on a queue that
+// nobody drains.
+func (d *keepAliveDispatcher) dispatch(fn func()) {
+	if d.dead.IsTrue() {
+		fn()
+		return
+	}
+	d.mu.Lock()
+	stop := d.stop
+	d.mu.Unlock()
+	if stop == nil {
+		fn()
+		return
+	}
+	select {
+	case d.queue <- fn:
+	case <-stop:
+	}
+}
+
+var keepAliveCallbacks = newSharedWorker(newKeepAliveDispatcher(),
+	(*keepAliveDispatcher).Start, (*keepAliveDispatcher).Close)
+
+// startKeepAliveCallbacks starts the shared dispatcher if needed and returns the
+// release hook for the owner lifecycle.
+func startKeepAliveCallbacks() func() {
+	return keepAliveCallbacks.acquire()
 }
 
 func (bc *BackendConn) newBackendReader(round int, config *Config) (*redis.Conn, chan<- *Request, error) {
@@ -310,6 +417,7 @@ var (
 
 func (bc *BackendConn) run() {
 	defer bc.Close()
+	defer utils.Recover("backend conn")
 	log.Warnf("backend conn [%p] to %s, db-%d start service",
 		bc, bc.addr, bc.database)
 	for round := 0; bc.closed.IsFalse(); round++ {
@@ -342,6 +450,7 @@ func (bc *BackendConn) loopReader(tasks <-chan *Request, c *redis.Conn, round in
 		log.WarnErrorf(err, "backend conn [%p] to %s, db-%d reader-[%d] exit",
 			bc, bc.addr, bc.database, round)
 	}()
+	defer utils.Recover("backend conn reader")
 	for r := range tasks {
 		resp, err := c.Decode()
 		if err != nil {

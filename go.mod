@@ -7,21 +7,14 @@ toolchain go1.27.4
 require (
 	github.com/BurntSushi/toml v1.6.0
 	github.com/coreos/etcd v3.3.27+incompatible
-	github.com/docopt/docopt-go v0.0.0-20180111231733-ee0de3bc6815
-	github.com/go-martini/martini v0.0.0-20170121215854-22fa46961aab
 	github.com/go-zookeeper/zk v1.0.4
 	github.com/google/uuid v1.6.0
 	github.com/hashicorp/consul/api v1.34.3
 	github.com/hdt3213/rdb v1.3.2
-	github.com/influxdata/influxdb v1.12.4
-	github.com/martini-contrib/binding v0.0.0-20160701174519-05d3e151b6cf
-	github.com/martini-contrib/gzip v0.0.0-20151124214156-6c035326b43f
-	github.com/martini-contrib/render v0.0.0-20150707142108-ec18f8345a11
-	github.com/oxtoacart/bpool v0.0.0-20190530202638-03653db5a59c
+	github.com/influxdata/influxdb1-client v0.0.0-20220302092344-a9ab5670611c
 	github.com/redis/go-redis/v9 v9.20.0
 	github.com/spinlock/jemalloc-go v0.0.0-20201010032256-e81523fb8524
 	golang.org/x/net v0.62.0
-	gopkg.in/alexcesaro/statsd.v2 v2.0.0
 )
 
 require (
@@ -35,7 +28,6 @@ require (
 	github.com/bytedance/sonic/loader v0.5.0 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/cloudwego/base64x v0.1.6 // indirect
-	github.com/codegangsta/inject v0.0.0-20150114235600-33e0aa1cb7c0 // indirect
 	github.com/coreos/go-semver v0.3.1 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/fatih/color v1.16.0 // indirect
@@ -50,7 +42,6 @@ require (
 	github.com/hashicorp/serf v0.10.1 // indirect
 	github.com/huandu/xstrings v1.0.0 // indirect
 	github.com/imdario/mergo v0.3.5 // indirect
-	github.com/influxdata/pkg-config v0.2.14 // indirect
 	github.com/json-iterator/go v1.1.12 // indirect
 	github.com/klauspost/cpuid/v2 v2.2.10 // indirect
 	github.com/mattn/go-colorable v0.1.13 // indirect

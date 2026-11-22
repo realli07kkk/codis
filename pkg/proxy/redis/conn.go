@@ -4,6 +4,7 @@
 package redis
 
 import (
+	stderrors "errors"
 	"net"
 	"time"
 
@@ -142,13 +143,8 @@ func (w *connWriter) Write(b []byte) (int, error) {
 }
 
 func IsTimeout(err error) bool {
-	if err := errors.Cause(err); err != nil {
-		e, ok := err.(*net.OpError)
-		if ok {
-			return e.Timeout()
-		}
-	}
-	return false
+	var e *net.OpError
+	return stderrors.As(err, &e) && e.Timeout()
 }
 
 type FlushEncoder struct {

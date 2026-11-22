@@ -38,8 +38,11 @@ func TestQPSLimiterAllowsAndRejectsByTokenBudget(t *testing.T) {
 	now := time.Unix(100, 0)
 	limiter := newTestQPSLimiter(t, 2, now)
 
-	if !limiter.Allow(now) || !limiter.Allow(now) {
-		t.Fatal("initial burst should allow two requests")
+	if !limiter.Allow(now) {
+		t.Fatal("initial burst should allow the first request")
+	}
+	if !limiter.Allow(now) {
+		t.Fatal("initial burst should allow the second request")
 	}
 	if limiter.Allow(now) {
 		t.Fatal("third request should be rejected")
@@ -64,8 +67,11 @@ func TestQPSLimiterSetLimitClampsBurst(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if !limiter.Allow(now) || !limiter.Allow(now) {
-		t.Fatal("clamped budget should allow two requests")
+	if !limiter.Allow(now) {
+		t.Fatal("clamped budget should allow the first request")
+	}
+	if !limiter.Allow(now) {
+		t.Fatal("clamped budget should allow the second request")
 	}
 	if limiter.Allow(now) {
 		t.Fatal("lowered limit should not keep old burst")

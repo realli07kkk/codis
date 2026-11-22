@@ -7,7 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"path/filepath"
-	"sort"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -73,13 +73,13 @@ func TestClusterCommandDefaultDisabled(t *testing.T) {
 		t.Fatalf("CLUSTER op = %s flag = %v", opstr, flag)
 	}
 
-	s, addr := openStartedProxy(newProxyConfig())
+	s, addr := openStartedProxy(t, newProxyConfig())
 	defer s.Close()
 
-	c := dialProxy(addr)
+	c := dialProxy(t, addr)
 	defer c.Close()
 
-	resp := proxyCall(c, "CLUSTER", "NODES")
+	resp := proxyCall(t, c, "CLUSTER", "NODES")
 	if !resp.IsError() || !strings.Contains(string(resp.Value), "command 'CLUSTER' is not allowed") {
 		t.Fatalf("CLUSTER NODES default resp = %s %q", resp.Type, resp.Value)
 	}
@@ -89,13 +89,13 @@ func TestClusterNodesSelfCommand(t *testing.T) {
 	config := newProxyConfig()
 	config.ClusterNodesCompat = ClusterNodesCompatSelf
 
-	s, addr := openStartedProxy(config)
+	s, addr := openStartedProxy(t, config)
 	defer s.Close()
 
-	c := dialProxy(addr)
+	c := dialProxy(t, addr)
 	defer c.Close()
 
-	resp := proxyCall(c, "CLUSTER", "NODES")
+	resp := proxyCall(t, c, "CLUSTER", "NODES")
 	if !resp.IsBulkBytes() {
 		t.Fatalf("CLUSTER NODES resp type = %s value = %q", resp.Type, resp.Value)
 	}
@@ -120,13 +120,13 @@ func TestClusterNodesUnsupportedSubcommand(t *testing.T) {
 	config := newProxyConfig()
 	config.ClusterNodesCompat = ClusterNodesCompatSelf
 
-	s, addr := openStartedProxy(config)
+	s, addr := openStartedProxy(t, config)
 	defer s.Close()
 
-	c := dialProxy(addr)
+	c := dialProxy(t, addr)
 	defer c.Close()
 
-	resp := proxyCall(c, "CLUSTER", "SLOTS")
+	resp := proxyCall(t, c, "CLUSTER", "SLOTS")
 	if !resp.IsError() || !strings.Contains(string(resp.Value), "unsupported CLUSTER subcommand") {
 		t.Fatalf("CLUSTER SLOTS resp = %s %q", resp.Type, resp.Value)
 	}
@@ -137,23 +137,23 @@ func TestClusterNodesRequiresAuth(t *testing.T) {
 	config.ClusterNodesCompat = ClusterNodesCompatSelf
 	config.SessionAuth = "secret"
 
-	s, addr := openStartedProxy(config)
+	s, addr := openStartedProxy(t, config)
 	defer s.Close()
 
-	c := dialProxy(addr)
+	c := dialProxy(t, addr)
 	defer c.Close()
 
-	resp := proxyCall(c, "CLUSTER", "NODES")
+	resp := proxyCall(t, c, "CLUSTER", "NODES")
 	if !resp.IsError() || string(resp.Value) != "NOAUTH Authentication required" {
 		t.Fatalf("unauthorized CLUSTER NODES resp = %s %q", resp.Type, resp.Value)
 	}
 
-	resp = proxyCall(c, "AUTH", "secret")
+	resp = proxyCall(t, c, "AUTH", "secret")
 	if !resp.IsString() {
 		t.Fatalf("AUTH resp = %s %q", resp.Type, resp.Value)
 	}
 
-	resp = proxyCall(c, "CLUSTER", "NODES")
+	resp = proxyCall(t, c, "CLUSTER", "NODES")
 	if !resp.IsBulkBytes() || len(parseClusterNodes(resp.Value)) != 1 {
 		t.Fatalf("authorized CLUSTER NODES resp = %s %q", resp.Type, resp.Value)
 	}
@@ -391,7 +391,7 @@ func (c *fakeClusterNodesClient) List(path string, must bool) ([]string, error) 
 			paths = append(paths, p)
 		}
 	}
-	sort.Strings(paths)
+	slices.Sort(paths)
 	if len(paths) == 0 && must {
 		return nil, fmt.Errorf("path %s not found", path)
 	}

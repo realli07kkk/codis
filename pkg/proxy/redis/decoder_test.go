@@ -13,8 +13,8 @@ import (
 func TestBtoi64(t *testing.T) {
 	for i, b := range tmap {
 		v, err := Btoi64(b)
-		assert.MustNoError(err)
-		assert.Must(v == i)
+		assert.MustNoError(t, err)
+		assert.Must(t, v == i)
 	}
 }
 
@@ -43,13 +43,13 @@ func TestDecodeInvalidRequests(t *testing.T) {
 	}
 	for _, s := range test {
 		_, err := DecodeFromBytes([]byte(s))
-		assert.Must(err != nil)
+		assert.Must(t, err != nil)
 	}
 }
 
 func TestDecodeSimpleRequest1(t *testing.T) {
 	_, err := DecodeFromBytes([]byte("\r\n"))
-	assert.Must(err != nil)
+	assert.Must(t, err != nil)
 }
 
 func TestDecodeSimpleRequest2(t *testing.T) {
@@ -62,10 +62,10 @@ func TestDecodeSimpleRequest2(t *testing.T) {
 	}
 	for _, s := range test {
 		a, err := DecodeMultiBulkFromBytes([]byte(s))
-		assert.MustNoError(err)
-		assert.Must(len(a) == 2)
-		assert.Must(bytes.Equal(a[0].Value, []byte("hello")))
-		assert.Must(bytes.Equal(a[1].Value, []byte("world")))
+		assert.MustNoError(t, err)
+		assert.Must(t, len(a) == 2)
+		assert.Must(t, bytes.Equal(a[0].Value, []byte("hello")))
+		assert.Must(t, bytes.Equal(a[1].Value, []byte("world")))
 	}
 }
 
@@ -73,19 +73,19 @@ func TestDecodeSimpleRequest3(t *testing.T) {
 	test := []string{"\r", "\n", " \n"}
 	for _, s := range test {
 		_, err := DecodeFromBytes([]byte(s))
-		assert.Must(err != nil)
+		assert.Must(t, err != nil)
 	}
 }
 
 func TestDecodeBulkBytes(t *testing.T) {
 	test := "*2\r\n$4\r\nLLEN\r\n$6\r\nmylist\r\n"
 	resp, err := DecodeFromBytes([]byte(test))
-	assert.MustNoError(err)
-	assert.Must(len(resp.Array) == 2)
+	assert.MustNoError(t, err)
+	assert.Must(t, len(resp.Array) == 2)
 	s1 := resp.Array[0]
-	assert.Must(bytes.Equal(s1.Value, []byte("LLEN")))
+	assert.Must(t, bytes.Equal(s1.Value, []byte("LLEN")))
 	s2 := resp.Array[1]
-	assert.Must(bytes.Equal(s2.Value, []byte("mylist")))
+	assert.Must(t, bytes.Equal(s2.Value, []byte("mylist")))
 }
 
 func TestDecoder(t *testing.T) {
@@ -104,7 +104,7 @@ func TestDecoder(t *testing.T) {
 	}
 	for _, s := range test {
 		_, err := DecodeFromBytes([]byte(s))
-		assert.MustNoError(err)
+		assert.MustNoError(t, err)
 	}
 }
 
@@ -122,26 +122,35 @@ func (b *loopReader) Read(p []byte) (int, error) {
 	return n, nil
 }
 
-func newBenchmarkDecoder(n int) *Decoder {
+func newBenchmarkDecoder(b *testing.B, n int) *Decoder {
 	r := NewArray([]*Resp{
 		NewBulkBytes(make([]byte, n)),
 	})
 	p, err := EncodeToBytes(r)
-	assert.MustNoError(err)
-	var b bytes.Buffer
-	for i := 0; i < 128 && b.Len() < 1024*1024; i++ {
-		_, err := b.Write(p)
-		assert.MustNoError(err)
+	assert.MustNoError(b, err)
+	var buf bytes.Buffer
+	for i := 0; i < 128 && buf.Len() < 1024*1024; i++ {
+		_, err := buf.Write(p)
+		assert.MustNoError(b, err)
 	}
-	return NewDecoderSize(&loopReader{buf: b.Bytes()}, 1024*128)
+	return NewDecoderSize(&loopReader{buf: buf.Bytes()}, 1024*128)
 }
 
+// benchmarkDecodeSink keeps the decoded result live so the benchmark loop
+// cannot be optimized away.
+var benchmarkDecodeSink []*Resp
+
 func benchmarkDecode(b *testing.B, n int) {
-	d := newBenchmarkDecoder(n)
-	for i := 0; i < b.N; i++ {
+	d := newBenchmarkDecoder(b, n)
+	for b.Loop() {
 		multi, err := d.DecodeMultiBulk()
-		assert.MustNoError(err)
-		assert.Must(len(multi) == 1 && len(multi[0].Value) == n)
+		if err != nil {
+			b.Fatal(err)
+		}
+		if len(multi) != 1 || len(multi[0].Value) != n {
+			b.Fatalf("decoded unexpected response shape")
+		}
+		benchmarkDecodeSink = multi
 	}
 }
 

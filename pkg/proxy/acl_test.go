@@ -14,7 +14,7 @@ import (
 )
 
 func TestSetACLInstallsSnapshot(x *testing.T) {
-	s, addr := openProxy()
+	s, addr := openProxy(x)
 	defer s.Close()
 
 	c := NewApiClient(addr)
@@ -30,24 +30,24 @@ func TestSetACLInstallsSnapshot(x *testing.T) {
 			Rules:          []string{"+@read"},
 		}},
 	}
-	assert.MustNoError(c.SetACL(acl))
+	assert.MustNoError(x, c.SetACL(acl))
 
 	snapshot := s.ACLSnapshot()
-	assert.Must(snapshot != nil)
-	assert.Must(snapshot.Revision == 1)
-	assert.Must(snapshot.Enabled)
-	assert.Must(snapshot.Users["app_ro"] != nil)
-	assert.Must(snapshot.Users["app_ro"].Rules[0] == "+@read")
+	assert.Must(x, snapshot != nil)
+	assert.Must(x, snapshot.Revision == 1)
+	assert.Must(x, snapshot.Enabled)
+	assert.Must(x, snapshot.Users["app_ro"] != nil)
+	assert.Must(x, snapshot.Users["app_ro"].Rules[0] == "+@read")
 }
 
 func TestACLAuthNamedUserAndWhoami(x *testing.T) {
 	config := newProxyConfig()
 	config.CodisACLEnabled = true
 
-	s, addr := openStartedProxy(config)
+	s, addr := openStartedProxy(x, config)
 	defer s.Close()
 
-	assert.MustNoError(s.SetACL(&models.ACL{
+	assert.MustNoError(x, s.SetACL(&models.ACL{
 		Revision: 1,
 		Enabled:  true,
 		Users: []*models.ACLUser{{
@@ -58,24 +58,24 @@ func TestACLAuthNamedUserAndWhoami(x *testing.T) {
 		}},
 	}))
 
-	c := dialProxy(addr)
+	c := dialProxy(x, addr)
 	defer c.Close()
 
-	resp := proxyCall(c, "AUTH", "app_ro", "secret")
-	assert.Must(resp.IsString() && string(resp.Value) == "OK")
+	resp := proxyCall(x, c, "AUTH", "app_ro", "secret")
+	assert.Must(x, resp.IsString() && string(resp.Value) == "OK")
 
-	resp = proxyCall(c, "ACL", "WHOAMI")
-	assert.Must(resp.IsBulkBytes() && string(resp.Value) == "app_ro")
+	resp = proxyCall(x, c, "ACL", "WHOAMI")
+	assert.Must(x, resp.IsBulkBytes() && string(resp.Value) == "app_ro")
 }
 
 func TestACLAuthFailureDoesNotInstallIdentity(x *testing.T) {
 	config := newProxyConfig()
 	config.CodisACLEnabled = true
 
-	s, addr := openStartedProxy(config)
+	s, addr := openStartedProxy(x, config)
 	defer s.Close()
 
-	assert.MustNoError(s.SetACL(&models.ACL{
+	assert.MustNoError(x, s.SetACL(&models.ACL{
 		Revision: 1,
 		Enabled:  true,
 		Users: []*models.ACLUser{{
@@ -86,49 +86,49 @@ func TestACLAuthFailureDoesNotInstallIdentity(x *testing.T) {
 		}},
 	}))
 
-	c := dialProxy(addr)
+	c := dialProxy(x, addr)
 	defer c.Close()
 
-	resp := proxyCall(c, "AUTH", "app_ro", "wrong")
-	assert.Must(resp.IsError())
-	assert.Must(string(resp.Value) == "WRONGPASS invalid username-password pair or user is disabled")
+	resp := proxyCall(x, c, "AUTH", "app_ro", "wrong")
+	assert.Must(x, resp.IsError())
+	assert.Must(x, string(resp.Value) == "WRONGPASS invalid username-password pair or user is disabled")
 
-	resp = proxyCall(c, "ACL", "WHOAMI")
-	assert.Must(resp.IsError())
-	assert.Must(string(resp.Value) == "NOAUTH Authentication required")
+	resp = proxyCall(x, c, "ACL", "WHOAMI")
+	assert.Must(x, resp.IsError())
+	assert.Must(x, string(resp.Value) == "NOAUTH Authentication required")
 }
 
 func TestACLReAuthFailureKeepsExistingIdentity(x *testing.T) {
 	config := newProxyConfig()
 	config.CodisACLEnabled = true
 
-	s, addr := openStartedProxy(config)
+	s, addr := openStartedProxy(x, config)
 	defer s.Close()
 
 	aclInstallAppRO(x, s)
 
-	c := dialProxy(addr)
+	c := dialProxy(x, addr)
 	defer c.Close()
 
-	resp := proxyCall(c, "AUTH", "app_ro", "secret")
-	assert.Must(resp.IsString() && string(resp.Value) == "OK")
+	resp := proxyCall(x, c, "AUTH", "app_ro", "secret")
+	assert.Must(x, resp.IsString() && string(resp.Value) == "OK")
 
-	resp = proxyCall(c, "AUTH", "app_ro", "wrong")
-	assert.Must(resp.IsError())
-	assert.Must(strings.HasPrefix(string(resp.Value), "WRONGPASS"))
+	resp = proxyCall(x, c, "AUTH", "app_ro", "wrong")
+	assert.Must(x, resp.IsError())
+	assert.Must(x, strings.HasPrefix(string(resp.Value), "WRONGPASS"))
 
-	resp = proxyCall(c, "ACL", "WHOAMI")
-	assert.Must(resp.IsBulkBytes() && string(resp.Value) == "app_ro")
+	resp = proxyCall(x, c, "ACL", "WHOAMI")
+	assert.Must(x, resp.IsBulkBytes() && string(resp.Value) == "app_ro")
 }
 
 func TestACLAuthDefaultUserPasswordForm(x *testing.T) {
 	config := newProxyConfig()
 	config.CodisACLEnabled = true
 
-	s, addr := openStartedProxy(config)
+	s, addr := openStartedProxy(x, config)
 	defer s.Close()
 
-	assert.MustNoError(s.SetACL(&models.ACL{
+	assert.MustNoError(x, s.SetACL(&models.ACL{
 		Revision: 1,
 		Enabled:  true,
 		Users: []*models.ACLUser{{
@@ -139,21 +139,21 @@ func TestACLAuthDefaultUserPasswordForm(x *testing.T) {
 		}},
 	}))
 
-	c := dialProxy(addr)
+	c := dialProxy(x, addr)
 	defer c.Close()
 
-	resp := proxyCall(c, "AUTH", "secret")
-	assert.Must(resp.IsString() && string(resp.Value) == "OK")
+	resp := proxyCall(x, c, "AUTH", "secret")
+	assert.Must(x, resp.IsString() && string(resp.Value) == "OK")
 
-	resp = proxyCall(c, "ACL", "WHOAMI")
-	assert.Must(resp.IsBulkBytes() && string(resp.Value) == "default")
+	resp = proxyCall(x, c, "ACL", "WHOAMI")
+	assert.Must(x, resp.IsBulkBytes() && string(resp.Value) == "default")
 }
 
 func TestACLRevisionSwitchStalesSession(x *testing.T) {
 	config := newProxyConfig()
 	config.CodisACLEnabled = true
 
-	s, addr := openStartedProxy(config)
+	s, addr := openStartedProxy(x, config)
 	defer s.Close()
 
 	acl := &models.ACL{
@@ -166,25 +166,25 @@ func TestACLRevisionSwitchStalesSession(x *testing.T) {
 			Rules:          []string{"+@read", "~app:*"},
 		}},
 	}
-	assert.MustNoError(s.SetACL(acl))
+	assert.MustNoError(x, s.SetACL(acl))
 
-	c := dialProxy(addr)
+	c := dialProxy(x, addr)
 	defer c.Close()
 
-	resp := proxyCall(c, "AUTH", "app_ro", "secret")
-	assert.Must(resp.IsString() && string(resp.Value) == "OK")
+	resp := proxyCall(x, c, "AUTH", "app_ro", "secret")
+	assert.Must(x, resp.IsString() && string(resp.Value) == "OK")
 
 	acl.Revision = 2
-	assert.MustNoError(s.SetACL(acl))
+	assert.MustNoError(x, s.SetACL(acl))
 
-	resp = proxyCall(c, "ACL", "WHOAMI")
-	assert.Must(resp.IsError())
-	assert.Must(string(resp.Value) == "NOAUTH Authentication required")
+	resp = proxyCall(x, c, "ACL", "WHOAMI")
+	assert.Must(x, resp.IsError())
+	assert.Must(x, string(resp.Value) == "NOAUTH Authentication required")
 
-	resp = proxyCall(c, "AUTH", "app_ro", "secret")
-	assert.Must(resp.IsString() && string(resp.Value) == "OK")
-	resp = proxyCall(c, "ACL", "WHOAMI")
-	assert.Must(resp.IsBulkBytes() && string(resp.Value) == "app_ro")
+	resp = proxyCall(x, c, "AUTH", "app_ro", "secret")
+	assert.Must(x, resp.IsString() && string(resp.Value) == "OK")
+	resp = proxyCall(x, c, "ACL", "WHOAMI")
+	assert.Must(x, resp.IsBulkBytes() && string(resp.Value) == "app_ro")
 }
 
 func TestACLDisableClearsAuthorizedSession(x *testing.T) {
@@ -192,59 +192,59 @@ func TestACLDisableClearsAuthorizedSession(x *testing.T) {
 	config.CodisACLEnabled = true
 	config.SessionAuth = "legacy-secret"
 
-	s, addr := openStartedProxy(config)
+	s, addr := openStartedProxy(x, config)
 	defer s.Close()
 
 	aclInstallAppRO(x, s)
 
-	c := dialProxy(addr)
+	c := dialProxy(x, addr)
 	defer c.Close()
 
-	resp := proxyCall(c, "AUTH", "app_ro", "secret")
-	assert.Must(resp.IsString() && string(resp.Value) == "OK")
+	resp := proxyCall(x, c, "AUTH", "app_ro", "secret")
+	assert.Must(x, resp.IsString() && string(resp.Value) == "OK")
 
-	assert.MustNoError(s.SetACL(&models.ACL{
+	assert.MustNoError(x, s.SetACL(&models.ACL{
 		Revision: 2,
 		Enabled:  false,
 	}))
 
-	resp = proxyCall(c, "CLIENT", "LIST")
-	assert.Must(resp.IsError())
-	assert.Must(string(resp.Value) == "NOAUTH Authentication required")
+	resp = proxyCall(x, c, "CLIENT", "LIST")
+	assert.Must(x, resp.IsError())
+	assert.Must(x, string(resp.Value) == "NOAUTH Authentication required")
 
-	resp = proxyCall(c, "AUTH", "legacy-secret")
-	assert.Must(resp.IsString() && string(resp.Value) == "OK")
+	resp = proxyCall(x, c, "AUTH", "legacy-secret")
+	assert.Must(x, resp.IsString() && string(resp.Value) == "OK")
 }
 
 func TestACLReAuthFailureTriggersBruteforceLock(x *testing.T) {
 	config := newAuthBruteforceTestConfig()
 	config.CodisACLEnabled = true
 
-	s, addr := openStartedProxy(config)
+	s, addr := openStartedProxy(x, config)
 	defer s.Close()
 
 	aclInstallAppRO(x, s)
 
-	c := dialProxy(addr)
+	c := dialProxy(x, addr)
 	defer c.Close()
 
-	resp := proxyCall(c, "AUTH", "app_ro", "secret")
-	assert.Must(resp.IsString() && string(resp.Value) == "OK")
+	resp := proxyCall(x, c, "AUTH", "app_ro", "secret")
+	assert.Must(x, resp.IsString() && string(resp.Value) == "OK")
 
 	for i := 0; i < config.SessionAuthBruteforceMaxFailures; i++ {
-		resp = proxyCall(c, "AUTH", "app_ro", "wrong")
-		assert.Must(resp.IsError())
-		assert.Must(strings.HasPrefix(string(resp.Value), "WRONGPASS"))
+		resp = proxyCall(x, c, "AUTH", "app_ro", "wrong")
+		assert.Must(x, resp.IsError())
+		assert.Must(x, strings.HasPrefix(string(resp.Value), "WRONGPASS"))
 	}
 
-	resp = proxyCall(c, "AUTH", "app_ro", "secret")
-	assert.Must(resp.IsError())
-	assert.Must(string(resp.Value) == authBruteforceLockedMessage)
+	resp = proxyCall(x, c, "AUTH", "app_ro", "secret")
+	assert.Must(x, resp.IsError())
+	assert.Must(x, string(resp.Value) == authBruteforceLockedMessage)
 
 	stats := s.Stats(0).SessionAuthBruteforce
-	assert.Must(stats != nil)
-	assert.Must(stats.Failures == int64(config.SessionAuthBruteforceMaxFailures))
-	assert.Must(stats.Locks == 1)
+	assert.Must(x, stats != nil)
+	assert.Must(x, stats.Failures == int64(config.SessionAuthBruteforceMaxFailures))
+	assert.Must(x, stats.Locks == 1)
 }
 
 func TestACLCommandNeverFallsThroughToBackend(x *testing.T) {
@@ -261,36 +261,36 @@ func TestACLCommandNeverFallsThroughToBackend(x *testing.T) {
 		return redistest.OK()
 	})
 
-	s, addr := openStartedProxy(config)
+	s, addr := openStartedProxy(x, config)
 	defer s.Close()
 	aclInstallAppRO(x, s)
 	fillProxySlotForKey(x, s, []byte("app:k"), backend.Addr())
 
-	c := dialProxy(addr)
+	c := dialProxy(x, addr)
 	defer c.Close()
-	assert.Must(proxyCall(c, "AUTH", "app_ro", "secret").IsString())
+	assert.Must(x, proxyCall(x, c, "AUTH", "app_ro", "secret").IsString())
 
-	resp := proxyCall(c, "ACL", "SETUSER", "evil", "on", "nopass", "+@all")
-	assert.Must(resp.IsError())
-	assert.Must(strings.Contains(string(resp.Value), "unsupported ACL subcommand"))
+	resp := proxyCall(x, c, "ACL", "SETUSER", "evil", "on", "nopass", "+@all")
+	assert.Must(x, resp.IsError())
+	assert.Must(x, strings.Contains(string(resp.Value), "unsupported ACL subcommand"))
 
-	resp = proxyCall(c, "ACL", "DRYRUN", "app_ro", "GET", "app:k")
-	assert.Must(resp.IsError())
-	assert.Must(strings.Contains(string(resp.Value), "unsupported ACL subcommand"))
+	resp = proxyCall(x, c, "ACL", "DRYRUN", "app_ro", "GET", "app:k")
+	assert.Must(x, resp.IsError())
+	assert.Must(x, strings.Contains(string(resp.Value), "unsupported ACL subcommand"))
 }
 
 func TestACLCommandRejectedWhenCodisACLDisabled(x *testing.T) {
 	config := newProxyConfig()
 
-	s, addr := openStartedProxy(config)
+	s, addr := openStartedProxy(x, config)
 	defer s.Close()
 
-	c := dialProxy(addr)
+	c := dialProxy(x, addr)
 	defer c.Close()
 
-	resp := proxyCall(c, "ACL", "SETUSER", "evil", "on", "nopass", "+@all")
-	assert.Must(resp.IsError())
-	assert.Must(strings.Contains(string(resp.Value), "unsupported ACL subcommand"))
+	resp := proxyCall(x, c, "ACL", "SETUSER", "evil", "on", "nopass", "+@all")
+	assert.Must(x, resp.IsError())
+	assert.Must(x, strings.Contains(string(resp.Value), "unsupported ACL subcommand"))
 }
 
 func TestACLStableCommandUsesUserBoundBackend(x *testing.T) {
@@ -316,23 +316,23 @@ func TestACLStableCommandUsesUserBoundBackend(x *testing.T) {
 		}
 	})
 
-	s, addr := openStartedProxy(config)
+	s, addr := openStartedProxy(x, config)
 	defer s.Close()
 	aclInstallAppRO(x, s)
 	fillProxySlotForKey(x, s, []byte("app:k"), backend.Addr())
 
-	c := dialProxy(addr)
+	c := dialProxy(x, addr)
 	defer c.Close()
-	assert.Must(proxyCall(c, "AUTH", "app_ro", "secret").IsString())
+	assert.Must(x, proxyCall(x, c, "AUTH", "app_ro", "secret").IsString())
 
-	resp := proxyCall(c, "GET", "app:k")
-	assert.Must(resp.IsBulkBytes() && string(resp.Value) == "value")
+	resp := proxyCall(x, c, "GET", "app:k")
+	assert.Must(x, resp.IsBulkBytes() && string(resp.Value) == "value")
 
-	resp = proxyCall(c, "SET", "app:k", "v")
-	assert.Must(resp.IsError())
-	assert.Must(strings.HasPrefix(string(resp.Value), "NOPERM"))
+	resp = proxyCall(x, c, "SET", "app:k", "v")
+	assert.Must(x, resp.IsError())
+	assert.Must(x, strings.HasPrefix(string(resp.Value), "NOPERM"))
 
-	assert.Must(commandExists(backend.Commands(), []string{"AUTH", "app_ro", "secret"}))
+	assert.Must(x, commandExists(backend.Commands(), []string{"AUTH", "app_ro", "secret"}))
 }
 
 func TestACLLocalCommandDryRunDenied(x *testing.T) {
@@ -349,19 +349,19 @@ func TestACLLocalCommandDryRunDenied(x *testing.T) {
 		return redistest.OK()
 	})
 
-	s, addr := openStartedProxy(config)
+	s, addr := openStartedProxy(x, config)
 	defer s.Close()
 	aclInstallAppRO(x, s)
 	fillProxySlotForKey(x, s, []byte("app:k"), backend.Addr())
 
-	c := dialProxy(addr)
+	c := dialProxy(x, addr)
 	defer c.Close()
-	assert.Must(proxyCall(c, "AUTH", "app_ro", "secret").IsString())
+	assert.Must(x, proxyCall(x, c, "AUTH", "app_ro", "secret").IsString())
 
-	resp := proxyCall(c, "CLIENT", "LIST")
-	assert.Must(resp.IsError())
-	assert.Must(strings.HasPrefix(string(resp.Value), "NOPERM"))
-	assert.Must(commandExists(backend.Commands(), []string{"ACL", "DRYRUN", "app_ro", "CLIENT", "LIST"}))
+	resp := proxyCall(x, c, "CLIENT", "LIST")
+	assert.Must(x, resp.IsError())
+	assert.Must(x, strings.HasPrefix(string(resp.Value), "NOPERM"))
+	assert.Must(x, commandExists(backend.Commands(), []string{"ACL", "DRYRUN", "app_ro", "CLIENT", "LIST"}))
 }
 
 func TestACLSelectDryRunDenied(x *testing.T) {
@@ -377,19 +377,19 @@ func TestACLSelectDryRunDenied(x *testing.T) {
 		}
 	})
 
-	s, addr := openStartedProxy(config)
+	s, addr := openStartedProxy(x, config)
 	defer s.Close()
 	aclInstallAppRO(x, s)
 	fillProxySlotForKey(x, s, []byte("app:k"), backend.Addr())
 
-	c := dialProxy(addr)
+	c := dialProxy(x, addr)
 	defer c.Close()
-	assert.Must(proxyCall(c, "AUTH", "app_ro", "secret").IsString())
+	assert.Must(x, proxyCall(x, c, "AUTH", "app_ro", "secret").IsString())
 
-	resp := proxyCall(c, "SELECT", "1")
-	assert.Must(resp.IsError())
-	assert.Must(strings.HasPrefix(string(resp.Value), "NOPERM"))
-	assert.Must(commandExists(backend.Commands(), []string{"ACL", "DRYRUN", "app_ro", "SELECT", "1"}))
+	resp := proxyCall(x, c, "SELECT", "1")
+	assert.Must(x, resp.IsError())
+	assert.Must(x, strings.HasPrefix(string(resp.Value), "NOPERM"))
+	assert.Must(x, commandExists(backend.Commands(), []string{"ACL", "DRYRUN", "app_ro", "SELECT", "1"}))
 }
 
 func TestACLAddrSpecificCommandUsesUserBoundBackend(x *testing.T) {
@@ -414,31 +414,31 @@ func TestACLAddrSpecificCommandUsesUserBoundBackend(x *testing.T) {
 		}
 	})
 
-	s, addr := openStartedProxy(config)
+	s, addr := openStartedProxy(x, config)
 	defer s.Close()
 	aclInstallAppRO(x, s)
 	fillProxySlotForKey(x, s, []byte("app:k"), backend.Addr())
 
-	c := dialProxy(addr)
+	c := dialProxy(x, addr)
 	defer c.Close()
-	assert.Must(proxyCall(c, "AUTH", "app_ro", "secret").IsString())
+	assert.Must(x, proxyCall(x, c, "AUTH", "app_ro", "secret").IsString())
 
-	resp := proxyCall(c, "INFO", backend.Addr())
-	assert.Must(resp.IsError())
-	assert.Must(strings.Contains(string(resp.Value), "NOPERM"))
+	resp := proxyCall(x, c, "INFO", backend.Addr())
+	assert.Must(x, resp.IsError())
+	assert.Must(x, strings.Contains(string(resp.Value), "NOPERM"))
 
-	resp = proxyCall(c, "PING", backend.Addr())
-	assert.Must(resp.IsError())
-	assert.Must(strings.Contains(string(resp.Value), "NOPERM"))
+	resp = proxyCall(x, c, "PING", backend.Addr())
+	assert.Must(x, resp.IsError())
+	assert.Must(x, strings.Contains(string(resp.Value), "NOPERM"))
 
-	resp = proxyCall(c, "SLOTSINFO", backend.Addr())
-	assert.Must(resp.IsError())
-	assert.Must(strings.Contains(string(resp.Value), "NOPERM"))
+	resp = proxyCall(x, c, "SLOTSINFO", backend.Addr())
+	assert.Must(x, resp.IsError())
+	assert.Must(x, strings.Contains(string(resp.Value), "NOPERM"))
 
-	assert.Must(commandExists(backend.Commands(), []string{"AUTH", "app_ro", "secret"}))
-	assert.Must(commandExists(backend.Commands(), []string{"INFO"}))
-	assert.Must(commandExists(backend.Commands(), []string{"PING"}))
-	assert.Must(commandExists(backend.Commands(), []string{"SLOTSINFO"}))
+	assert.Must(x, commandExists(backend.Commands(), []string{"AUTH", "app_ro", "secret"}))
+	assert.Must(x, commandExists(backend.Commands(), []string{"INFO"}))
+	assert.Must(x, commandExists(backend.Commands(), []string{"PING"}))
+	assert.Must(x, commandExists(backend.Commands(), []string{"SLOTSINFO"}))
 }
 
 func TestACLHotKeyCacheHitDryRunDenied(x *testing.T) {
@@ -466,28 +466,28 @@ func TestACLHotKeyCacheHitDryRunDenied(x *testing.T) {
 		}
 	})
 
-	s, addr := openStartedProxy(config)
+	s, addr := openStartedProxy(x, config)
 	defer s.Close()
 	aclInstallAppRO(x, s)
 	fillProxySlotForKey(x, s, []byte("hot:key"), backend.Addr())
 
-	c := dialProxy(addr)
+	c := dialProxy(x, addr)
 	defer c.Close()
-	assert.Must(proxyCall(c, "AUTH", "app_ro", "secret").IsString())
+	assert.Must(x, proxyCall(x, c, "AUTH", "app_ro", "secret").IsString())
 
-	resp := proxyCall(c, "GET", "hot:key")
-	assert.Must(resp.IsBulkBytes() && string(resp.Value) == "cached")
+	resp := proxyCall(x, c, "GET", "hot:key")
+	assert.Must(x, resp.IsBulkBytes() && string(resp.Value) == "cached")
 
 	dryrunDeny = true
-	resp = proxyCall(c, "GET", "hot:key")
-	assert.Must(resp.IsError())
-	assert.Must(strings.HasPrefix(string(resp.Value), "NOPERM"))
-	assert.Must(commandExists(backend.Commands(), []string{"ACL", "DRYRUN", "app_ro", "GET", "hot:key"}))
+	resp = proxyCall(x, c, "GET", "hot:key")
+	assert.Must(x, resp.IsError())
+	assert.Must(x, strings.HasPrefix(string(resp.Value), "NOPERM"))
+	assert.Must(x, commandExists(backend.Commands(), []string{"ACL", "DRYRUN", "app_ro", "GET", "hot:key"}))
 }
 
 func aclInstallAppRO(t testing.TB, s *Proxy) {
 	t.Helper()
-	assert.MustNoError(s.SetACL(&models.ACL{
+	assert.MustNoError(t, s.SetACL(&models.ACL{
 		Revision: 1,
 		Enabled:  true,
 		Users: []*models.ACLUser{{
@@ -502,7 +502,7 @@ func aclInstallAppRO(t testing.TB, s *Proxy) {
 func fillProxySlotForKey(t testing.TB, s *Proxy, key []byte, addr string) {
 	t.Helper()
 	slot := int(Hash(key) % MaxSlotNum)
-	assert.MustNoError(s.FillSlot(&models.Slot{
+	assert.MustNoError(t, s.FillSlot(&models.Slot{
 		Id:                 slot,
 		BackendAddr:        addr,
 		BackendAddrGroupId: 1,

@@ -23,10 +23,10 @@ func TestGetOpStr(t *testing.T) {
 		var multi = []*redis.Resp{redis.NewBulkBytes([]byte(k))}
 		s, _, err := getOpInfo(multi)
 		if v != "" {
-			assert.MustNoError(err)
-			assert.Must(s == v)
+			assert.MustNoError(t, err)
+			assert.Must(t, s == v)
 		} else {
-			assert.Must(err != nil)
+			assert.Must(t, err != nil)
 		}
 	}
 }
@@ -138,8 +138,8 @@ func TestGetOpStrCmd(t *testing.T) {
 	for k, v := range m {
 		var multi = []*redis.Resp{redis.NewBulkBytes([]byte(k))}
 		s, _, err := getOpInfo(multi)
-		assert.MustNoError(err)
-		assert.Must(s == v)
+		assert.MustNoError(t, err)
+		assert.Must(t, s == v)
 	}
 }
 
@@ -194,6 +194,6 @@ func TestHashSlot(t *testing.T) {
 	for k, v := range m {
 		i := Hash([]byte(k))
 		j := Hash([]byte(v))
-		assert.Must(i == j)
+		assert.Must(t, i == j)
 	}
 }

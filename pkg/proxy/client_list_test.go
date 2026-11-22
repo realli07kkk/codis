@@ -13,27 +13,27 @@ import (
 	"github.com/CodisLabs/codis/pkg/utils/assert"
 )
 
-func openStartedProxy(config *Config) (*Proxy, string) {
+func openStartedProxy(t *testing.T, config *Config) (*Proxy, string) {
 	s, err := New(config)
-	assert.MustNoError(err)
-	assert.MustNoError(s.Start())
+	assert.MustNoError(t, err)
+	assert.MustNoError(t, s.Start())
 	return s, s.lproxy.Addr().String()
 }
 
-func dialProxy(addr string) *redis.Conn {
+func dialProxy(t *testing.T, addr string) *redis.Conn {
 	c, err := net.Dial("tcp", addr)
-	assert.MustNoError(err)
+	assert.MustNoError(t, err)
 	return redis.NewConn(c, 4096, 4096)
 }
 
-func proxyCall(c *redis.Conn, args ...string) *redis.Resp {
+func proxyCall(t *testing.T, c *redis.Conn, args ...string) *redis.Resp {
 	multi := make([]*redis.Resp, len(args))
 	for i, arg := range args {
 		multi[i] = redis.NewBulkBytes([]byte(arg))
 	}
-	assert.MustNoError(c.EncodeMultiBulk(multi, true))
+	assert.MustNoError(t, c.EncodeMultiBulk(multi, true))
 	resp, err := c.Decode()
-	assert.MustNoError(err)
+	assert.MustNoError(t, err)
 	return resp
 }
 
@@ -59,34 +59,34 @@ func parseClientList(value []byte) []map[string]string {
 
 func TestClientCommandIsAllowed(t *testing.T) {
 	opstr, flag, err := getOpInfo([]*redis.Resp{redis.NewBulkBytes([]byte("client"))})
-	assert.MustNoError(err)
-	assert.Must(opstr == "CLIENT")
-	assert.Must(!flag.IsNotAllowed())
+	assert.MustNoError(t, err)
+	assert.Must(t, opstr == "CLIENT")
+	assert.Must(t, !flag.IsNotAllowed())
 }
 
 func TestClientListCommand(t *testing.T) {
-	s, addr := openStartedProxy(newProxyConfig())
+	s, addr := openStartedProxy(t, newProxyConfig())
 	defer s.Close()
 
-	c := dialProxy(addr)
+	c := dialProxy(t, addr)
 	defer c.Close()
 
-	resp := proxyCall(c, "CLIENT", "LIST")
-	assert.Must(resp.IsBulkBytes())
+	resp := proxyCall(t, c, "CLIENT", "LIST")
+	assert.Must(t, resp.IsBulkBytes())
 
 	entries := parseClientList(resp.Value)
-	assert.Must(len(entries) >= 1)
+	assert.Must(t, len(entries) >= 1)
 
 	current := entries[0]
-	assert.Must(current["id"] != "")
-	assert.Must(current["addr"] != "")
-	assert.Must(current["laddr"] != "")
-	assert.Must(current["age"] != "")
-	assert.Must(current["idle"] != "")
-	assert.Must(current["flags"] == "N")
-	assert.Must(current["db"] == "0")
-	assert.Must(current["cmd"] == "CLIENT")
-	assert.Must(current["user"] == "default")
+	assert.Must(t, current["id"] != "")
+	assert.Must(t, current["addr"] != "")
+	assert.Must(t, current["laddr"] != "")
+	assert.Must(t, current["age"] != "")
+	assert.Must(t, current["idle"] != "")
+	assert.Must(t, current["flags"] == "N")
+	assert.Must(t, current["db"] == "0")
+	assert.Must(t, current["cmd"] == "CLIENT")
+	assert.Must(t, current["user"] == "default")
 }
 
 func TestFormatClientList(t *testing.T) {
@@ -103,110 +103,110 @@ func TestFormatClientList(t *testing.T) {
 		User:   "default",
 	}}
 	expect := "id=1 addr=127.0.0.1:1000 laddr=127.0.0.1:19000 name= age=2 idle=1 flags=N db=3 sub=0 psub=0 ssub=0 multi=-1 qbuf=0 qbuf-free=0 obl=0 oll=0 omem=0 events=r cmd=CLIENT user=default redir=-1 resp=2\n"
-	assert.Must(string(formatClientList(entries)) == expect)
+	assert.Must(t, string(formatClientList(entries)) == expect)
 }
 
 func TestClientListRequiresAuth(t *testing.T) {
 	config := newProxyConfig()
 	config.SessionAuth = "secret"
 
-	s, addr := openStartedProxy(config)
+	s, addr := openStartedProxy(t, config)
 	defer s.Close()
 
-	c := dialProxy(addr)
+	c := dialProxy(t, addr)
 	defer c.Close()
 
-	resp := proxyCall(c, "CLIENT", "LIST")
-	assert.Must(resp.IsError())
-	assert.Must(string(resp.Value) == "NOAUTH Authentication required")
+	resp := proxyCall(t, c, "CLIENT", "LIST")
+	assert.Must(t, resp.IsError())
+	assert.Must(t, string(resp.Value) == "NOAUTH Authentication required")
 
-	resp = proxyCall(c, "AUTH", "secret")
-	assert.Must(resp.IsString())
+	resp = proxyCall(t, c, "AUTH", "secret")
+	assert.Must(t, resp.IsString())
 
-	resp = proxyCall(c, "CLIENT", "LIST")
-	assert.Must(resp.IsBulkBytes())
-	assert.Must(len(parseClientList(resp.Value)) >= 1)
+	resp = proxyCall(t, c, "CLIENT", "LIST")
+	assert.Must(t, resp.IsBulkBytes())
+	assert.Must(t, len(parseClientList(resp.Value)) >= 1)
 }
 
 func TestClientListFilters(t *testing.T) {
-	s, addr := openStartedProxy(newProxyConfig())
+	s, addr := openStartedProxy(t, newProxyConfig())
 	defer s.Close()
 
-	c := dialProxy(addr)
+	c := dialProxy(t, addr)
 	defer c.Close()
 
-	resp := proxyCall(c, "CLIENT", "LIST")
-	assert.Must(resp.IsBulkBytes())
+	resp := proxyCall(t, c, "CLIENT", "LIST")
+	assert.Must(t, resp.IsBulkBytes())
 	entries := parseClientList(resp.Value)
-	assert.Must(len(entries) >= 1)
+	assert.Must(t, len(entries) >= 1)
 	id := entries[0]["id"]
 
-	resp = proxyCall(c, "CLIENT", "LIST", "TYPE", "normal")
-	assert.Must(resp.IsBulkBytes())
-	assert.Must(len(parseClientList(resp.Value)) >= 1)
+	resp = proxyCall(t, c, "CLIENT", "LIST", "TYPE", "normal")
+	assert.Must(t, resp.IsBulkBytes())
+	assert.Must(t, len(parseClientList(resp.Value)) >= 1)
 
-	resp = proxyCall(c, "CLIENT", "LIST", "TYPE", "replica")
-	assert.Must(resp.IsBulkBytes())
-	assert.Must(string(resp.Value) == "")
+	resp = proxyCall(t, c, "CLIENT", "LIST", "TYPE", "replica")
+	assert.Must(t, resp.IsBulkBytes())
+	assert.Must(t, string(resp.Value) == "")
 
-	resp = proxyCall(c, "CLIENT", "LIST", "TYPE", "master")
-	assert.Must(resp.IsBulkBytes())
-	assert.Must(string(resp.Value) == "")
+	resp = proxyCall(t, c, "CLIENT", "LIST", "TYPE", "master")
+	assert.Must(t, resp.IsBulkBytes())
+	assert.Must(t, string(resp.Value) == "")
 
-	resp = proxyCall(c, "CLIENT", "LIST", "TYPE", "pubsub")
-	assert.Must(resp.IsBulkBytes())
-	assert.Must(string(resp.Value) == "")
+	resp = proxyCall(t, c, "CLIENT", "LIST", "TYPE", "pubsub")
+	assert.Must(t, resp.IsBulkBytes())
+	assert.Must(t, string(resp.Value) == "")
 
-	resp = proxyCall(c, "CLIENT", "LIST", "TYPE", "unknown")
-	assert.Must(resp.IsError())
-	assert.Must(strings.Contains(string(resp.Value), "Unknown client type"))
+	resp = proxyCall(t, c, "CLIENT", "LIST", "TYPE", "unknown")
+	assert.Must(t, resp.IsError())
+	assert.Must(t, strings.Contains(string(resp.Value), "Unknown client type"))
 
-	resp = proxyCall(c, "CLIENT", "LIST", "ID", id)
-	assert.Must(resp.IsBulkBytes())
+	resp = proxyCall(t, c, "CLIENT", "LIST", "ID", id)
+	assert.Must(t, resp.IsBulkBytes())
 	entries = parseClientList(resp.Value)
-	assert.Must(len(entries) == 1)
-	assert.Must(entries[0]["id"] == id)
+	assert.Must(t, len(entries) == 1)
+	assert.Must(t, entries[0]["id"] == id)
 
-	resp = proxyCall(c, "CLIENT", "LIST", "ID", "not-number")
-	assert.Must(resp.IsError())
-	assert.Must(strings.Contains(string(resp.Value), "Invalid client ID"))
+	resp = proxyCall(t, c, "CLIENT", "LIST", "ID", "not-number")
+	assert.Must(t, resp.IsError())
+	assert.Must(t, strings.Contains(string(resp.Value), "Invalid client ID"))
 }
 
 func TestClientUnsupportedSubcommand(t *testing.T) {
-	s, addr := openStartedProxy(newProxyConfig())
+	s, addr := openStartedProxy(t, newProxyConfig())
 	defer s.Close()
 
-	c := dialProxy(addr)
+	c := dialProxy(t, addr)
 	defer c.Close()
 
-	resp := proxyCall(c, "CLIENT", "KILL", "127.0.0.1:1")
-	assert.Must(resp.IsError())
-	assert.Must(strings.Contains(string(resp.Value), "unsupported CLIENT subcommand"))
+	resp := proxyCall(t, c, "CLIENT", "KILL", "127.0.0.1:1")
+	assert.Must(t, resp.IsError())
+	assert.Must(t, strings.Contains(string(resp.Value), "unsupported CLIENT subcommand"))
 }
 
 func TestSessionRegistry(t *testing.T) {
-	s, addr := openStartedProxy(newProxyConfig())
+	s, addr := openStartedProxy(t, newProxyConfig())
 	defer s.Close()
 
 	baseAlive := SessionsAlive()
 	baseRegistry := clientSessions.count()
 
-	c1 := dialProxy(addr)
-	c2 := dialProxy(addr)
+	c1 := dialProxy(t, addr)
+	c2 := dialProxy(t, addr)
 
-	assertEventually(func() bool {
+	assertEventually(t, func() bool {
 		return SessionsAlive() == baseAlive+2 && clientSessions.count() == baseRegistry+2
 	})
 
-	assert.MustNoError(c1.Close())
-	assert.MustNoError(c2.Close())
+	assert.MustNoError(t, c1.Close())
+	assert.MustNoError(t, c2.Close())
 
-	assertEventually(func() bool {
+	assertEventually(t, func() bool {
 		return SessionsAlive() == baseAlive && clientSessions.count() == baseRegistry
 	})
 }
 
-func assertEventually(ok func() bool) {
+func assertEventually(t *testing.T, ok func() bool) {
 	deadline := time.Now().Add(time.Second)
 	for time.Now().Before(deadline) {
 		if ok() {
@@ -214,5 +214,5 @@ func assertEventually(ok func() bool) {
 		}
 		time.Sleep(time.Millisecond * 10)
 	}
-	assert.Must(ok())
+	assert.Must(t, ok())
 }

@@ -4,12 +4,13 @@
 package proxy
 
 import (
+	"cmp"
 	"crypto/sha1"
 	"encoding/json"
 	"fmt"
 	"net"
 	"path/filepath"
-	"sort"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -17,6 +18,7 @@ import (
 
 	"github.com/CodisLabs/codis/pkg/models"
 	"github.com/CodisLabs/codis/pkg/proxy/redis"
+	"github.com/CodisLabs/codis/pkg/utils"
 	"github.com/CodisLabs/codis/pkg/utils/errors"
 	"github.com/CodisLabs/codis/pkg/utils/log"
 )
@@ -96,6 +98,7 @@ func (p *clusterNodesProvider) Start() {
 	p.wg.Add(1)
 	go func() {
 		defer p.wg.Done()
+		defer utils.Recover("cluster nodes refresh")
 		p.refresh()
 		ticker := time.NewTicker(p.config.ClusterNodesRefreshPeriod.Duration())
 		defer ticker.Stop()
@@ -270,14 +273,17 @@ func (p *clusterNodesProvider) normalizeClusterNodes(nodes []clusterNode) []clus
 }
 
 func sortClusterNodesForDedup(nodes []clusterNode) {
-	sort.Slice(nodes, func(i, j int) bool {
-		if nodes[i].IsSelf != nodes[j].IsSelf {
-			return nodes[i].IsSelf
+	slices.SortFunc(nodes, func(a, b clusterNode) int {
+		if a.IsSelf != b.IsSelf {
+			if a.IsSelf {
+				return -1
+			}
+			return 1
 		}
-		if nodes[i].Token != nodes[j].Token {
-			return nodes[i].Token < nodes[j].Token
+		if a.Token != b.Token {
+			return cmp.Compare(a.Token, b.Token)
 		}
-		return nodes[i].Addr < nodes[j].Addr
+		return cmp.Compare(a.Addr, b.Addr)
 	})
 }
 
@@ -353,14 +359,14 @@ func assignClusterSlots(nodes []clusterNode) []clusterNode {
 	if len(nodes) == 0 {
 		return nil
 	}
-	sort.Slice(nodes, func(i, j int) bool {
-		if nodes[i].ID != nodes[j].ID {
-			return nodes[i].ID < nodes[j].ID
+	slices.SortFunc(nodes, func(a, b clusterNode) int {
+		if a.ID != b.ID {
+			return cmp.Compare(a.ID, b.ID)
 		}
-		if nodes[i].Token != nodes[j].Token {
-			return nodes[i].Token < nodes[j].Token
+		if a.Token != b.Token {
+			return cmp.Compare(a.Token, b.Token)
 		}
-		return nodes[i].Addr < nodes[j].Addr
+		return cmp.Compare(a.Addr, b.Addr)
 	})
 	base := redisClusterSlotCount / len(nodes)
 	remainder := redisClusterSlotCount % len(nodes)

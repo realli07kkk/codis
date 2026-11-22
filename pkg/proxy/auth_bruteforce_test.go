@@ -175,19 +175,19 @@ func TestSessionAuthBruteforceDefaultDisabledKeepsAuthErrors(t *testing.T) {
 	config.SessionAuth = "secret"
 	config.SessionAuthBruteforceEnabled = false
 
-	s, addr := openStartedProxy(config)
+	s, addr := openStartedProxy(t, config)
 	defer s.Close()
 
-	c := dialProxy(addr)
+	c := dialProxy(t, addr)
 	defer c.Close()
 
 	for i := 0; i < 4; i++ {
-		resp := proxyCall(c, "AUTH", "wrong")
+		resp := proxyCall(t, c, "AUTH", "wrong")
 		if !resp.IsError() || string(resp.Value) != "ERR invalid password" {
 			t.Fatalf("wrong auth resp = %s %q", resp.Type, resp.Value)
 		}
 	}
-	resp := proxyCall(c, "AUTH", "secret")
+	resp := proxyCall(t, c, "AUTH", "secret")
 	if !resp.IsString() || string(resp.Value) != "OK" {
 		t.Fatalf("correct auth resp = %s %q", resp.Type, resp.Value)
 	}
@@ -196,13 +196,13 @@ func TestSessionAuthBruteforceDefaultDisabledKeepsAuthErrors(t *testing.T) {
 func TestSessionAuthBruteforceWrongArityDoesNotRecordFailure(t *testing.T) {
 	config := newAuthBruteforceTestConfig()
 
-	s, addr := openStartedProxy(config)
+	s, addr := openStartedProxy(t, config)
 	defer s.Close()
 
-	c := dialProxy(addr)
+	c := dialProxy(t, addr)
 	defer c.Close()
 
-	resp := proxyCall(c, "AUTH")
+	resp := proxyCall(t, c, "AUTH")
 	if !resp.IsError() || string(resp.Value) != "ERR wrong number of arguments for 'AUTH' command" {
 		t.Fatalf("wrong arity auth resp = %s %q", resp.Type, resp.Value)
 	}
@@ -215,25 +215,25 @@ func TestSessionAuthBruteforceWrongArityDoesNotRecordFailure(t *testing.T) {
 func TestSessionAuthBruteforceLocksAndUnlocks(t *testing.T) {
 	config := newAuthBruteforceTestConfig()
 
-	s, addr := openStartedProxy(config)
+	s, addr := openStartedProxy(t, config)
 	defer s.Close()
 
-	c := dialProxy(addr)
+	c := dialProxy(t, addr)
 	defer c.Close()
 
 	for i := 0; i < config.SessionAuthBruteforceMaxFailures; i++ {
-		resp := proxyCall(c, "AUTH", "wrong")
+		resp := proxyCall(t, c, "AUTH", "wrong")
 		if !resp.IsError() || string(resp.Value) != "ERR invalid password" {
 			t.Fatalf("wrong auth %d resp = %s %q", i+1, resp.Type, resp.Value)
 		}
 	}
-	resp := proxyCall(c, "AUTH", "secret")
+	resp := proxyCall(t, c, "AUTH", "secret")
 	if !resp.IsError() || string(resp.Value) != authBruteforceLockedMessage {
 		t.Fatalf("locked auth resp = %s %q", resp.Type, resp.Value)
 	}
 
-	assertEventually(func() bool {
-		resp = proxyCall(c, "AUTH", "secret")
+	assertEventually(t, func() bool {
+		resp = proxyCall(t, c, "AUTH", "secret")
 		return resp.IsString() && string(resp.Value) == "OK"
 	})
 }
@@ -241,30 +241,30 @@ func TestSessionAuthBruteforceLocksAndUnlocks(t *testing.T) {
 func TestSessionAuthBruteforceSuccessClearsFailureCount(t *testing.T) {
 	config := newAuthBruteforceTestConfig()
 
-	s, addr := openStartedProxy(config)
+	s, addr := openStartedProxy(t, config)
 	defer s.Close()
 
-	c := dialProxy(addr)
+	c := dialProxy(t, addr)
 	defer c.Close()
 
 	for i := 0; i < config.SessionAuthBruteforceMaxFailures-1; i++ {
-		resp := proxyCall(c, "AUTH", "wrong")
+		resp := proxyCall(t, c, "AUTH", "wrong")
 		if !resp.IsError() || string(resp.Value) != "ERR invalid password" {
 			t.Fatalf("wrong auth before success resp = %s %q", resp.Type, resp.Value)
 		}
 	}
-	resp := proxyCall(c, "AUTH", "secret")
+	resp := proxyCall(t, c, "AUTH", "secret")
 	if !resp.IsString() || string(resp.Value) != "OK" {
 		t.Fatalf("auth success resp = %s %q", resp.Type, resp.Value)
 	}
 
 	for i := 0; i < config.SessionAuthBruteforceMaxFailures-1; i++ {
-		resp := proxyCall(c, "AUTH", "wrong")
+		resp := proxyCall(t, c, "AUTH", "wrong")
 		if !resp.IsError() || string(resp.Value) != "ERR invalid password" {
 			t.Fatalf("wrong auth after success resp = %s %q", resp.Type, resp.Value)
 		}
 	}
-	resp = proxyCall(c, "AUTH", "secret")
+	resp = proxyCall(t, c, "AUTH", "secret")
 	if !resp.IsString() || string(resp.Value) != "OK" {
 		t.Fatalf("auth after reset resp = %s %q", resp.Type, resp.Value)
 	}
@@ -274,13 +274,13 @@ func TestSessionAuthBruteforceNoSessionAuthNoFailureRecord(t *testing.T) {
 	config := newAuthBruteforceTestConfig()
 	config.SessionAuth = ""
 
-	s, addr := openStartedProxy(config)
+	s, addr := openStartedProxy(t, config)
 	defer s.Close()
 
-	c := dialProxy(addr)
+	c := dialProxy(t, addr)
 	defer c.Close()
 
-	resp := proxyCall(c, "AUTH", "anything")
+	resp := proxyCall(t, c, "AUTH", "anything")
 	if !resp.IsError() || string(resp.Value) != "ERR Client sent AUTH, but no password is set" {
 		t.Fatalf("auth without session_auth resp = %s %q", resp.Type, resp.Value)
 	}
@@ -293,26 +293,26 @@ func TestSessionAuthBruteforceNoSessionAuthNoFailureRecord(t *testing.T) {
 func TestProxyAuthBruteforceAuthorizedSessionUnaffected(t *testing.T) {
 	config := newAuthBruteforceTestConfig()
 
-	s, addr := openStartedProxy(config)
+	s, addr := openStartedProxy(t, config)
 	defer s.Close()
 
-	authorized := dialProxy(addr)
+	authorized := dialProxy(t, addr)
 	defer authorized.Close()
-	resp := proxyCall(authorized, "AUTH", "secret")
+	resp := proxyCall(t, authorized, "AUTH", "secret")
 	if !resp.IsString() || string(resp.Value) != "OK" {
 		t.Fatalf("initial auth resp = %s %q", resp.Type, resp.Value)
 	}
 
-	attacker := dialProxy(addr)
+	attacker := dialProxy(t, addr)
 	defer attacker.Close()
 	for i := 0; i < config.SessionAuthBruteforceMaxFailures; i++ {
-		resp = proxyCall(attacker, "AUTH", "wrong")
+		resp = proxyCall(t, attacker, "AUTH", "wrong")
 		if !resp.IsError() || string(resp.Value) != "ERR invalid password" {
 			t.Fatalf("wrong auth resp = %s %q", resp.Type, resp.Value)
 		}
 	}
 
-	resp = proxyCall(authorized, "CLIENT", "LIST")
+	resp = proxyCall(t, authorized, "CLIENT", "LIST")
 	if !resp.IsBulkBytes() || len(parseClientList(resp.Value)) == 0 {
 		t.Fatalf("authorized CLIENT LIST resp = %s %q", resp.Type, resp.Value)
 	}
@@ -321,14 +321,14 @@ func TestProxyAuthBruteforceAuthorizedSessionUnaffected(t *testing.T) {
 func TestProxyAuthBruteforceStats(t *testing.T) {
 	config := newAuthBruteforceTestConfig()
 
-	s, addr := openStartedProxy(config)
+	s, addr := openStartedProxy(t, config)
 	defer s.Close()
 
-	c := dialProxy(addr)
+	c := dialProxy(t, addr)
 	defer c.Close()
 
 	for i := 0; i < config.SessionAuthBruteforceMaxFailures; i++ {
-		_ = proxyCall(c, "AUTH", "wrong")
+		_ = proxyCall(t, c, "AUTH", "wrong")
 	}
 	stats := s.Stats(0).SessionAuthBruteforce
 	if stats == nil || !stats.Enabled || stats.Failures != 3 || stats.Locks != 1 || stats.LockedIPs != 1 || stats.TrackedIPs != 1 {

@@ -5,8 +5,9 @@ package proxy
 
 import (
 	"bytes"
+	"cmp"
 	"fmt"
-	"sort"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -96,8 +97,8 @@ func (r *clientSessionRegistry) snapshot(now time.Time) []clientListEntry {
 	for _, s := range sessions {
 		entries = append(entries, s.clientListEntry(now))
 	}
-	sort.Slice(entries, func(i, j int) bool {
-		return entries[i].ID < entries[j].ID
+	slices.SortFunc(entries, func(a, b clientListEntry) int {
+		return cmp.Compare(a.ID, b.ID)
 	})
 	return entries
 }

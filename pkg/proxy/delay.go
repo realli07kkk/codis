@@ -10,7 +10,6 @@ import (
 type Delay interface {
 	Reset()
 	After() <-chan time.Time
-	Sleep()
 	SleepWithCancel(canceled func() bool)
 }
 
@@ -32,11 +31,6 @@ func (d *DelayExp2) NextValue() int {
 func (d *DelayExp2) After() <-chan time.Time {
 	total := d.NextValue()
 	return time.After(d.Unit * time.Duration(total))
-}
-
-func (d *DelayExp2) Sleep() {
-	total := d.NextValue()
-	time.Sleep(d.Unit * time.Duration(total))
 }
 
 func (d *DelayExp2) SleepWithCancel(canceled func() bool) {

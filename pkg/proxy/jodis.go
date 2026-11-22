@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/CodisLabs/codis/pkg/models"
+	"github.com/CodisLabs/codis/pkg/utils"
 	"github.com/CodisLabs/codis/pkg/utils/errors"
 	"github.com/CodisLabs/codis/pkg/utils/log"
 )
@@ -26,6 +27,9 @@ type Jodis struct {
 	closed bool
 
 	watching bool
+
+	done chan struct{}
+	once sync.Once
 }
 
 func NewJodis(c models.Client, p *models.Proxy) *Jodis {
@@ -40,7 +44,7 @@ func NewJodis(c models.Client, p *models.Proxy) *Jodis {
 	if err != nil {
 		log.PanicErrorf(err, "json marshal failed")
 	}
-	return &Jodis{path: p.JodisPath, data: b, client: c}
+	return &Jodis{path: p.JodisPath, data: b, client: c, done: make(chan struct{})}
 }
 
 func (j *Jodis) Path() string {
@@ -49,6 +53,12 @@ func (j *Jodis) Path() string {
 
 func (j *Jodis) Data() string {
 	return string(j.data)
+}
+
+// Done returns a channel that is closed when the jodis watcher is asked to
+// stop. The watcher exits on it even while it waits for a watch event.
+func (j *Jodis) Done() <-chan struct{} {
+	return j.done
 }
 
 func (j *Jodis) IsClosed() bool {
@@ -64,6 +74,10 @@ func (j *Jodis) IsWatching() bool {
 }
 
 func (j *Jodis) Close() error {
+	j.once.Do(func() {
+		close(j.done)
+	})
+
 	j.mu.Lock()
 	defer j.mu.Unlock()
 	if j.closed {
@@ -106,7 +120,14 @@ func (j *Jodis) Start() {
 	}
 	j.online = true
 
+	// The watcher is not part of the proxy WaitGroup: an in-flight registry
+	// call (zk create/delete) has no per-call deadline, so waiting for it in
+	// Close could stall shutdown. It still has a definite exit condition: Close
+	// closes j.done and then the registry client, and the watcher selects on
+	// both the watch event and j.done.
 	go func() {
+		defer utils.Recover("jodis watcher")
+
 		var delay = &DelayExp2{
 			Min: 1, Max: 30,
 			Unit: time.Second,
@@ -115,11 +136,26 @@ func (j *Jodis) Start() {
 			w, err := j.Rewatch()
 			if err != nil {
 				log.WarnErrorf(err, "jodis watch node %s failed", j.path)
-				delay.SleepWithCancel(j.IsClosed)
+				delay.SleepWithCancel(func() bool {
+					return j.IsClosed() || j.isDone()
+				})
 			} else {
-				<-w
+				select {
+				case <-w:
+				case <-j.done:
+					return
+				}
 				delay.Reset()
 			}
 		}
 	}()
+}
+
+func (j *Jodis) isDone() bool {
+	select {
+	case <-j.done:
+		return true
+	default:
+		return false
+	}
 }
