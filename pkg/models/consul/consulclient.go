@@ -7,7 +7,7 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
-	"sort"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -467,7 +467,7 @@ func (c *Client) list(prefix string, options *capi.QueryOptions) ([]string, *cap
 		}
 		paths = append(paths, consulPath(key))
 	}
-	sort.Strings(paths)
+	slices.Sort(paths)
 	return paths, meta, nil
 }
 

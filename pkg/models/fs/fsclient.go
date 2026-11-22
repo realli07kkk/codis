@@ -8,7 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"sort"
+	"slices"
 	"sync"
 	"syscall"
 	"time"
@@ -305,7 +305,7 @@ func (c *Client) List(path string, must bool) ([]string, error) {
 		log.Warnf("fsclient - list %s failed", path)
 		return nil, errors.Trace(err)
 	}
-	sort.Strings(names)
+	slices.Sort(names)
 
 	var results []string
 	for _, name := range names {

@@ -4,9 +4,10 @@
 package zkclient
 
 import (
+	stderrors "errors"
 	"fmt"
 	"path/filepath"
-	"sort"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -127,10 +128,8 @@ func (c *Client) Do(fn func(conn *zk.Conn) error) error {
 
 func (c *Client) shell(fn func(conn *zk.Conn) error) error {
 	if err := fn(c.conn); err != nil {
-		for _, e := range []error{zk.ErrNoNode, zk.ErrNodeExists, zk.ErrNotEmpty} {
-			if errors.Equal(e, err) {
-				return err
-			}
+		if isKnownZKError(err) {
+			return err
 		}
 		if time.Since(c.dialAt) > time.Second {
 			if err := c.reset(); err != nil {
@@ -140,6 +139,12 @@ func (c *Client) shell(fn func(conn *zk.Conn) error) error {
 		return err
 	}
 	return nil
+}
+
+func isKnownZKError(err error) bool {
+	return stderrors.Is(err, zk.ErrNoNode) ||
+		stderrors.Is(err, zk.ErrNodeExists) ||
+		stderrors.Is(err, zk.ErrNotEmpty)
 }
 
 func (c *Client) Mkdir(path string) error {
@@ -179,7 +184,7 @@ func (c *Client) mkdir(conn *zk.Conn, path string) error {
 		}
 		return zk.WorldACL(perm)
 	}())
-	if err != nil && errors.NotEqual(err, zk.ErrNodeExists) {
+	if err != nil && !stderrors.Is(err, zk.ErrNodeExists) {
 		return errors.Trace(err)
 	}
 	return nil
@@ -286,7 +291,7 @@ func (c *Client) update(conn *zk.Conn, path string, data []byte) error {
 		return errors.Trace(err)
 	} else if !exists {
 		_, err := c.create(conn, path, data, 0)
-		if err != nil && errors.NotEqual(err, zk.ErrNodeExists) {
+		if err != nil && !stderrors.Is(err, zk.ErrNodeExists) {
 			return err
 		}
 	}
@@ -306,7 +311,7 @@ func (c *Client) Delete(path string) error {
 	log.Debugf("zkclient delete node %s", path)
 	err := c.shell(func(conn *zk.Conn) error {
 		err := conn.Delete(path, -1)
-		if err != nil && errors.NotEqual(err, zk.ErrNoNode) {
+		if err != nil && !stderrors.Is(err, zk.ErrNoNode) {
 			return errors.Trace(err)
 		}
 		return nil
@@ -329,7 +334,7 @@ func (c *Client) Read(path string, must bool) ([]byte, error) {
 	err := c.shell(func(conn *zk.Conn) error {
 		b, _, err := conn.Get(path)
 		if err != nil {
-			if errors.Equal(err, zk.ErrNoNode) && !must {
+			if stderrors.Is(err, zk.ErrNoNode) && !must {
 				return nil
 			}
 			return errors.Trace(err)
@@ -354,7 +359,7 @@ func (c *Client) List(path string, must bool) ([]string, error) {
 	err := c.shell(func(conn *zk.Conn) error {
 		nodes, _, err := conn.Children(path)
 		if err != nil {
-			if errors.Equal(err, zk.ErrNoNode) && !must {
+			if stderrors.Is(err, zk.ErrNoNode) && !must {
 				return nil
 			}
 			return errors.Trace(err)
@@ -420,7 +425,7 @@ func (c *Client) WatchInOrder(path string) (<-chan struct{}, []string, error) {
 		if err != nil {
 			return err
 		}
-		sort.Strings(nodes)
+		slices.Sort(nodes)
 		for _, node := range nodes {
 			paths = append(paths, filepath.Join(path, node))
 		}

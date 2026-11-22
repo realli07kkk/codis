@@ -3,43 +3,20 @@
 
 package models
 
-import "sort"
-
-type GroupSlice []*Group
-
-func (s GroupSlice) Len() int {
-	return len(s)
-}
-
-func (s GroupSlice) Swap(i, j int) {
-	s[i], s[j] = s[j], s[i]
-}
-
-func (s GroupSlice) Less(i, j int) bool {
-	return s[i].Id < s[j].Id
-}
+import (
+	"cmp"
+	"slices"
+)
 
 func SortGroup(group map[int]*Group) []*Group {
 	slice := make([]*Group, 0, len(group))
 	for _, g := range group {
 		slice = append(slice, g)
 	}
-	sort.Sort(GroupSlice(slice))
+	slices.SortFunc(slice, func(a, b *Group) int {
+		return cmp.Compare(a.Id, b.Id)
+	})
 	return slice
-}
-
-type ProxySlice []*Proxy
-
-func (s ProxySlice) Len() int {
-	return len(s)
-}
-
-func (s ProxySlice) Swap(i, j int) {
-	s[i], s[j] = s[j], s[i]
-}
-
-func (s ProxySlice) Less(i, j int) bool {
-	return s[i].Id < s[j].Id
 }
 
 func SortProxy(proxy map[string]*Proxy) []*Proxy {
@@ -47,6 +24,8 @@ func SortProxy(proxy map[string]*Proxy) []*Proxy {
 	for _, p := range proxy {
 		slice = append(slice, p)
 	}
-	sort.Sort(ProxySlice(slice))
+	slices.SortFunc(slice, func(a, b *Proxy) int {
+		return cmp.Compare(a.Id, b.Id)
+	})
 	return slice
 }
