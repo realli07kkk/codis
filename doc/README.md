@@ -37,6 +37,7 @@ Codis 是基于代理的高性能 Redis 集群方案。本目录是项目的全�
 ## 构建与验证
 
 - [build_and_release_zh.md](build_and_release_zh.md)：构建与发布指南（常用命令、Go modules 约定、codis-server 编译排障、多平台发布、测试约定）
+- [go_modernization_zh.md](go_modernization_zh.md)：Go 现代化改造计划、行为兼容边界与逐项回归矩阵（不含 etcd）
 - [redis8_validation_zh.md](redis8_validation_zh.md)：Redis 8 迁移验证与切换（验证 gate、Linux 正式验证、切换手顺、Go 组件兼容矩阵）
 - [zookeeper_sdk_migration_zh.md](zookeeper_sdk_migration_zh.md)：ZooKeeper Go SDK 迁移说明
 
