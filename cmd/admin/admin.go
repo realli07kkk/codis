@@ -12,33 +12,34 @@ import (
 
 	coordarg "github.com/CodisLabs/codis/cmd/internal/coordinator"
 	"github.com/CodisLabs/codis/pkg/models"
-	"github.com/CodisLabs/codis/pkg/utils"
 	"github.com/CodisLabs/codis/pkg/utils/log"
 )
 
 type cmdAdmin struct {
-	product string
+	product     string
+	coordinator coordarg.Args
 }
 
-func (t *cmdAdmin) Main(d map[string]any) {
-	t.product, _ = d["--product"].(string)
+func (t *cmdAdmin) Main(cfg *adminConfig) {
+	t.product = cfg.Product.Value
+	t.coordinator = cfg.CoordinatorArg
 
-	switch {
-	case d["--remove-lock"].(bool):
-		t.handleRemoveLock(d)
-	case d["--config-dump"].(bool):
-		t.handleConfigDump(d)
-	case d["--config-convert"] != nil:
-		t.handleConfigConvert(d)
-	case d["--config-restore"] != nil:
-		t.handleConfigRestore(d)
-	case d["--dashboard-list"].(bool):
-		t.handleDashboardList(d)
+	switch cfg.Command {
+	case "remove-lock":
+		t.handleRemoveLock(cfg)
+	case "config-dump":
+		t.handleConfigDump(cfg)
+	case "config-convert":
+		t.handleConfigConvert(cfg)
+	case "config-restore":
+		t.handleConfigRestore(cfg)
+	case "dashboard-list":
+		t.handleDashboardList(cfg)
 	}
 }
 
-func (t *cmdAdmin) newTopomClient(d map[string]any) models.Client {
-	coordinator := coordarg.MustParse(d)
+func (t *cmdAdmin) newTopomClient() models.Client {
+	coordinator := t.coordinator
 	c, err := models.NewClient(coordinator.Name, coordinator.Addr, coordinator.Auth, time.Minute)
 	if err != nil {
 		log.PanicErrorf(err, "create '%s' client to '%s' failed", coordinator.Name, coordinator.Addr)
@@ -46,16 +47,16 @@ func (t *cmdAdmin) newTopomClient(d map[string]any) models.Client {
 	return c
 }
 
-func (t *cmdAdmin) newTopomStore(d map[string]any) *models.Store {
+func (t *cmdAdmin) newTopomStore() *models.Store {
 	if err := models.ValidateProduct(t.product); err != nil {
 		log.PanicErrorf(err, "invalid product name")
 	}
-	client := t.newTopomClient(d)
+	client := t.newTopomClient()
 	return models.NewStore(client, t.product)
 }
 
-func (t *cmdAdmin) handleRemoveLock(d map[string]any) {
-	store := t.newTopomStore(d)
+func (t *cmdAdmin) handleRemoveLock(cfg *adminConfig) {
+	store := t.newTopomStore()
 	defer store.Close()
 
 	log.Debugf("force remove-lock")
@@ -65,12 +66,12 @@ func (t *cmdAdmin) handleRemoveLock(d map[string]any) {
 	log.Debugf("force remove-lock OK")
 }
 
-func (t *cmdAdmin) handleConfigDump(d map[string]any) {
+func (t *cmdAdmin) handleConfigDump(cfg *adminConfig) {
 	switch {
-	case d["-1"].(bool):
-		t.dumpConfigV1(d)
+	case cfg.ConfigDumpV1.Value:
+		t.dumpConfigV1()
 	default:
-		t.dumpConfigV3(d)
+		t.dumpConfigV3()
 	}
 }
 
@@ -80,8 +81,8 @@ type ConfigV3 struct {
 	Proxy []*models.Proxy       `json:"proxy,omitempty"`
 }
 
-func (t *cmdAdmin) dumpConfigV1(d map[string]any) {
-	client := t.newTopomClient(d)
+func (t *cmdAdmin) dumpConfigV1() {
+	client := t.newTopomClient()
 	defer client.Close()
 
 	prefix := filepath.Join("/zk/codis", fmt.Sprintf("db_%s", t.product))
@@ -122,8 +123,8 @@ func (t *cmdAdmin) dumpConfigV1Recursively(client models.Client, path string) an
 	return nil
 }
 
-func (t *cmdAdmin) dumpConfigV3(d map[string]any) {
-	store := t.newTopomStore(d)
+func (t *cmdAdmin) dumpConfigV3() {
+	store := t.newTopomStore()
 	defer store.Close()
 
 	group, err := store.ListGroup()
@@ -223,14 +224,14 @@ func (t *cmdAdmin) convertGroupV1(group map[int]*models.Group, v any) {
 	g.Servers = servers
 }
 
-func (t *cmdAdmin) handleConfigConvert(d map[string]any) {
+func (t *cmdAdmin) handleConfigConvert(cfg *adminConfig) {
 	defer func() {
 		if x := recover(); x != nil {
 			log.Panicf("convert config failed: %+v", x)
 		}
 	}()
 
-	cfg1 := t.loadJsonConfigV1(utils.ArgumentMust(d, "--config-convert"))
+	cfg1 := t.loadJsonConfigV1(argumentMust(cfg.ConfigConvert, "--config-convert"))
 	cfg2 := &ConfigV3{}
 
 	if slots := cfg1["slots"]; slots != nil {
@@ -324,13 +325,13 @@ func (t *cmdAdmin) loadJsonConfigV3(file string) *ConfigV3 {
 	return config
 }
 
-func (t *cmdAdmin) handleConfigRestore(d map[string]any) {
-	store := t.newTopomStore(d)
+func (t *cmdAdmin) handleConfigRestore(cfg *adminConfig) {
+	store := t.newTopomStore()
 	defer store.Close()
 
-	config := t.loadJsonConfigV3(utils.ArgumentMust(d, "--config-restore"))
+	config := t.loadJsonConfigV3(argumentMust(cfg.ConfigRestore, "--config-restore"))
 
-	if !d["--confirm"].(bool) {
+	if !cfg.Confirm.Value {
 		b, err := json.MarshalIndent(config, "", "    ")
 		if err != nil {
 			log.PanicErrorf(err, "json marshal failed")
@@ -371,8 +372,8 @@ func (t *cmdAdmin) handleConfigRestore(d map[string]any) {
 	}
 }
 
-func (t *cmdAdmin) handleDashboardList(d map[string]any) {
-	client := t.newTopomClient(d)
+func (t *cmdAdmin) handleDashboardList(cfg *adminConfig) {
+	client := t.newTopomClient()
 	defer client.Close()
 
 	list, err := client.List(models.CodisDir, false)

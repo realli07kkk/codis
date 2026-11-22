@@ -10,7 +10,6 @@ import (
 
 	"github.com/CodisLabs/codis/pkg/models"
 	"github.com/CodisLabs/codis/pkg/proxy"
-	"github.com/CodisLabs/codis/pkg/utils"
 	"github.com/CodisLabs/codis/pkg/utils/log"
 )
 
@@ -19,25 +18,25 @@ type cmdProxy struct {
 	auth string
 }
 
-func (t *cmdProxy) Main(d map[string]any) {
-	t.addr = utils.ArgumentMust(d, "--proxy")
-	t.auth, _ = d["--auth"].(string)
+func (t *cmdProxy) Main(cfg *adminConfig) {
+	t.addr = argumentMust(cfg.Proxy, "--proxy")
+	t.auth = cfg.Auth.Value
 
-	switch {
+	switch cfg.Command {
 	default:
-		t.handleOverview(d)
-	case d["--start"].(bool):
-		t.handleStart(d)
-	case d["--shutdown"].(bool):
-		t.handleShutdown(d)
-	case d["--log-level"] != nil:
-		t.handleLogLevel(d)
-	case d["--fillslots"] != nil:
-		t.handleFillSlots(d)
-	case d["--reset-stats"].(bool):
-		t.handleResetStats(d)
-	case d["--forcegc"].(bool):
-		t.handleForceGC(d)
+		t.handleOverview(cfg)
+	case "start":
+		t.handleStart(cfg)
+	case "shutdown":
+		t.handleShutdown(cfg)
+	case "log-level":
+		t.handleLogLevel(cfg)
+	case "fillslots":
+		t.handleFillSlots(cfg)
+	case "reset-stats":
+		t.handleResetStats(cfg)
+	case "forcegc":
+		t.handleForceGC(cfg)
 	}
 }
 
@@ -66,7 +65,7 @@ func (t *cmdProxy) newProxyClient(xauth bool) *proxy.ApiClient {
 	return c
 }
 
-func (t *cmdProxy) handleOverview(d map[string]any) {
+func (t *cmdProxy) handleOverview(cfg *adminConfig) {
 	c := t.newProxyClient(false)
 
 	log.Debugf("call rpc overview to proxy %s", t.addr)
@@ -76,13 +75,7 @@ func (t *cmdProxy) handleOverview(d map[string]any) {
 	}
 	log.Debugf("call rpc overview OK")
 
-	var cmd string
-	for _, s := range []string{"config", "model", "slots", "stats"} {
-		if d[s].(bool) {
-			cmd = s
-		}
-	}
-
+	var cmd = cfg.Command
 	var obj any
 	switch cmd {
 	default:
@@ -104,7 +97,7 @@ func (t *cmdProxy) handleOverview(d map[string]any) {
 	fmt.Println(string(b))
 }
 
-func (t *cmdProxy) handleStart(d map[string]any) {
+func (t *cmdProxy) handleStart(cfg *adminConfig) {
 	c := t.newProxyClient(true)
 
 	log.Debugf("call rpc start to proxy %s", t.addr)
@@ -114,10 +107,10 @@ func (t *cmdProxy) handleStart(d map[string]any) {
 	log.Debugf("call rpc start to proxy OK")
 }
 
-func (t *cmdProxy) handleLogLevel(d map[string]any) {
+func (t *cmdProxy) handleLogLevel(cfg *adminConfig) {
 	c := t.newProxyClient(true)
 
-	s := utils.ArgumentMust(d, "--log-level")
+	s := argumentMust(cfg.LogLevel, "--log-level")
 
 	var v log.LogLevel
 	if !v.ParseFromString(s) {
@@ -131,10 +124,10 @@ func (t *cmdProxy) handleLogLevel(d map[string]any) {
 	log.Debugf("call rpc loglevel OK")
 }
 
-func (t *cmdProxy) handleFillSlots(d map[string]any) {
+func (t *cmdProxy) handleFillSlots(cfg *adminConfig) {
 	c := t.newProxyClient(true)
 
-	b, err := os.ReadFile(utils.ArgumentMust(d, "--fillslots"))
+	b, err := os.ReadFile(argumentMust(cfg.FillSlots, "--fillslots"))
 	if err != nil {
 		log.PanicErrorf(err, "load slots from file failed")
 	}
@@ -150,7 +143,7 @@ func (t *cmdProxy) handleFillSlots(d map[string]any) {
 		}
 	}
 
-	if d["--locked"].(bool) {
+	if cfg.Locked.Value {
 		for _, m := range slots {
 			m.Locked = true
 		}
@@ -163,7 +156,7 @@ func (t *cmdProxy) handleFillSlots(d map[string]any) {
 	log.Debugf("call rpc fillslots OK")
 }
 
-func (t *cmdProxy) handleResetStats(d map[string]any) {
+func (t *cmdProxy) handleResetStats(cfg *adminConfig) {
 	c := t.newProxyClient(true)
 
 	log.Debugf("call rpc resetstats to proxy %s", t.addr)
@@ -173,7 +166,7 @@ func (t *cmdProxy) handleResetStats(d map[string]any) {
 	log.Debugf("call rpc resetstats OK")
 }
 
-func (t *cmdProxy) handleForceGC(d map[string]any) {
+func (t *cmdProxy) handleForceGC(cfg *adminConfig) {
 	c := t.newProxyClient(true)
 
 	log.Debugf("call rpc forcegc to proxy %s", t.addr)
@@ -183,7 +176,7 @@ func (t *cmdProxy) handleForceGC(d map[string]any) {
 	log.Debugf("call rpc forcegc OK")
 }
 
-func (t *cmdProxy) handleShutdown(d map[string]any) {
+func (t *cmdProxy) handleShutdown(cfg *adminConfig) {
 	c := t.newProxyClient(true)
 
 	log.Debugf("call rpc shutdown to proxy %s", t.addr)

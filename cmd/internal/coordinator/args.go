@@ -4,10 +4,13 @@
 package coordinator
 
 import (
-	"github.com/CodisLabs/codis/pkg/utils"
-	"github.com/CodisLabs/codis/pkg/utils/log"
+	"flag"
+	"fmt"
+
+	"github.com/CodisLabs/codis/cmd/internal/cli"
 )
 
+// Args identifies the selected coordinator backend.
 type Args struct {
 	Name    string
 	Addr    string
@@ -15,42 +18,85 @@ type Args struct {
 	HasAuth bool
 }
 
+// Flags holds the typed coordinator options shared by the Codis binaries.
+type Flags struct {
+	Zookeeper     cli.String
+	ZookeeperAuth cli.String
+	Etcd          cli.String
+	EtcdAuth      cli.String
+	Filesystem    cli.String
+	Consul        cli.String
+	ConsulAuth    cli.String
+}
+
 type option struct {
 	name     string
+	addr     *cli.String
 	addrFlag string
+	auth     *cli.String
 	authFlag string
 }
 
-var options = []option{
-	{name: "zookeeper", addrFlag: "--zookeeper", authFlag: "--zookeeper-auth"},
-	{name: "etcd", addrFlag: "--etcd", authFlag: "--etcd-auth"},
-	{name: "filesystem", addrFlag: "--filesystem"},
-	{name: "consul", addrFlag: "--consul", authFlag: "--consul-auth"},
+func (f *Flags) options() []option {
+	return []option{
+		{name: "zookeeper", addr: &f.Zookeeper, addrFlag: "zookeeper", auth: &f.ZookeeperAuth, authFlag: "zookeeper-auth"},
+		{name: "etcd", addr: &f.Etcd, addrFlag: "etcd", auth: &f.EtcdAuth, authFlag: "etcd-auth"},
+		{name: "filesystem", addr: &f.Filesystem, addrFlag: "filesystem"},
+		{name: "consul", addr: &f.Consul, addrFlag: "consul", auth: &f.ConsulAuth, authFlag: "consul-auth"},
+	}
 }
 
-func Parse(d map[string]any) (Args, bool) {
-	for _, option := range options {
-		if d[option.addrFlag] == nil {
+// FlagNames lists the option names registered by Bind.
+func FlagNames() []string {
+	return []string{
+		"zookeeper", "zookeeper-auth",
+		"etcd", "etcd-auth",
+		"filesystem",
+		"consul", "consul-auth",
+	}
+}
+
+// Bind registers the coordinator options on fs.
+func (f *Flags) Bind(fs *flag.FlagSet) {
+	f.BindAddresses(fs)
+	fs.Var(&f.ZookeeperAuth, "zookeeper-auth", "zookeeper auth")
+	fs.Var(&f.EtcdAuth, "etcd-auth", "etcd auth")
+	fs.Var(&f.ConsulAuth, "consul-auth", "consul auth")
+}
+
+// BindAddresses registers only the coordinator address options. The dashboard
+// deliberately does not accept the --*-auth flags on the command line.
+func (f *Flags) BindAddresses(fs *flag.FlagSet) {
+	fs.Var(&f.Zookeeper, "zookeeper", "zookeeper address")
+	fs.Var(&f.Etcd, "etcd", "etcd address")
+	fs.Var(&f.Filesystem, "filesystem", "filesystem root")
+	fs.Var(&f.Consul, "consul", "consul address")
+}
+
+// Parse validates the mutual exclusion and auth binding rules and returns
+// the selected coordinator. ok is false when no coordinator was requested.
+func (f *Flags) Parse() (Args, bool, error) {
+	var selected *option
+	for _, o := range f.options() {
+		if o.auth != nil && o.auth.Provided && !o.addr.Provided {
+			return Args{}, false, fmt.Errorf("option --%s requires --%s", o.authFlag, o.addrFlag)
+		}
+		if !o.addr.Provided {
 			continue
 		}
-
-		args := Args{
-			Name: option.name,
-			Addr: utils.ArgumentMust(d, option.addrFlag),
+		if selected != nil {
+			return Args{}, false, fmt.Errorf("options --%s and --%s are mutually exclusive", selected.addrFlag, o.addrFlag)
 		}
-		if option.authFlag != "" && d[option.authFlag] != nil {
-			args.Auth = utils.ArgumentMust(d, option.authFlag)
-			args.HasAuth = true
-		}
-		return args, true
+		selected = &o
 	}
-	return Args{}, false
-}
+	if selected == nil {
+		return Args{}, false, nil
+	}
 
-func MustParse(d map[string]any) Args {
-	args, ok := Parse(d)
-	if !ok {
-		log.Panicf("invalid coordinator")
+	args := Args{Name: selected.name, Addr: selected.addr.Value}
+	if selected.auth != nil && selected.auth.Provided {
+		args.Auth = selected.auth.Value
+		args.HasAuth = true
 	}
-	return args
+	return args, true, nil
 }

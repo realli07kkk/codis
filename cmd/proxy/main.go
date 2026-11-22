@@ -17,9 +17,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/docopt/docopt-go"
-
-	coordarg "github.com/CodisLabs/codis/cmd/internal/coordinator"
 	"github.com/CodisLabs/codis/pkg/models"
 	"github.com/CodisLabs/codis/pkg/proxy"
 	"github.com/CodisLabs/codis/pkg/topom"
@@ -27,8 +24,10 @@ import (
 	"github.com/CodisLabs/codis/pkg/utils/log"
 )
 
-func main() {
-	const usage = `
+// proxyUsage documents the codis-proxy command-line contract. It is kept as
+// the single source of truth for --help output and for the flag names pinned
+// by the parser tests.
+const proxyUsage = `
 Usage:
 	codis-proxy [--ncpu=N [--max-ncpu=MAX]] [--config=CONF] [--log=FILE] [--log-level=LEVEL] [--host-admin=ADDR] [--host-proxy=ADDR] [--dashboard=ADDR|--zookeeper=ADDR [--zookeeper-auth=USR:PWD]|--etcd=ADDR [--etcd-auth=USR:PWD]|--filesystem=ROOT|--consul=ADDR [--consul-auth=TOKEN]|--fillslots=FILE] [--ulimit=NLIMIT] [--pidfile=FILE] [--product_name=NAME] [--product_auth=AUTH] [--session_auth=AUTH]
 	codis-proxy  --default-config
@@ -42,41 +41,50 @@ Options:
 	--ulimit=NLIMIT             run 'ulimit -n' to check the maximum number of open file descriptors.
 `
 
-	d, err := docopt.Parse(usage, nil, true, "", false)
+func main() {
+	cfg, help, err := parseProxyArgs(os.Args[1:])
 	if err != nil {
 		log.PanicError(err, "parse arguments failed")
+	}
+	if help {
+		fmt.Print(proxyUsage)
+		return
 	}
 
 	switch {
 
-	case d["--default-config"]:
+	case cfg.DefaultConfig.Value:
 		fmt.Print(proxy.DefaultConfig)
 		return
 
-	case d["--version"].(bool):
+	case cfg.Version.Value:
 		fmt.Println("version:", utils.Version)
 		fmt.Println("compile:", utils.Compile)
 		return
 
 	}
 
-	if s, ok := utils.Argument(d, "--log"); ok {
-		w, err := log.NewRollingFile(s, log.DailyRolling)
+	if cfg.Log.Provided {
+		w, err := log.NewRollingFile(cfg.Log.Value, log.DailyRolling)
 		if err != nil {
-			log.PanicErrorf(err, "open log file %s failed", s)
+			log.PanicErrorf(err, "open log file %s failed", cfg.Log.Value)
 		} else {
-			log.StdLog = log.New(w, "")
+			log.SetStdLog(log.New(w, ""))
 		}
 	}
 	log.SetLevel(log.LevelInfo)
 
-	if s, ok := utils.Argument(d, "--log-level"); ok {
-		if !log.SetLevelString(s) {
-			log.Panicf("option --log-level = %s", s)
+	if cfg.LogLevel.Provided {
+		if !log.SetLevelString(cfg.LogLevel.Value) {
+			log.Panicf("option --log-level = %s", cfg.LogLevel.Value)
 		}
 	}
 
-	if n, ok := utils.ArgumentInteger(d, "--ulimit"); ok {
+	if cfg.Ulimit.Provided {
+		n, err := strconv.Atoi(cfg.Ulimit.Value)
+		if err != nil {
+			log.PanicErrorf(err, "option --ulimit isn't a valid integer")
+		}
 		b, err := exec.Command("/bin/sh", "-c", "ulimit -n").Output()
 		if err != nil {
 			log.PanicErrorf(err, "run ulimit -n failed")
@@ -87,7 +95,11 @@ Options:
 	}
 
 	var ncpu int
-	if n, ok := utils.ArgumentInteger(d, "--ncpu"); ok {
+	if cfg.NCPU.Provided {
+		n, err := strconv.Atoi(cfg.NCPU.Value)
+		if err != nil {
+			log.PanicErrorf(err, "option --ncpu isn't a valid integer")
+		}
 		ncpu = n
 	} else {
 		ncpu = 4
@@ -95,7 +107,11 @@ Options:
 	runtime.GOMAXPROCS(ncpu)
 
 	var maxncpu int
-	if n, ok := utils.ArgumentInteger(d, "--max-ncpu"); ok {
+	if cfg.MaxNCPU.Provided {
+		n, err := strconv.Atoi(cfg.MaxNCPU.Value)
+		if err != nil {
+			log.PanicErrorf(err, "option --max-ncpu isn't a valid integer")
+		}
 		maxncpu = max(ncpu, n)
 	} else {
 		maxncpu = max(ncpu, runtime.NumCPU())
@@ -107,34 +123,33 @@ Options:
 	}
 
 	config := proxy.NewDefaultConfig()
-	if s, ok := utils.Argument(d, "--config"); ok {
-		if err := config.LoadFromFile(s); err != nil {
-			log.PanicErrorf(err, "load config %s failed", s)
+	if cfg.Config.Provided {
+		if err := config.LoadFromFile(cfg.Config.Value); err != nil {
+			log.PanicErrorf(err, "load config %s failed", cfg.Config.Value)
 		}
 	}
-	if s, ok := utils.Argument(d, "--host-admin"); ok {
-		config.HostAdmin = s
-		log.Warnf("option --host-admin = %s", s)
+	if cfg.HostAdmin.Provided {
+		config.HostAdmin = cfg.HostAdmin.Value
+		log.Warnf("option --host-admin = %s", cfg.HostAdmin.Value)
 	}
-	if s, ok := utils.Argument(d, "--host-proxy"); ok {
-		config.HostProxy = s
-		log.Warnf("option --host-proxy = %s", s)
+	if cfg.HostProxy.Provided {
+		config.HostProxy = cfg.HostProxy.Value
+		log.Warnf("option --host-proxy = %s", cfg.HostProxy.Value)
 	}
 
 	var dashboard string
-	if s, ok := utils.Argument(d, "--dashboard"); ok {
-		dashboard = s
-		log.Warnf("option --dashboard = %s", s)
+	if cfg.Dashboard.Provided {
+		dashboard = cfg.Dashboard.Value
+		log.Warnf("option --dashboard = %s", dashboard)
 	}
 
-	coordinator, hasCoordinator := coordarg.Parse(d)
-	if hasCoordinator {
-		log.Warnf("option --%s = %s", coordinator.Name, coordinator.Addr)
+	if cfg.HasCoordinator {
+		log.Warnf("option --%s = %s", cfg.CoordinatorArg.Name, cfg.CoordinatorArg.Addr)
 	}
 
 	var slots []*models.Slot
-	if s, ok := utils.Argument(d, "--fillslots"); ok {
-		b, err := os.ReadFile(s)
+	if cfg.FillSlots.Provided {
+		b, err := os.ReadFile(cfg.FillSlots.Value)
 		if err != nil {
 			log.PanicErrorf(err, "load slots from file failed")
 		}
@@ -143,17 +158,17 @@ Options:
 		}
 	}
 
-	if s, ok := utils.Argument(d, "--product_name"); ok {
-		config.ProductName = s
-		log.Warnf("option --product_name = %s", s)
+	if cfg.ProductName.Provided {
+		config.ProductName = cfg.ProductName.Value
+		log.Warnf("option --product_name = %s", config.ProductName)
 	}
-	if s, ok := utils.Argument(d, "--product_auth"); ok {
-		config.ProductAuth = s
-		log.Warnf("option --product_auth = %s", s)
+	if cfg.ProductAuth.Provided {
+		config.ProductAuth = cfg.ProductAuth.Value
+		log.Warnf("option --product_auth = %s", config.ProductAuth)
 	}
-	if s, ok := utils.Argument(d, "--session_auth"); ok {
-		config.SessionAuth = s
-		log.Warnf("option --session_auth = %s", s)
+	if cfg.SessionAuth.Provided {
+		config.SessionAuth = cfg.SessionAuth.Value
+		log.Warnf("option --session_auth = %s", config.SessionAuth)
 	}
 
 	s, err := proxy.New(config)
@@ -164,9 +179,9 @@ Options:
 
 	log.Warnf("create proxy with config\n%s", config)
 
-	if s, ok := utils.Argument(d, "--pidfile"); ok {
-		if pidfile, err := filepath.Abs(s); err != nil {
-			log.WarnErrorf(err, "parse pidfile = '%s' failed", s)
+	if cfg.Pidfile.Provided {
+		if pidfile, err := filepath.Abs(cfg.Pidfile.Value); err != nil {
+			log.WarnErrorf(err, "parse pidfile = '%s' failed", cfg.Pidfile.Value)
 		} else if err := os.WriteFile(pidfile, []byte(strconv.Itoa(os.Getpid())), 0644); err != nil {
 			log.WarnErrorf(err, "write pidfile = '%s' failed", pidfile)
 		} else {
@@ -185,14 +200,17 @@ Options:
 		signal.Notify(c, os.Interrupt, syscall.SIGTERM)
 
 		sig := <-c
+		// Restore the default disposition so a second termination signal can
+		// still stop the process if graceful Close is waiting on a backend.
+		signal.Stop(c)
 		log.Warnf("[%p] proxy receive signal = '%v'", s, sig)
 	}()
 
 	switch {
 	case dashboard != "":
 		go AutoOnlineWithDashboard(s, dashboard)
-	case hasCoordinator:
-		go AutoOnlineWithCoordinator(s, coordinator.Name, coordinator.Addr, coordinator.Auth)
+	case cfg.HasCoordinator:
+		go AutoOnlineWithCoordinator(s, cfg.CoordinatorArg.Name, cfg.CoordinatorArg.Addr, cfg.CoordinatorArg.Auth)
 	case slots != nil:
 		go AutoOnlineWithFillSlots(s, slots)
 	}

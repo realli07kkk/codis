@@ -8,14 +8,13 @@ import (
 	"strings"
 
 	"github.com/CodisLabs/codis/pkg/topom"
-	"github.com/CodisLabs/codis/pkg/utils"
 	"github.com/CodisLabs/codis/pkg/utils/log"
 )
 
-func (t *cmdDashboard) handleRDBAnalysisRemoteFetch(d map[string]any) {
+func (t *cmdDashboard) handleRDBAnalysisRemoteFetch(cfg *adminConfig) {
 	c := t.newTopomClient()
-	serverAddr := utils.ArgumentMust(d, "--server")
-	options := parseRDBAnalysisRemoteFetchOptions(d)
+	serverAddr := argumentMust(cfg.Server, "--server")
+	options := parseRDBAnalysisRemoteFetchOptions(cfg)
 
 	log.Debugf("call rpc rdb-analysis-remote-fetch to dashboard %s", t.addr)
 	id, err := c.StartRDBAnalysisRemoteFetch(serverAddr, options)
@@ -26,23 +25,21 @@ func (t *cmdDashboard) handleRDBAnalysisRemoteFetch(d map[string]any) {
 	fmt.Println(id)
 }
 
-func parseRDBAnalysisRemoteFetchOptions(d map[string]any) topom.RDBAnalysisOptions {
+func parseRDBAnalysisRemoteFetchOptions(cfg *adminConfig) topom.RDBAnalysisOptions {
 	var options topom.RDBAnalysisOptions
-	if n, ok := utils.ArgumentInteger(d, "--topn"); ok {
+	if n, ok := argumentInteger(cfg.TopN, "--topn"); ok {
 		options.TopN = n
 	}
-	if n, ok := utils.ArgumentInteger(d, "--max-depth"); ok {
+	if n, ok := argumentInteger(cfg.MaxDepth, "--max-depth"); ok {
 		options.MaxDepth = n
 	}
-	if s, ok := utils.Argument(d, "--regex"); ok {
-		options.Regex = s
+	if cfg.Regex.Provided {
+		options.Regex = cfg.Regex.Value
 	}
-	if s, ok := utils.Argument(d, "--prefix-sep"); ok {
-		options.PrefixSeparators = splitRDBAnalysisRemoteFetchSeparators(s)
+	if cfg.PrefixSep.Provided {
+		options.PrefixSeparators = splitRDBAnalysisRemoteFetchSeparators(cfg.PrefixSep.Value)
 	}
-	if v, ok := d["--include-expired"].(bool); ok {
-		options.IncludeExpired = v
-	}
+	options.IncludeExpired = cfg.IncludeExpired.Value
 	return options
 }
 

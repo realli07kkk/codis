@@ -13,17 +13,16 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/docopt/docopt-go"
-
-	coordarg "github.com/CodisLabs/codis/cmd/internal/coordinator"
 	"github.com/CodisLabs/codis/pkg/models"
 	"github.com/CodisLabs/codis/pkg/topom"
 	"github.com/CodisLabs/codis/pkg/utils"
 	"github.com/CodisLabs/codis/pkg/utils/log"
 )
 
-func main() {
-	const usage = `
+// dashboardUsage documents the codis-dashboard command-line contract. It is
+// kept as the single source of truth for --help output and for the flag names
+// pinned by the parser tests.
+const dashboardUsage = `
 Usage:
 	codis-dashboard [--ncpu=N] [--config=CONF] [--log=FILE] [--log-level=LEVEL] [--host-admin=ADDR] [--pidfile=FILE] [--zookeeper=ADDR|--etcd=ADDR|--filesystem=ROOT|--consul=ADDR] [--product_name=NAME] [--product_auth=AUTH] [--remove-lock]
 	codis-dashboard  --default-config
@@ -36,41 +35,50 @@ Options:
 	--log-level=LEVEL           set the log-level, should be INFO,WARN,DEBUG or ERROR, default is INFO.
 `
 
-	d, err := docopt.Parse(usage, nil, true, "", false)
+func main() {
+	cfg, help, err := parseDashboardArgs(os.Args[1:])
 	if err != nil {
 		log.PanicError(err, "parse arguments failed")
+	}
+	if help {
+		fmt.Print(dashboardUsage)
+		return
 	}
 
 	switch {
 
-	case d["--default-config"]:
+	case cfg.DefaultConfig.Value:
 		fmt.Print(topom.DefaultConfig)
 		return
 
-	case d["--version"].(bool):
+	case cfg.Version.Value:
 		fmt.Println("version:", utils.Version)
 		fmt.Println("compile:", utils.Compile)
 		return
 
 	}
 
-	if s, ok := utils.Argument(d, "--log"); ok {
-		w, err := log.NewRollingFile(s, log.DailyRolling)
+	if cfg.Log.Provided {
+		w, err := log.NewRollingFile(cfg.Log.Value, log.DailyRolling)
 		if err != nil {
-			log.PanicErrorf(err, "open log file %s failed", s)
+			log.PanicErrorf(err, "open log file %s failed", cfg.Log.Value)
 		} else {
-			log.StdLog = log.New(w, "")
+			log.SetStdLog(log.New(w, ""))
 		}
 	}
 	log.SetLevel(log.LevelInfo)
 
-	if s, ok := utils.Argument(d, "--log-level"); ok {
-		if !log.SetLevelString(s) {
-			log.Panicf("option --log-level = %s", s)
+	if cfg.LogLevel.Provided {
+		if !log.SetLevelString(cfg.LogLevel.Value) {
+			log.Panicf("option --log-level = %s", cfg.LogLevel.Value)
 		}
 	}
 
-	if n, ok := utils.ArgumentInteger(d, "--ncpu"); ok {
+	if cfg.NCPU.Provided {
+		n, err := strconv.Atoi(cfg.NCPU.Value)
+		if err != nil {
+			log.PanicErrorf(err, "option --ncpu isn't a valid integer")
+		}
 		runtime.GOMAXPROCS(n)
 	} else {
 		runtime.GOMAXPROCS(runtime.NumCPU())
@@ -78,32 +86,32 @@ Options:
 	log.Warnf("set ncpu = %d", runtime.GOMAXPROCS(0))
 
 	config := topom.NewDefaultConfig()
-	if s, ok := utils.Argument(d, "--config"); ok {
-		if err := config.LoadFromFile(s); err != nil {
-			log.PanicErrorf(err, "load config %s failed", s)
+	if cfg.Config.Provided {
+		if err := config.LoadFromFile(cfg.Config.Value); err != nil {
+			log.PanicErrorf(err, "load config %s failed", cfg.Config.Value)
 		}
 	}
-	if s, ok := utils.Argument(d, "--host-admin"); ok {
-		config.HostAdmin = s
-		log.Warnf("option --host-admin = %s", s)
+	if cfg.HostAdmin.Provided {
+		config.HostAdmin = cfg.HostAdmin.Value
+		log.Warnf("option --host-admin = %s", config.HostAdmin)
 	}
 
-	if coordinator, ok := coordarg.Parse(d); ok {
-		config.CoordinatorName = coordinator.Name
-		config.CoordinatorAddr = coordinator.Addr
-		if coordinator.HasAuth {
-			config.CoordinatorAuth = coordinator.Auth
+	if cfg.HasCoordinator {
+		config.CoordinatorName = cfg.CoordinatorArg.Name
+		config.CoordinatorAddr = cfg.CoordinatorArg.Addr
+		if cfg.CoordinatorArg.HasAuth {
+			config.CoordinatorAuth = cfg.CoordinatorArg.Auth
 		}
-		log.Warnf("option --%s = %s", coordinator.Name, coordinator.Addr)
+		log.Warnf("option --%s = %s", cfg.CoordinatorArg.Name, cfg.CoordinatorArg.Addr)
 	}
 
-	if s, ok := utils.Argument(d, "--product_name"); ok {
-		config.ProductName = s
-		log.Warnf("option --product_name = %s", s)
+	if cfg.ProductName.Provided {
+		config.ProductName = cfg.ProductName.Value
+		log.Warnf("option --product_name = %s", config.ProductName)
 	}
-	if s, ok := utils.Argument(d, "--product_auth"); ok {
-		config.ProductAuth = s
-		log.Warnf("option --product_auth = %s", s)
+	if cfg.ProductAuth.Provided {
+		config.ProductAuth = cfg.ProductAuth.Value
+		log.Warnf("option --product_auth = %s", config.ProductAuth)
 	}
 
 	client, err := models.NewClient(config.CoordinatorName, config.CoordinatorAddr, config.CoordinatorAuth, time.Minute)
@@ -112,7 +120,7 @@ Options:
 	}
 	defer client.Close()
 
-	if d["--remove-lock"].(bool) {
+	if cfg.RemoveLock.Value {
 		store := models.NewStore(client, config.ProductName)
 		defer store.Close()
 
@@ -132,9 +140,9 @@ Options:
 
 	log.Warnf("create topom with config\n%s", config)
 
-	if s, ok := utils.Argument(d, "--pidfile"); ok {
-		if pidfile, err := filepath.Abs(s); err != nil {
-			log.WarnErrorf(err, "parse pidfile = '%s' failed", s)
+	if cfg.Pidfile.Provided {
+		if pidfile, err := filepath.Abs(cfg.Pidfile.Value); err != nil {
+			log.WarnErrorf(err, "parse pidfile = '%s' failed", cfg.Pidfile.Value)
 		} else if err := os.WriteFile(pidfile, []byte(strconv.Itoa(os.Getpid())), 0644); err != nil {
 			log.WarnErrorf(err, "write pidfile = '%s' failed", pidfile)
 		} else {

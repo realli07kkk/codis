@@ -4,15 +4,15 @@
 package main
 
 import (
-	"github.com/docopt/docopt-go"
+	"fmt"
+	"os"
 
 	"github.com/CodisLabs/codis/pkg/utils/log"
 )
 
-// adminUsage is the docopt usage contract. It is package-level so tests can
-// drive the real docopt.Parse against representative argvs, pinning the CLI
-// dispatch contract (e.g. that absent boolean flags parse to false, not nil —
-// the CR-002 regression class).
+// adminUsage documents the codis-admin command-line contract. It is kept as
+// the single source of truth for --help output; parseAdminArgs maps every
+// documented line to explicit flag/required/mutual-exclusion validation.
 var adminUsage = `
 Usage:
 	codis-admin [-v] --proxy=ADDR [--auth=AUTH] [config|model|stats|slots]
@@ -86,22 +86,26 @@ Options:
 `
 
 func main() {
-	d, err := docopt.Parse(adminUsage, nil, true, "", false)
+	cfg, help, err := parseAdminArgs(os.Args[1:])
 	if err != nil {
 		log.PanicError(err, "parse arguments failed")
 	}
+	if help {
+		fmt.Print(adminUsage)
+		return
+	}
 	log.SetLevel(log.LevelInfo)
 
-	if d["-v"].(bool) {
+	if cfg.Verbose.Value {
 		log.SetLevel(log.LevelDebug)
 	}
 
 	switch {
-	case d["--proxy"] != nil:
-		new(cmdProxy).Main(d)
-	case d["--dashboard"] != nil:
-		new(cmdDashboard).Main(d)
+	case cfg.Proxy.Provided:
+		new(cmdProxy).Main(cfg)
+	case cfg.Dashboard.Provided:
+		new(cmdDashboard).Main(cfg)
 	default:
-		new(cmdAdmin).Main(d)
+		new(cmdAdmin).Main(cfg)
 	}
 }

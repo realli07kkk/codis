@@ -5,10 +5,9 @@ package main
 
 import (
 	"fmt"
+	"os"
 	"strconv"
 	"time"
-
-	"github.com/docopt/docopt-go"
 
 	"github.com/CodisLabs/codis/pkg/topom"
 	"github.com/CodisLabs/codis/pkg/utils"
@@ -16,8 +15,10 @@ import (
 	"github.com/CodisLabs/codis/pkg/utils/redis"
 )
 
-func main() {
-	const usage = `
+// haUsage documents the codis-ha command-line contract. It is kept as the
+// single source of truth for --help output and for the flag names pinned by
+// the parser tests.
+const haUsage = `
 Usage:
 	codis-ha [--log=FILE] [--log-level=LEVEL] [--interval=SECONDS] --dashboard=ADDR [--no-maintains]
 	codis-ha  --version
@@ -26,47 +27,57 @@ Options:
 	-l FILE, --log=FILE         set path/name of daliy rotated log file.
 	--log-level=LEVEL           set the log-level, should be INFO,WARN,DEBUG or ERROR, default is INFO.
 `
-	d, err := docopt.Parse(usage, nil, true, "", false)
+
+func main() {
+	cfg, help, err := parseHAArgs(os.Args[1:])
 	if err != nil {
 		log.PanicError(err, "parse arguments failed")
 	}
+	if help {
+		fmt.Print(haUsage)
+		return
+	}
 
-	if d["--version"].(bool) {
+	if cfg.Version.Value {
 		fmt.Println("version:", utils.Version)
 		fmt.Println("compile:", utils.Compile)
 		return
 	}
 
-	if s, ok := utils.Argument(d, "--log"); ok {
-		w, err := log.NewRollingFile(s, log.DailyRolling)
+	if cfg.Log.Provided {
+		w, err := log.NewRollingFile(cfg.Log.Value, log.DailyRolling)
 		if err != nil {
-			log.PanicErrorf(err, "open log file %s failed", s)
+			log.PanicErrorf(err, "open log file %s failed", cfg.Log.Value)
 		} else {
-			log.StdLog = log.New(w, "")
+			log.SetStdLog(log.New(w, ""))
 		}
 	}
 	log.SetLevel(log.LevelInfo)
 
-	if s, ok := utils.Argument(d, "--log-level"); ok {
-		if !log.SetLevelString(s) {
-			log.Panicf("option --log-level = %s", s)
+	if cfg.LogLevel.Provided {
+		if !log.SetLevelString(cfg.LogLevel.Value) {
+			log.Panicf("option --log-level = %s", cfg.LogLevel.Value)
 		}
 	}
 
 	var interval = 5
-	if n, ok := utils.ArgumentInteger(d, "--interval"); ok {
+	if cfg.Interval.Provided {
+		n, err := strconv.Atoi(cfg.Interval.Value)
+		if err != nil {
+			log.PanicErrorf(err, "option --interval isn't a valid integer")
+		}
 		if n <= 0 {
 			log.Panicf("option --interval = %d", n)
 		}
 		interval = n
 	}
 
-	dashboard := utils.ArgumentMust(d, "--dashboard")
+	dashboard := cfg.Dashboard.Value
 	log.Warnf("set dashboard = %s", dashboard)
 	log.Warnf("set interval = %d (seconds)", interval)
 
 	var maintains = true
-	if d["--no-maintains"].(bool) {
+	if cfg.NoMaintains.Value {
 		maintains = false
 	}
 

@@ -4,6 +4,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net"
@@ -11,21 +12,19 @@ import (
 	"net/http/httputil"
 	"net/url"
 	"os"
+	"path"
 	"path/filepath"
 	"runtime"
-	"sort"
+	"slices"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
-	"github.com/docopt/docopt-go"
-	"github.com/go-martini/martini"
-	"github.com/martini-contrib/render"
-
-	coordarg "github.com/CodisLabs/codis/cmd/internal/coordinator"
 	"github.com/CodisLabs/codis/pkg/models"
 	"github.com/CodisLabs/codis/pkg/utils"
 	"github.com/CodisLabs/codis/pkg/utils/errors"
+	"github.com/CodisLabs/codis/pkg/utils/httpx"
 	"github.com/CodisLabs/codis/pkg/utils/log"
 	"github.com/CodisLabs/codis/pkg/utils/rpc"
 	"github.com/CodisLabs/codis/pkg/utils/sync2/atomic2"
@@ -36,8 +35,8 @@ var roundTripper http.RoundTripper
 func init() {
 	var dials atomic2.Int64
 	tr := &http.Transport{}
-	tr.Dial = func(network, addr string) (net.Conn, error) {
-		c, err := net.DialTimeout(network, addr, time.Second*10)
+	tr.DialContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
+		c, err := (&net.Dialer{Timeout: 10 * time.Second}).DialContext(ctx, network, addr)
 		if err == nil {
 			log.Debugf("rpc: dial new connection to [%d] %s - %s",
 				dials.Incr()-1, network, addr)
@@ -53,8 +52,10 @@ func init() {
 	roundTripper = tr
 }
 
-func main() {
-	const usage = `
+// feUsage documents the codis-fe command-line contract. It is kept as the
+// single source of truth for --help output and for the flag names pinned by
+// the parser tests.
+const feUsage = `
 Usage:
 	codis-fe [--ncpu=N] [--log=FILE] [--log-level=LEVEL] [--assets-dir=PATH] [--pidfile=FILE] (--dashboard-list=FILE|--zookeeper=ADDR [--zookeeper-auth=USR:PWD]|--etcd=ADDR [--etcd-auth=USR:PWD]|--filesystem=ROOT|--consul=ADDR [--consul-auth=TOKEN]) --listen=ADDR
 	codis-fe  --version
@@ -66,48 +67,58 @@ Options:
 	--log-level=LEVEL               set the log-level, should be INFO,WARN,DEBUG or ERROR, default is INFO.
 	--listen=ADDR                   set the listen address.
 `
-	d, err := docopt.Parse(usage, nil, true, "", false)
+
+func main() {
+	cfg, help, err := parseFEArgs(os.Args[1:])
 	if err != nil {
 		log.PanicError(err, "parse arguments failed")
 	}
+	if help {
+		fmt.Print(feUsage)
+		return
+	}
 
-	if d["--version"].(bool) {
+	if cfg.Version.Value {
 		fmt.Println("version:", utils.Version)
 		fmt.Println("compile:", utils.Compile)
 		return
 	}
 
-	if s, ok := utils.Argument(d, "--log"); ok {
-		w, err := log.NewRollingFile(s, log.DailyRolling)
+	if cfg.Log.Provided {
+		w, err := log.NewRollingFile(cfg.Log.Value, log.DailyRolling)
 		if err != nil {
-			log.PanicErrorf(err, "open log file %s failed", s)
+			log.PanicErrorf(err, "open log file %s failed", cfg.Log.Value)
 		} else {
-			log.StdLog = log.New(w, "")
+			log.SetStdLog(log.New(w, ""))
 		}
 	}
 	log.SetLevel(log.LevelInfo)
 
-	if s, ok := utils.Argument(d, "--log-level"); ok {
-		if !log.SetLevelString(s) {
-			log.Panicf("option --log-level = %s", s)
+	if cfg.LogLevel.Provided {
+		if !log.SetLevelString(cfg.LogLevel.Value) {
+			log.Panicf("option --log-level = %s", cfg.LogLevel.Value)
 		}
 	}
 
-	if n, ok := utils.ArgumentInteger(d, "--ncpu"); ok {
+	if cfg.NCPU.Provided {
+		n, err := strconv.Atoi(cfg.NCPU.Value)
+		if err != nil {
+			log.PanicErrorf(err, "option --ncpu isn't a valid integer")
+		}
 		runtime.GOMAXPROCS(n)
 	} else {
 		runtime.GOMAXPROCS(runtime.NumCPU())
 	}
 	log.Warnf("set ncpu = %d", runtime.GOMAXPROCS(0))
 
-	listen := utils.ArgumentMust(d, "--listen")
+	listen := cfg.Listen.Value
 	log.Warnf("set listen = %s", listen)
 
 	var assets string
-	if s, ok := utils.Argument(d, "--assets-dir"); ok {
-		abspath, err := filepath.Abs(s)
+	if cfg.AssetsDir.Provided {
+		abspath, err := filepath.Abs(cfg.AssetsDir.Value)
 		if err != nil {
-			log.PanicErrorf(err, "get absolute path of %s failed", s)
+			log.PanicErrorf(err, "get absolute path of %s failed", cfg.AssetsDir.Value)
 		}
 		assets = abspath
 	} else {
@@ -125,12 +136,12 @@ Options:
 	}
 
 	var loader ConfigLoader
-	if d["--dashboard-list"] != nil {
-		file := utils.ArgumentMust(d, "--dashboard-list")
+	if cfg.DashboardList.Provided {
+		file := cfg.DashboardList.Value
 		loader = &StaticLoader{file}
 		log.Warnf("set --dashboard-list = %s", file)
 	} else {
-		coordinator := coordarg.MustParse(d)
+		coordinator := cfg.CoordinatorArg
 		log.Warnf("set --%s = %s", coordinator.Name, coordinator.Addr)
 
 		c, err := models.NewClient(coordinator.Name, coordinator.Addr, coordinator.Auth, time.Minute)
@@ -143,30 +154,7 @@ Options:
 	}
 
 	router := NewReverseProxy(loader)
-
-	m := martini.New()
-	m.Use(martini.Recovery())
-	m.Use(render.Renderer())
-	m.Use(martini.Static(assets, martini.StaticOptions{SkipLogging: true}))
-
-	r := martini.NewRouter()
-	r.Get("/list", func() (int, string) {
-		names := router.GetNames()
-		sort.Sort(sort.StringSlice(names))
-		return rpc.ApiResponseJson(names)
-	})
-
-	r.Any("/**", func(w http.ResponseWriter, req *http.Request) {
-		name := req.URL.Query().Get("forward")
-		if p := router.GetProxy(name); p != nil {
-			p.ServeHTTP(w, req)
-		} else {
-			w.WriteHeader(http.StatusForbidden)
-		}
-	})
-
-	m.MapTo(r, (*martini.Routes)(nil))
-	m.Action(r.Handle)
+	m := newFEServer(assets, router)
 
 	l, err := net.Listen("tcp", listen)
 	if err != nil {
@@ -174,9 +162,9 @@ Options:
 	}
 	defer l.Close()
 
-	if s, ok := utils.Argument(d, "--pidfile"); ok {
-		if pidfile, err := filepath.Abs(s); err != nil {
-			log.WarnErrorf(err, "parse pidfile = '%s' failed", s)
+	if cfg.Pidfile.Provided {
+		if pidfile, err := filepath.Abs(cfg.Pidfile.Value); err != nil {
+			log.WarnErrorf(err, "parse pidfile = '%s' failed", cfg.Pidfile.Value)
 		} else if err := os.WriteFile(pidfile, []byte(strconv.Itoa(os.Getpid())), 0644); err != nil {
 			log.WarnErrorf(err, "write pidfile = '%s' failed", pidfile)
 		} else {
@@ -195,6 +183,89 @@ Options:
 	if err := hs.Serve(l); err != nil {
 		log.PanicErrorf(err, "serve %s failed", listen)
 	}
+}
+
+// feServer is the codis-fe HTTP stack. It keeps the martini middleware order:
+// static assets are served first, then the GET /list route, then the catch-all
+// that forwards to a dashboard or answers 403.
+type feServer struct {
+	assets http.Dir
+	router *ReverseProxy
+}
+
+// newFEServer wraps feServer with the shared recovery middleware, which logs
+// panics and answers 500 when nothing has been written yet.
+func newFEServer(assets string, router *ReverseProxy) http.Handler {
+	return httpx.Chain(&feServer{assets: http.Dir(assets), router: router}, httpx.Recovery())
+}
+
+func (s *feServer) ServeHTTP(w http.ResponseWriter, req *http.Request) {
+	if s.serveStatic(w, req) {
+		return
+	}
+	// martini appended an optional "/" to every route pattern, so /list and
+	// /list/ are the same GET route. Any other method falls through to the
+	// catch-all, which answers 403 without a forward parameter.
+	if p := req.URL.Path; p == "/list" || p == "/list/" {
+		if req.Method == http.MethodGet || req.Method == http.MethodHead {
+			names := s.router.GetNames()
+			slices.Sort(names)
+			status, body := rpc.ApiResponseJson(names)
+			httpx.WriteResponse(w, status, body)
+			return
+		}
+	}
+	if p := s.router.GetProxy(req.URL.Query().Get("forward")); p != nil {
+		p.ServeHTTP(w, req)
+	} else {
+		w.WriteHeader(http.StatusForbidden)
+	}
+}
+
+// serveStatic serves a request from the assets directory. It mirrors
+// martini.Static: only GET and HEAD are considered, a directory without a
+// trailing slash redirects with 302 to the slash form (keeping the query), a
+// directory with one serves its index.html, and anything that cannot be served
+// reports false so the caller falls through to the routes. It deliberately
+// avoids http.FileServer, whose 301 redirects and directory listings would
+// change the contract.
+func (s *feServer) serveStatic(w http.ResponseWriter, req *http.Request) bool {
+	if req.Method != http.MethodGet && req.Method != http.MethodHead {
+		return false
+	}
+	name := req.URL.Path
+	f, err := s.assets.Open(name)
+	if err != nil {
+		return false
+	}
+	defer f.Close()
+
+	fi, err := f.Stat()
+	if err != nil {
+		return false
+	}
+	if fi.IsDir() {
+		if !strings.HasSuffix(name, "/") {
+			dest := url.URL{
+				Path:     name + "/",
+				RawQuery: req.URL.RawQuery,
+				Fragment: req.URL.Fragment,
+			}
+			http.Redirect(w, req, dest.String(), http.StatusFound)
+			return true
+		}
+		name = path.Join(name, "index.html")
+		f, err = s.assets.Open(name)
+		if err != nil {
+			return false
+		}
+		defer f.Close()
+		if fi, err = f.Stat(); err != nil || fi.IsDir() {
+			return false
+		}
+	}
+	http.ServeContent(w, req, name, fi.ModTime(), f)
+	return true
 }
 
 type ConfigLoader interface {

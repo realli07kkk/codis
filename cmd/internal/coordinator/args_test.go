@@ -3,61 +3,68 @@
 
 package coordinator
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/CodisLabs/codis/cmd/internal/cli"
+)
+
+func testString(v string) cli.String {
+	return cli.String{Value: v, Provided: true}
+}
 
 func TestParse(t *testing.T) {
 	tests := []struct {
-		name string
-		args map[string]any
-		want Args
-		ok   bool
+		name  string
+		flags Flags
+		want  Args
+		ok    bool
 	}{
 		{
 			name: "zookeeper with auth",
-			args: map[string]any{
-				"--zookeeper":      "127.0.0.1:2181",
-				"--zookeeper-auth": "user:pass",
+			flags: Flags{
+				Zookeeper:     testString("127.0.0.1:2181"),
+				ZookeeperAuth: testString("user:pass"),
 			},
 			want: Args{Name: "zookeeper", Addr: "127.0.0.1:2181", Auth: "user:pass", HasAuth: true},
 			ok:   true,
 		},
 		{
 			name: "etcd with auth",
-			args: map[string]any{
-				"--etcd":      "127.0.0.1:2379",
-				"--etcd-auth": "user:pass",
+			flags: Flags{
+				Etcd:     testString("127.0.0.1:2379"),
+				EtcdAuth: testString("user:pass"),
 			},
 			want: Args{Name: "etcd", Addr: "127.0.0.1:2379", Auth: "user:pass", HasAuth: true},
 			ok:   true,
 		},
 		{
 			name: "filesystem without auth",
-			args: map[string]any{
-				"--filesystem": "/tmp/codis",
+			flags: Flags{
+				Filesystem: testString("/tmp/codis"),
 			},
 			want: Args{Name: "filesystem", Addr: "/tmp/codis"},
 			ok:   true,
 		},
 		{
 			name: "consul with auth",
-			args: map[string]any{
-				"--consul":      "127.0.0.1:8500",
-				"--consul-auth": "token",
+			flags: Flags{
+				Consul:     testString("127.0.0.1:8500"),
+				ConsulAuth: testString("token"),
 			},
 			want: Args{Name: "consul", Addr: "127.0.0.1:8500", Auth: "token", HasAuth: true},
 			ok:   true,
 		},
 		{
 			name: "consul without auth",
-			args: map[string]any{
-				"--consul": "127.0.0.1:8500",
+			flags: Flags{
+				Consul: testString("127.0.0.1:8500"),
 			},
 			want: Args{Name: "consul", Addr: "127.0.0.1:8500"},
 			ok:   true,
 		},
 		{
 			name: "missing coordinator",
-			args: map[string]any{},
 			want: Args{},
 			ok:   false,
 		},
@@ -65,7 +72,10 @@ func TestParse(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, ok := Parse(tt.args)
+			got, ok, err := tt.flags.Parse()
+			if err != nil {
+				t.Fatalf("Parse() failed: %v", err)
+			}
 			if ok != tt.ok {
 				t.Fatalf("ok = %v, want %v", ok, tt.ok)
 			}
@@ -76,16 +86,57 @@ func TestParse(t *testing.T) {
 	}
 }
 
-func TestParseUsesExistingCoordinatorPrecedence(t *testing.T) {
-	args, ok := Parse(map[string]any{
-		"--zookeeper": "zk",
-		"--etcd":      "etcd",
-		"--consul":    "consul",
-	})
-	if !ok {
-		t.Fatal("expected coordinator")
+// TestParseAuthWithoutCoordinator pins that an auth flag alone is not a
+// coordinator: the address flag still selects the backend and a stray auth
+// flag is rejected.
+func TestParseAuthWithoutCoordinator(t *testing.T) {
+	for _, flags := range []Flags{
+		{ZookeeperAuth: testString("user:pass")},
+		{EtcdAuth: testString("user:pass")},
+		{ConsulAuth: testString("token")},
+		{ZookeeperAuth: testString("user:pass"), EtcdAuth: testString("user:pass")},
+	} {
+		if got, ok, err := flags.Parse(); err == nil || ok {
+			t.Fatalf("Parse() = %+v, %v, %v; want an auth binding error", got, ok, err)
+		}
 	}
-	if args.Name != "zookeeper" || args.Addr != "zk" {
-		t.Fatalf("args = %+v, want zookeeper first", args)
+}
+
+// TestParseBindsAuthToOwningCoordinator pins that each auth flag is only read
+// together with its own address flag; a stray --etcd-auth must not leak into a
+// zookeeper result (and vice versa).
+func TestParseBindsAuthToOwningCoordinator(t *testing.T) {
+	flags := Flags{
+		Zookeeper:     testString("zk"),
+		ZookeeperAuth: testString("user:pass"),
+	}
+	args, ok, err := flags.Parse()
+	if err != nil || !ok {
+		t.Fatalf("Parse() = %+v, %v, %v; want zookeeper", args, ok, err)
+	}
+	want := Args{Name: "zookeeper", Addr: "zk", Auth: "user:pass", HasAuth: true}
+	if args != want {
+		t.Fatalf("args = %+v, want %+v", args, want)
+	}
+
+	for _, stray := range []Flags{
+		{Zookeeper: testString("zk"), EtcdAuth: testString("user:pass")},
+		{Etcd: testString("etcd"), ZookeeperAuth: testString("user:pass")},
+	} {
+		if got, ok, err := stray.Parse(); err == nil || ok {
+			t.Fatalf("Parse() = %+v, %v, %v; want a stray auth error", got, ok, err)
+		}
+	}
+}
+
+// TestParseRejectsMultipleCoordinators pins the four-way mutual exclusion.
+func TestParseRejectsMultipleCoordinators(t *testing.T) {
+	flags := Flags{
+		Zookeeper: testString("zk"),
+		Etcd:      testString("etcd"),
+		Consul:    testString("consul"),
+	}
+	if got, ok, err := flags.Parse(); err == nil || ok {
+		t.Fatalf("Parse() = %+v, %v, %v; want a mutual exclusion error", got, ok, err)
 	}
 }

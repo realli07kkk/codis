@@ -9,33 +9,32 @@ import (
 	"strconv"
 
 	"github.com/CodisLabs/codis/pkg/topom"
-	"github.com/CodisLabs/codis/pkg/utils"
 	"github.com/CodisLabs/codis/pkg/utils/log"
 )
 
 // handlePitrCommand dispatches the --pitr-* flags to the dashboard ApiClient
 // methods. codis-admin never connects to the dashboard's Redis targets
 // directly; every call goes through ApiClient (CreatePitr/ListPitr/...).
-func (t *cmdDashboard) handlePitrCommand(d map[string]any) {
+func (t *cmdDashboard) handlePitrCommand(cfg *adminConfig) {
 	c := t.newTopomClient()
 
-	switch {
-	case d["--pitr-create"].(bool):
-		t.handlePitrCreate(d, c)
-	case d["--pitr-list"].(bool):
-		t.handlePitrList(d, c)
-	case d["--pitr-get"].(bool):
-		t.handlePitrGet(d, c)
-	case d["--pitr-cancel"].(bool):
-		t.handlePitrCancel(d, c)
-	case d["--pitr-remove"].(bool):
-		t.handlePitrRemove(d, c)
+	switch cfg.Command {
+	case "pitr-create":
+		t.handlePitrCreate(cfg, c)
+	case "pitr-list":
+		t.handlePitrList(cfg, c)
+	case "pitr-get":
+		t.handlePitrGet(cfg, c)
+	case "pitr-cancel":
+		t.handlePitrCancel(cfg, c)
+	case "pitr-remove":
+		t.handlePitrRemove(cfg, c)
 	}
 }
 
-func (t *cmdDashboard) handlePitrCreate(d map[string]any, c *topom.ApiClient) {
-	serverAddr := utils.ArgumentMust(d, "--server")
-	tsText := utils.ArgumentMust(d, "--truncate-ts")
+func (t *cmdDashboard) handlePitrCreate(cfg *adminConfig, c *topom.ApiClient) {
+	serverAddr := argumentMust(cfg.Server, "--server")
+	tsText := argumentMust(cfg.TruncateTS, "--truncate-ts")
 	ts, err := strconv.ParseInt(tsText, 10, 64)
 	if err != nil {
 		log.PanicErrorf(err, "invalid --truncate-ts %q", tsText)
@@ -50,7 +49,7 @@ func (t *cmdDashboard) handlePitrCreate(d map[string]any, c *topom.ApiClient) {
 	fmt.Println(id)
 }
 
-func (t *cmdDashboard) handlePitrList(d map[string]any, c *topom.ApiClient) {
+func (t *cmdDashboard) handlePitrList(cfg *adminConfig, c *topom.ApiClient) {
 	log.Debugf("call rpc pitr-list to dashboard %s", t.addr)
 	jobs, err := c.ListPitr()
 	if err != nil {
@@ -65,8 +64,8 @@ func (t *cmdDashboard) handlePitrList(d map[string]any, c *topom.ApiClient) {
 	fmt.Println(string(b))
 }
 
-func (t *cmdDashboard) handlePitrGet(d map[string]any, c *topom.ApiClient) {
-	id := utils.ArgumentMust(d, "--job")
+func (t *cmdDashboard) handlePitrGet(cfg *adminConfig, c *topom.ApiClient) {
+	id := argumentMust(cfg.Job, "--job")
 
 	log.Debugf("call rpc pitr-get to dashboard %s", t.addr)
 	job, err := c.GetPitr(id)
@@ -82,8 +81,8 @@ func (t *cmdDashboard) handlePitrGet(d map[string]any, c *topom.ApiClient) {
 	fmt.Println(string(b))
 }
 
-func (t *cmdDashboard) handlePitrCancel(d map[string]any, c *topom.ApiClient) {
-	id := utils.ArgumentMust(d, "--job")
+func (t *cmdDashboard) handlePitrCancel(cfg *adminConfig, c *topom.ApiClient) {
+	id := argumentMust(cfg.Job, "--job")
 
 	log.Debugf("call rpc pitr-cancel to dashboard %s", t.addr)
 	if err := c.CancelPitr(id); err != nil {
@@ -93,8 +92,8 @@ func (t *cmdDashboard) handlePitrCancel(d map[string]any, c *topom.ApiClient) {
 	fmt.Println("OK")
 }
 
-func (t *cmdDashboard) handlePitrRemove(d map[string]any, c *topom.ApiClient) {
-	id := utils.ArgumentMust(d, "--job")
+func (t *cmdDashboard) handlePitrRemove(cfg *adminConfig, c *topom.ApiClient) {
+	id := argumentMust(cfg.Job, "--job")
 
 	log.Debugf("call rpc pitr-remove to dashboard %s", t.addr)
 	if err := c.RemovePitr(id); err != nil {

@@ -7,12 +7,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"sort"
+	"slices"
 	"strconv"
 
 	"github.com/CodisLabs/codis/pkg/models"
 	"github.com/CodisLabs/codis/pkg/topom"
-	"github.com/CodisLabs/codis/pkg/utils"
 	"github.com/CodisLabs/codis/pkg/utils/log"
 )
 
@@ -20,91 +19,39 @@ type cmdDashboard struct {
 	addr string
 }
 
-func (t *cmdDashboard) Main(d map[string]any) {
-	t.addr = utils.ArgumentMust(d, "--dashboard")
+func (t *cmdDashboard) Main(cfg *adminConfig) {
+	t.addr = argumentMust(cfg.Dashboard, "--dashboard")
 
-	switch {
-
+	switch cfg.Command {
+	case "shutdown":
+		t.handleShutdown(cfg)
+	case "reload":
+		t.handleReload(cfg)
+	case "log-level":
+		t.handleLogLevel(cfg)
+	case "slots-assign", "slots-status":
+		t.handleSlotsCommand(cfg)
+	case "create-proxy", "online-proxy", "remove-proxy", "reinit-proxy", "proxy-status":
+		t.handleProxyCommand(cfg)
+	case "create-group", "remove-group", "resync-group", "group-add", "group-del",
+		"group-status", "replica-groups", "promote-server":
+		t.handleGroupCommand(cfg)
+	case "sentinel-add", "sentinel-del", "sentinel-resync":
+		t.handleSentinelCommand(cfg)
+	case "sync-action":
+		t.handleSyncActionCommand(cfg)
+	case "slot-action":
+		t.handleSlotActionCommand(cfg)
+	case "rebalance":
+		t.handleSlotRebalance(cfg)
+	case "acl", "acl-sync", "acl-set":
+		t.handleACLCommand(cfg)
+	case "rdb-analysis-remote-fetch":
+		t.handleRDBAnalysisRemoteFetch(cfg)
+	case "pitr-create", "pitr-list", "pitr-get", "pitr-cancel", "pitr-remove":
+		t.handlePitrCommand(cfg)
 	default:
-		t.handleOverview(d)
-
-	case d["--shutdown"].(bool):
-		t.handleShutdown(d)
-	case d["--reload"].(bool):
-		t.handleReload(d)
-	case d["--log-level"] != nil:
-		t.handleLogLevel(d)
-
-	case d["--slots-assign"].(bool):
-		fallthrough
-	case d["--slots-status"].(bool):
-		t.handleSlotsCommand(d)
-
-	case d["--create-proxy"].(bool):
-		fallthrough
-	case d["--online-proxy"].(bool):
-		fallthrough
-	case d["--remove-proxy"].(bool):
-		fallthrough
-	case d["--reinit-proxy"].(bool):
-		fallthrough
-	case d["--proxy-status"].(bool):
-		t.handleProxyCommand(d)
-
-	case d["--create-group"].(bool):
-		fallthrough
-	case d["--remove-group"].(bool):
-		fallthrough
-	case d["--resync-group"].(bool):
-		fallthrough
-	case d["--group-add"].(bool):
-		fallthrough
-	case d["--group-del"].(bool):
-		fallthrough
-	case d["--group-status"].(bool):
-		fallthrough
-	case d["--replica-groups"].(bool):
-		fallthrough
-	case d["--promote-server"].(bool):
-		t.handleGroupCommand(d)
-
-	case d["--sentinel-add"].(bool):
-		fallthrough
-	case d["--sentinel-del"].(bool):
-		fallthrough
-	case d["--sentinel-resync"].(bool):
-		t.handleSentinelCommand(d)
-
-	case d["--sync-action"].(bool):
-		t.handleSyncActionCommand(d)
-
-	case d["--slot-action"].(bool):
-		t.handleSlotActionCommand(d)
-
-	case d["--rebalance"].(bool):
-		t.handleSlotRebalance(d)
-
-	case d["--acl"].(bool):
-		fallthrough
-	case d["--acl-sync"].(bool):
-		fallthrough
-	case d["--acl-set"] != nil:
-		t.handleACLCommand(d)
-
-	case d["--rdb-analysis-remote-fetch"].(bool):
-		t.handleRDBAnalysisRemoteFetch(d)
-
-	case d["--pitr-create"].(bool):
-		fallthrough
-	case d["--pitr-list"].(bool):
-		fallthrough
-	case d["--pitr-get"].(bool):
-		fallthrough
-	case d["--pitr-cancel"].(bool):
-		fallthrough
-	case d["--pitr-remove"].(bool):
-		t.handlePitrCommand(d)
-
+		t.handleOverview(cfg)
 	}
 }
 
@@ -129,7 +76,7 @@ func (t *cmdDashboard) newTopomClient() *topom.ApiClient {
 	return c
 }
 
-func (t *cmdDashboard) handleOverview(d map[string]any) {
+func (t *cmdDashboard) handleOverview(cfg *adminConfig) {
 	c := t.newTopomClient()
 
 	log.Debugf("call rpc overview to dashboard %s", t.addr)
@@ -139,11 +86,11 @@ func (t *cmdDashboard) handleOverview(d map[string]any) {
 	}
 	log.Debugf("call rpc overview OK")
 
-	var cmd string
-	for _, s := range []string{"config", "model", "slots", "stats", "group", "proxy", "--list-group", "--list-proxy"} {
-		if d[s].(bool) {
-			cmd = s
-		}
+	var cmd = cfg.Command
+	switch cmd {
+	case "", "config", "model", "slots", "stats", "group", "proxy", "list-group", "list-proxy":
+	default:
+		cmd = ""
 	}
 
 	var obj any
@@ -164,7 +111,7 @@ func (t *cmdDashboard) handleOverview(d map[string]any) {
 		if o.Stats != nil {
 			obj = o.Stats.Group
 		}
-	case "--list-group":
+	case "list-group":
 		if o.Stats != nil {
 			obj = o.Stats.Group.Models
 		}
@@ -172,7 +119,7 @@ func (t *cmdDashboard) handleOverview(d map[string]any) {
 		if o.Stats != nil {
 			obj = o.Stats.Proxy
 		}
-	case "--list-proxy":
+	case "list-proxy":
 		if o.Stats != nil {
 			obj = o.Stats.Proxy.Models
 		}
@@ -185,10 +132,10 @@ func (t *cmdDashboard) handleOverview(d map[string]any) {
 	fmt.Println(string(b))
 }
 
-func (t *cmdDashboard) handleLogLevel(d map[string]any) {
+func (t *cmdDashboard) handleLogLevel(cfg *adminConfig) {
 	c := t.newTopomClient()
 
-	s := utils.ArgumentMust(d, "--log-level")
+	s := argumentMust(cfg.LogLevel, "--log-level")
 
 	var v log.LogLevel
 	if !v.ParseFromString(s) {
@@ -202,7 +149,7 @@ func (t *cmdDashboard) handleLogLevel(d map[string]any) {
 	log.Debugf("call rpc loglevel OK")
 }
 
-func (t *cmdDashboard) handleShutdown(d map[string]any) {
+func (t *cmdDashboard) handleShutdown(cfg *adminConfig) {
 	c := t.newTopomClient()
 
 	log.Debugf("call rpc shutdown to dashboard %s", t.addr)
@@ -212,7 +159,7 @@ func (t *cmdDashboard) handleShutdown(d map[string]any) {
 	log.Debugf("call rpc shutdown OK")
 }
 
-func (t *cmdDashboard) handleReload(d map[string]any) {
+func (t *cmdDashboard) handleReload(cfg *adminConfig) {
 	c := t.newTopomClient()
 
 	log.Debugf("call rpc reload to dashboard %s", t.addr)
@@ -222,12 +169,12 @@ func (t *cmdDashboard) handleReload(d map[string]any) {
 	log.Debugf("call rpc reload OK")
 }
 
-func (t *cmdDashboard) handleSlotsCommand(d map[string]any) {
+func (t *cmdDashboard) handleSlotsCommand(cfg *adminConfig) {
 	c := t.newTopomClient()
 
 	switch {
 
-	case d["--slots-status"].(bool):
+	case cfg.SlotsStatus.Value:
 
 		log.Debugf("call rpc slots to dashboard %s", t.addr)
 		o, err := c.Slots()
@@ -242,10 +189,10 @@ func (t *cmdDashboard) handleSlotsCommand(d map[string]any) {
 		}
 		fmt.Println(string(b))
 
-	case d["--slots-assign"].(bool) && d["--offline"].(bool):
+	case cfg.SlotsAssign.Value && cfg.Offline.Value:
 
-		beg := utils.ArgumentIntegerMust(d, "--beg")
-		end := utils.ArgumentIntegerMust(d, "--end")
+		beg := argumentIntegerMust(cfg.Beg, "--beg")
+		end := argumentIntegerMust(cfg.End, "--end")
 
 		slots := []*models.SlotMapping{}
 		for i := beg; i <= end; i++ {
@@ -254,7 +201,7 @@ func (t *cmdDashboard) handleSlotsCommand(d map[string]any) {
 			})
 		}
 
-		if !d["--confirm"].(bool) {
+		if !cfg.Confirm.Value {
 			b, err := json.MarshalIndent(slots, "", "    ")
 			if err != nil {
 				log.PanicErrorf(err, "json marshal failed")
@@ -269,11 +216,11 @@ func (t *cmdDashboard) handleSlotsCommand(d map[string]any) {
 		}
 		log.Debugf("call rpc slots-assign OK")
 
-	case d["--slots-assign"].(bool) && !d["--offline"].(bool):
+	case cfg.SlotsAssign.Value && !cfg.Offline.Value:
 
-		beg := utils.ArgumentIntegerMust(d, "--beg")
-		end := utils.ArgumentIntegerMust(d, "--end")
-		gid := utils.ArgumentIntegerMust(d, "--gid")
+		beg := argumentIntegerMust(cfg.Beg, "--beg")
+		end := argumentIntegerMust(cfg.End, "--end")
+		gid := argumentIntegerMust(cfg.Gid, "--gid")
 
 		slots := []*models.SlotMapping{}
 		for i := beg; i <= end; i++ {
@@ -282,7 +229,7 @@ func (t *cmdDashboard) handleSlotsCommand(d map[string]any) {
 			})
 		}
 
-		if !d["--confirm"].(bool) {
+		if !cfg.Confirm.Value {
 			b, err := json.MarshalIndent(slots, "", "    ")
 			if err != nil {
 				log.PanicErrorf(err, "json marshal failed")
@@ -300,11 +247,11 @@ func (t *cmdDashboard) handleSlotsCommand(d map[string]any) {
 	}
 }
 
-func (t *cmdDashboard) handleACLCommand(d map[string]any) {
+func (t *cmdDashboard) handleACLCommand(cfg *adminConfig) {
 	c := t.newTopomClient()
 
-	switch {
-	case d["--acl"].(bool):
+	switch cfg.Command {
+	case "acl":
 		log.Debugf("call rpc acl get to dashboard %s", t.addr)
 		view, err := c.GetACL()
 		if err != nil {
@@ -316,7 +263,7 @@ func (t *cmdDashboard) handleACLCommand(d map[string]any) {
 		}
 		fmt.Println(string(b))
 
-	case d["--acl-sync"].(bool):
+	case "acl-sync":
 		log.Debugf("call rpc acl sync to dashboard %s", t.addr)
 		view, err := c.SyncACL()
 		if err != nil {
@@ -328,8 +275,8 @@ func (t *cmdDashboard) handleACLCommand(d map[string]any) {
 		}
 		fmt.Println(string(pretty))
 
-	case d["--acl-set"] != nil:
-		path := utils.ArgumentMust(d, "--acl-set")
+	case "acl-set":
+		path := argumentMust(cfg.ACLSet, "--acl-set")
 		b, err := os.ReadFile(path)
 		if err != nil {
 			log.PanicErrorf(err, "read acl file failed")
@@ -338,7 +285,7 @@ func (t *cmdDashboard) handleACLCommand(d map[string]any) {
 		if err := json.Unmarshal(b, req); err != nil {
 			log.PanicErrorf(err, "decode acl file failed")
 		}
-		if !d["--confirm"].(bool) {
+		if !cfg.Confirm.Value {
 			pretty, err := json.MarshalIndent(redactACLUpdateRequest(req), "", "    ")
 			if err != nil {
 				log.PanicErrorf(err, "json marshal failed")
@@ -390,7 +337,7 @@ func redactACLUpdateRequest(req *topom.ACLUpdateRequest) *topom.ACLUpdateRequest
 	return redacted
 }
 
-func (t *cmdDashboard) parseProxyTokens(d map[string]any) []string {
+func (t *cmdDashboard) parseProxyTokens(cfg *adminConfig) []string {
 	switch {
 
 	default:
@@ -399,13 +346,13 @@ func (t *cmdDashboard) parseProxyTokens(d map[string]any) []string {
 
 		return nil
 
-	case d["--token"] != nil:
+	case cfg.Token.Provided:
 
-		return []string{utils.ArgumentMust(d, "--token")}
+		return []string{argumentMust(cfg.Token, "--token")}
 
-	case d["--pid"] != nil:
+	case cfg.Pid.Provided:
 
-		pid := utils.ArgumentIntegerMust(d, "--pid")
+		pid := argumentIntegerMust(cfg.Pid, "--pid")
 
 		c := t.newTopomClient()
 
@@ -428,14 +375,14 @@ func (t *cmdDashboard) parseProxyTokens(d map[string]any) []string {
 			return tokens
 		}
 
-		if !d["--force"].(bool) {
+		if !cfg.Force.Value {
 			log.Panicf("can't find specific proxy with id = %d", pid)
 		}
 		return nil
 
-	case d["--addr"] != nil:
+	case cfg.Addr.Provided:
 
-		addr := utils.ArgumentMust(d, "--addr")
+		addr := argumentMust(cfg.Addr, "--addr")
 
 		c := t.newTopomClient()
 
@@ -458,7 +405,7 @@ func (t *cmdDashboard) parseProxyTokens(d map[string]any) []string {
 			return tokens
 		}
 
-		if !d["--force"].(bool) {
+		if !cfg.Force.Value {
 			log.Panicf("can't find specific proxy with addr = %s", addr)
 		}
 		return nil
@@ -466,14 +413,14 @@ func (t *cmdDashboard) parseProxyTokens(d map[string]any) []string {
 	}
 }
 
-func (t *cmdDashboard) handleProxyCommand(d map[string]any) {
+func (t *cmdDashboard) handleProxyCommand(cfg *adminConfig) {
 	c := t.newTopomClient()
 
-	switch {
+	switch cfg.Command {
 
-	case d["--create-proxy"].(bool):
+	case "create-proxy":
 
-		addr := utils.ArgumentMust(d, "--addr")
+		addr := argumentMust(cfg.Addr, "--addr")
 
 		log.Debugf("call rpc create-proxy to dashboard %s", t.addr)
 		if err := c.CreateProxy(addr); err != nil {
@@ -481,9 +428,9 @@ func (t *cmdDashboard) handleProxyCommand(d map[string]any) {
 		}
 		log.Debugf("call rpc create-proxy OK")
 
-	case d["--online-proxy"].(bool):
+	case "online-proxy":
 
-		addr := utils.ArgumentMust(d, "--addr")
+		addr := argumentMust(cfg.Addr, "--addr")
 
 		log.Debugf("call rpc online-proxy to dashboard %s", t.addr)
 		if err := c.OnlineProxy(addr); err != nil {
@@ -491,11 +438,11 @@ func (t *cmdDashboard) handleProxyCommand(d map[string]any) {
 		}
 		log.Debugf("call rpc online-proxy OK")
 
-	case d["--remove-proxy"].(bool):
+	case "remove-proxy":
 
-		force := d["--force"].(bool)
+		force := cfg.Force.Value
 
-		for _, token := range t.parseProxyTokens(d) {
+		for _, token := range t.parseProxyTokens(cfg) {
 			log.Debugf("call rpc remove-proxy to dashboard %s", t.addr)
 			if err := c.RemoveProxy(token, force); err != nil {
 				log.PanicErrorf(err, "call rpc remove-proxy to dashboard %s failed", t.addr)
@@ -503,13 +450,13 @@ func (t *cmdDashboard) handleProxyCommand(d map[string]any) {
 			log.Debugf("call rpc remove-proxy OK")
 		}
 
-	case d["--reinit-proxy"].(bool):
+	case "reinit-proxy":
 
 		switch {
 
 		default:
 
-			for _, token := range t.parseProxyTokens(d) {
+			for _, token := range t.parseProxyTokens(cfg) {
 				log.Debugf("call rpc reinit-proxy to dashboard %s", t.addr)
 				if err := c.ReinitProxy(token); err != nil {
 					log.PanicErrorf(err, "call rpc reinit-proxy to dashboard %s failed", t.addr)
@@ -517,7 +464,7 @@ func (t *cmdDashboard) handleProxyCommand(d map[string]any) {
 				log.Debugf("call rpc reinit-proxy OK")
 			}
 
-		case d["--all"].(bool):
+		case cfg.All.Value:
 
 			log.Debugf("call rpc stats to dashboard %s", t.addr)
 			s, err := c.Stats()
@@ -537,7 +484,7 @@ func (t *cmdDashboard) handleProxyCommand(d map[string]any) {
 
 		}
 
-	case d["--proxy-status"].(bool):
+	case "proxy-status":
 
 		log.Debugf("call rpc stats to dashboard %s", t.addr)
 		s, err := c.Stats()
@@ -579,14 +526,14 @@ func (t *cmdDashboard) handleProxyCommand(d map[string]any) {
 	}
 }
 
-func (t *cmdDashboard) handleGroupCommand(d map[string]any) {
+func (t *cmdDashboard) handleGroupCommand(cfg *adminConfig) {
 	c := t.newTopomClient()
 
-	switch {
+	switch cfg.Command {
 
-	case d["--create-group"].(bool):
+	case "create-group":
 
-		gid := utils.ArgumentIntegerMust(d, "--gid")
+		gid := argumentIntegerMust(cfg.Gid, "--gid")
 
 		log.Debugf("call rpc create-group to dashboard %s", t.addr)
 		if err := c.CreateGroup(gid); err != nil {
@@ -594,9 +541,9 @@ func (t *cmdDashboard) handleGroupCommand(d map[string]any) {
 		}
 		log.Debugf("call rpc create-group OK")
 
-	case d["--remove-group"].(bool):
+	case "remove-group":
 
-		gid := utils.ArgumentIntegerMust(d, "--gid")
+		gid := argumentIntegerMust(cfg.Gid, "--gid")
 
 		log.Debugf("call rpc remove-group to dashboard %s", t.addr)
 		if err := c.RemoveGroup(gid); err != nil {
@@ -604,11 +551,11 @@ func (t *cmdDashboard) handleGroupCommand(d map[string]any) {
 		}
 		log.Debugf("call rpc remove-group OK")
 
-	case d["--resync-group"].(bool):
+	case "resync-group":
 
 		switch {
 
-		case d["--all"].(bool):
+		case cfg.All.Value:
 
 			stats, err := c.Stats()
 			if err != nil {
@@ -626,7 +573,7 @@ func (t *cmdDashboard) handleGroupCommand(d map[string]any) {
 
 		default:
 
-			gid := utils.ArgumentIntegerMust(d, "--gid")
+			gid := argumentIntegerMust(cfg.Gid, "--gid")
 
 			log.Debugf("call rpc resync-group to dashboard %s", t.addr)
 			if err := c.ResyncGroup(gid); err != nil {
@@ -636,10 +583,13 @@ func (t *cmdDashboard) handleGroupCommand(d map[string]any) {
 
 		}
 
-	case d["--group-add"].(bool):
+	case "group-add":
 
-		gid, addr := utils.ArgumentIntegerMust(d, "--gid"), utils.ArgumentMust(d, "--addr")
-		dc, _ := utils.Argument(d, "--datacenter")
+		gid, addr := argumentIntegerMust(cfg.Gid, "--gid"), argumentMust(cfg.Addr, "--addr")
+		var dc string
+		if cfg.Datacenter.Provided {
+			dc = cfg.Datacenter.Value
+		}
 
 		log.Debugf("call rpc group-add-server to dashboard %s", t.addr)
 		if err := c.GroupAddServer(gid, dc, addr); err != nil {
@@ -647,9 +597,9 @@ func (t *cmdDashboard) handleGroupCommand(d map[string]any) {
 		}
 		log.Debugf("call rpc group-add-server OK")
 
-	case d["--group-del"].(bool):
+	case "group-del":
 
-		gid, addr := utils.ArgumentIntegerMust(d, "--gid"), utils.ArgumentMust(d, "--addr")
+		gid, addr := argumentIntegerMust(cfg.Gid, "--gid"), argumentMust(cfg.Addr, "--addr")
 
 		log.Debugf("call rpc group-del-server to dashboard %s", t.addr)
 		if err := c.GroupDelServer(gid, addr); err != nil {
@@ -657,10 +607,10 @@ func (t *cmdDashboard) handleGroupCommand(d map[string]any) {
 		}
 		log.Debugf("call rpc group-del-server OK")
 
-	case d["--replica-groups"].(bool):
+	case "replica-groups":
 
-		gid, addr := utils.ArgumentIntegerMust(d, "--gid"), utils.ArgumentMust(d, "--addr")
-		value := d["--enable"].(bool)
+		gid, addr := argumentIntegerMust(cfg.Gid, "--gid"), argumentMust(cfg.Addr, "--addr")
+		value := cfg.Enable.Value
 
 		log.Debugf("call rpc replica-groups to dashboard %s", t.addr)
 		if err := c.EnableReplicaGroups(gid, addr, value); err != nil {
@@ -668,9 +618,9 @@ func (t *cmdDashboard) handleGroupCommand(d map[string]any) {
 		}
 		log.Debugf("call rpc replica-groups to dashboard OK")
 
-	case d["--promote-server"].(bool):
+	case "promote-server":
 
-		gid, addr := utils.ArgumentIntegerMust(d, "--gid"), utils.ArgumentMust(d, "--addr")
+		gid, addr := argumentIntegerMust(cfg.Gid, "--gid"), argumentMust(cfg.Addr, "--addr")
 
 		log.Debugf("call rpc group-promote-server to dashboard %s", t.addr)
 		if err := c.GroupPromoteServer(gid, addr); err != nil {
@@ -680,7 +630,7 @@ func (t *cmdDashboard) handleGroupCommand(d map[string]any) {
 
 		fallthrough
 
-	case d["--group-status"].(bool):
+	case "group-status":
 
 		log.Debugf("call rpc stats to dashboard %s", t.addr)
 		s, err := c.Stats()
@@ -743,14 +693,14 @@ func (t *cmdDashboard) handleGroupCommand(d map[string]any) {
 	}
 }
 
-func (t *cmdDashboard) handleSentinelCommand(d map[string]any) {
+func (t *cmdDashboard) handleSentinelCommand(cfg *adminConfig) {
 	c := t.newTopomClient()
 
-	switch {
+	switch cfg.Command {
 
-	case d["--sentinel-add"].(bool):
+	case "sentinel-add":
 
-		addr := utils.ArgumentMust(d, "--addr")
+		addr := argumentMust(cfg.Addr, "--addr")
 
 		log.Debugf("call rpc add-sentinel to dashboard %s", t.addr)
 		if err := c.AddSentinel(addr); err != nil {
@@ -758,11 +708,11 @@ func (t *cmdDashboard) handleSentinelCommand(d map[string]any) {
 		}
 		log.Debugf("call rpc add-sentinel OK")
 
-	case d["--sentinel-del"].(bool):
+	case "sentinel-del":
 
-		addr := utils.ArgumentMust(d, "--addr")
+		addr := argumentMust(cfg.Addr, "--addr")
 
-		force := d["--force"].(bool)
+		force := cfg.Force.Value
 
 		log.Debugf("call rpc del-sentinel to dashboard %s", t.addr)
 		if err := c.DelSentinel(addr, force); err != nil {
@@ -770,7 +720,7 @@ func (t *cmdDashboard) handleSentinelCommand(d map[string]any) {
 		}
 		log.Debugf("call rpc del-sentinel OK")
 
-	case d["--sentinel-resync"].(bool):
+	case "sentinel-resync":
 
 		log.Debugf("call rpc resync-sentinels to dashboard %s", t.addr)
 		if err := c.ResyncSentinels(); err != nil {
@@ -781,14 +731,14 @@ func (t *cmdDashboard) handleSentinelCommand(d map[string]any) {
 	}
 }
 
-func (t *cmdDashboard) handleSyncActionCommand(d map[string]any) {
+func (t *cmdDashboard) handleSyncActionCommand(cfg *adminConfig) {
 	c := t.newTopomClient()
 
 	switch {
 
-	case d["--create"].(bool):
+	case cfg.Create.Value:
 
-		addr := utils.ArgumentMust(d, "--addr")
+		addr := argumentMust(cfg.Addr, "--addr")
 
 		log.Debugf("call rpc create-sync-action to dashboard %s", t.addr)
 		if err := c.SyncCreateAction(addr); err != nil {
@@ -796,9 +746,9 @@ func (t *cmdDashboard) handleSyncActionCommand(d map[string]any) {
 		}
 		log.Debugf("call rpc create-sync-action OK")
 
-	case d["--remove"].(bool):
+	case cfg.Remove.Value:
 
-		addr := utils.ArgumentMust(d, "--addr")
+		addr := argumentMust(cfg.Addr, "--addr")
 
 		log.Debugf("call rpc remove-sync-action to dashboard %s", t.addr)
 		if err := c.SyncRemoveAction(addr); err != nil {
@@ -810,15 +760,15 @@ func (t *cmdDashboard) handleSyncActionCommand(d map[string]any) {
 
 }
 
-func (t *cmdDashboard) handleSlotActionCommand(d map[string]any) {
+func (t *cmdDashboard) handleSlotActionCommand(cfg *adminConfig) {
 	c := t.newTopomClient()
 
 	switch {
 
-	case d["--create"].(bool):
+	case cfg.Create.Value:
 
-		sid := utils.ArgumentIntegerMust(d, "--sid")
-		gid := utils.ArgumentIntegerMust(d, "--gid")
+		sid := argumentIntegerMust(cfg.Sid, "--sid")
+		gid := argumentIntegerMust(cfg.Gid, "--gid")
 
 		log.Debugf("call rpc create-slot-action to dashboard %s", t.addr)
 		if err := c.SlotCreateAction(sid, gid); err != nil {
@@ -826,9 +776,9 @@ func (t *cmdDashboard) handleSlotActionCommand(d map[string]any) {
 		}
 		log.Debugf("call rpc create-slot-action OK")
 
-	case d["--remove"].(bool):
+	case cfg.Remove.Value:
 
-		sid := utils.ArgumentIntegerMust(d, "--sid")
+		sid := argumentIntegerMust(cfg.Sid, "--sid")
 
 		log.Debugf("call rpc remove-slot-action to dashboard %s", t.addr)
 		if err := c.SlotRemoveAction(sid); err != nil {
@@ -836,11 +786,11 @@ func (t *cmdDashboard) handleSlotActionCommand(d map[string]any) {
 		}
 		log.Debugf("call rpc remove-slot-action OK")
 
-	case d["--create-some"].(bool):
+	case cfg.CreateSome.Value:
 
-		src := utils.ArgumentIntegerMust(d, "--gid-from")
-		dst := utils.ArgumentIntegerMust(d, "--gid-to")
-		num := utils.ArgumentIntegerMust(d, "--num-slots")
+		src := argumentIntegerMust(cfg.GidFrom, "--gid-from")
+		dst := argumentIntegerMust(cfg.GidTo, "--gid-to")
+		num := argumentIntegerMust(cfg.NumSlots, "--num-slots")
 
 		log.Debugf("call rpc create-slot-action-some to dashboard %s", t.addr)
 		if err := c.SlotCreateActionSome(src, dst, num); err != nil {
@@ -848,11 +798,11 @@ func (t *cmdDashboard) handleSlotActionCommand(d map[string]any) {
 		}
 		log.Debugf("call rpc create-slot-action-some OK")
 
-	case d["--create-range"].(bool):
+	case cfg.CreateRange.Value:
 
-		beg := utils.ArgumentIntegerMust(d, "--beg")
-		end := utils.ArgumentIntegerMust(d, "--end")
-		gid := utils.ArgumentIntegerMust(d, "--gid")
+		beg := argumentIntegerMust(cfg.Beg, "--beg")
+		end := argumentIntegerMust(cfg.End, "--end")
+		gid := argumentIntegerMust(cfg.Gid, "--gid")
 
 		log.Debugf("call rpc create-slot-action-range to dashboard %s", t.addr)
 		if err := c.SlotCreateActionRange(beg, end, gid); err != nil {
@@ -860,9 +810,9 @@ func (t *cmdDashboard) handleSlotActionCommand(d map[string]any) {
 		}
 		log.Debugf("call rpc create-slot-action-range OK")
 
-	case d["--interval"] != nil:
+	case cfg.Interval.Provided:
 
-		value := utils.ArgumentIntegerMust(d, "--interval")
+		value := argumentIntegerMust(cfg.Interval, "--interval")
 
 		log.Debugf("call rpc slot-action-interval to dashboard %s", t.addr)
 		if err := c.SetSlotActionInterval(value); err != nil {
@@ -870,9 +820,9 @@ func (t *cmdDashboard) handleSlotActionCommand(d map[string]any) {
 		}
 		log.Debugf("call rpc slot-action-interval OK")
 
-	case d["--disabled"] != nil:
+	case cfg.Disabled.Provided:
 
-		value := utils.ArgumentIntegerMust(d, "--disabled")
+		value := argumentIntegerMust(cfg.Disabled, "--disabled")
 
 		log.Debugf("call rpc slot-action-disabled to dashboard %s", t.addr)
 		if err := c.SetSlotActionDisabled(value != 0); err != nil {
@@ -883,10 +833,10 @@ func (t *cmdDashboard) handleSlotActionCommand(d map[string]any) {
 	}
 }
 
-func (t *cmdDashboard) handleSlotRebalance(d map[string]any) {
+func (t *cmdDashboard) handleSlotRebalance(cfg *adminConfig) {
 	c := t.newTopomClient()
 
-	confirm := d["--confirm"].(bool)
+	confirm := cfg.Confirm.Value
 
 	log.Debugf("call rpc slot-rebalance to dashboard %s", t.addr)
 	plans, err := c.SlotsRebalance(confirm)
@@ -902,7 +852,7 @@ func (t *cmdDashboard) handleSlotRebalance(d map[string]any) {
 		for sid := range plans {
 			slotIds = append(slotIds, sid)
 		}
-		sort.Ints(slotIds)
+		slices.Sort(slotIds)
 
 		var gid, beg, end = -1, 0, -1
 		for _, sid := range slotIds {
