@@ -29,7 +29,7 @@ import (
 // by the parser tests.
 const proxyUsage = `
 Usage:
-	codis-proxy [--ncpu=N [--max-ncpu=MAX]] [--config=CONF] [--log=FILE] [--log-level=LEVEL] [--host-admin=ADDR] [--host-proxy=ADDR] [--dashboard=ADDR|--zookeeper=ADDR [--zookeeper-auth=USR:PWD]|--etcd=ADDR [--etcd-auth=USR:PWD]|--filesystem=ROOT|--consul=ADDR [--consul-auth=TOKEN]|--fillslots=FILE] [--ulimit=NLIMIT] [--pidfile=FILE] [--product_name=NAME] [--product_auth=AUTH] [--session_auth=AUTH]
+	codis-proxy [--ncpu=N [--max-ncpu=MAX]] [--config=CONF] [--log=FILE] [--log-level=LEVEL] [--host-admin=ADDR] [--host-proxy=ADDR] [--dashboard=ADDR|--zookeeper=ADDR [--zookeeper-auth=USR:PWD]|--filesystem=ROOT|--consul=ADDR [--consul-auth=TOKEN]|--fillslots=FILE] [--ulimit=NLIMIT] [--pidfile=FILE] [--product_name=NAME] [--product_auth=AUTH] [--session_auth=AUTH]
 	codis-proxy  --default-config
 	codis-proxy  --version
 

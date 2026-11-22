@@ -17,7 +17,7 @@ proto_type = "tcp4"
 proxy_addr = "{{ proxy_addr }}"
 
 # Set jodis address & session timeout
-#   1. jodis_name is short for jodis_coordinator_name, only accept "zookeeper" & "etcd".
+#   1. jodis_name is short for jodis_coordinator_name, only accept "zookeeper" & "consul".
 #   2. jodis_addr is short for jodis_coordinator_addr
 #   3. proxy will be registered as node:
 #        if jodis_compatible = true (not suggested):

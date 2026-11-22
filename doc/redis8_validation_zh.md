@@ -131,7 +131,7 @@ Docker daemon 不可用时只能记为 blocked，不能写成已验证。
 
 - Canary 阶段：迁移前的旧 group 仍是权威数据源，可通过 dashboard/topom 把 canary slot 迁回。
 - Ramp-up 阶段：Redis 8 已承接写入时，优先使用已经验证过的反向迁移方向或恢复备份；未验证的方向不能临场假设可用。
-- Full cutover 后：Redis 8 已是唯一写入源，回滚只能依赖已验证的反向迁移或备份恢复。禁止直接编辑文件系统、ZooKeeper、Etcd 等 coordinator 元数据绕过 topom，也禁止用不兼容的数据文件直接启动旧版本回滚。
+- Full cutover 后：Redis 8 已是唯一写入源，回滚只能依赖已验证的反向迁移或备份恢复。禁止直接编辑文件系统、ZooKeeper、Consul 等 coordinator 元数据绕过 topom，也禁止用不兼容的数据文件直接启动旧版本回滚。
 
 ## Go 组件兼容矩阵
 

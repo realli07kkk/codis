@@ -18,7 +18,7 @@ codis目前主要release版本如下:
 > * codis-3.2 是历史 release，早期 codis-server 曾基于 redis-3.2.8；当前主线已移除 Redis 3 支持，改用内嵌 Redis 8
 > * 支持 slot 同步迁移、异步迁移和并发迁移，对 key 大小无任何限制，迁移性能大幅度提升
 > * 相比 2.0：重构了整个集群组件通信方式，codis-proxy 与 zookeeper 实现了解耦，废弃了codis-config 等
-> * 元数据存储支持 etcd/zookeeper/filesystem 等，可自行扩展支持新的存储，集群正常运行期间，即便元存储故障也不再影响 codis 集群，大大提升 codis-proxy 稳定性
+> * 元数据存储支持 zookeeper/filesystem/consul 等，可自行扩展支持新的存储，集群正常运行期间，即便元存储故障也不再影响 codis 集群，大大提升 codis-proxy 稳定性
 > * 对 codis-proxy 进行了大量性能优化,通过控制GC频率、减少对象创建、内存预分配、引入 `cgo`、`jemalloc` 等，使其吞吐还是延迟，都已达到 codis 项目中最佳
 > * proxy 实现 select 命令，支持多 DB
 > * proxy 支持读写分离、优先读同 IP/同 DC 下副本功能
@@ -57,7 +57,7 @@ Codis 3.x 由以下组件组成：
 * **Storage**：为集群状态提供外部存储。
 
     + 提供 Namespace 概念，不同集群的会按照不同 product name 进行组织；
-    + 目前仅提供了 Zookeeper、Etcd、Fs 三种实现，但是提供了抽象的 interface 可自行扩展。
+    + 目前提供了 Zookeeper、Consul、Fs 三种实现，但是提供了抽象的 interface 可自行扩展。
 
 ## 0. 下载与编译
 
@@ -218,7 +218,7 @@ ansible-playbook -i hosts site.yml
 
 ## 2. 启动及参数
 
-**注意：请按照顺序逐步完成操作。生产环境建议修改dashboard coordinator_name配置，使用 `zookeeper` 或`etctd`作为外部存储。**
+**注意：请按照顺序逐步完成操作。生产环境建议修改dashboard coordinator_name配置，使用 `zookeeper` 或 `consul` 作为外部存储。**
 
 **注意：Codis 3.x 支持 AUTH，但是要求所有组件使用的 AUTH 必须完全相同。**
 
@@ -263,7 +263,7 @@ $ ./bin/codis-dashboard --default-config | tee dashboard.toml
 #                                                #
 ##################################################
 
-# Set Coordinator, only accept "zookeeper" & "etcd"
+# Set Coordinator, only accept "zookeeper" & "filesystem" & "consul"
 coordinator_name = "zookeeper"
 coordinator_addr = "127.0.0.1:2181"
 
@@ -277,7 +277,7 @@ admin_addr = "0.0.0.0:18080"
 
 | 参数              | 说明                               |
 |:----------------- |:---------------------------------- |
-| coordinator\_name | 外部存储类型，接受 zookeeper/etcd  |
+| coordinator\_name | 外部存储类型，接受 zookeeper/filesystem/consul |
 | coordinator\_addr | 外部存储地址                       |
 | product\_name     | 集群名称，满足正则 `\w[\w\.\-]*`   |
 | product\_auth     | 集群密码，默认为空                 |
@@ -415,7 +415,7 @@ $ nohup ./bin/codis-fe --ncpu=4 --log=fe.log --log-level=WARN \
 ```bash
 $ ./bin/codis-fe -h
 Usage:
-	codis-fe [--ncpu=N] [--log=FILE] [--log-level=LEVEL] [--assets-dir=PATH] (--dashboard-list=FILE|--zookeeper=ADDR|--etcd=ADDR|--filesystem=ROOT) --listen=ADDR
+	codis-fe [--ncpu=N] [--log=FILE] [--log-level=LEVEL] [--assets-dir=PATH] (--dashboard-list=FILE|--zookeeper=ADDR|--filesystem=ROOT|--consul=ADDR) --listen=ADDR
 	codis-fe  --version
 
 Options:

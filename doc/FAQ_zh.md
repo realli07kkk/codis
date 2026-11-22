@@ -71,11 +71,9 @@ CAS 暂时不支持, 目前只支持eval的方式来跑lua脚本，需要配合T
 
 见 [Codis 数据迁移流程](http://0xffff.me/blog/2014/11/11/codis-de-she-ji-yu-shi-xian-part-2/)
 
-### Codis支持etcd吗 ? 
+### Codis 支持哪些外部存储？
 
-支持，请参考使用教程，需要将配置文件中的coordinator=zookeeper改为etcd。
-
-但是需要注意：请使用codis2.0.10或更新的版本，旧版对etcd的支持有一些问题；由于etcd在2.2引入了一个与旧版不兼容的坑爹改动，导致如果使用etcd的版本>=2.2.0，暂时需要手动改一处代码，详情见[相关issue](https://github.com/CodisLabs/codis/issues/488)。
+支持 Zookeeper、filesystem 和 Consul 三种 coordinator，通过 `coordinator_name` 选择；具体配置见使用教程。
 
 ### 现有redis集群上有上T的数据，如何迁移到Codis上来？
 

@@ -24,7 +24,7 @@ import (
 // pinned by the parser tests.
 const dashboardUsage = `
 Usage:
-	codis-dashboard [--ncpu=N] [--config=CONF] [--log=FILE] [--log-level=LEVEL] [--host-admin=ADDR] [--pidfile=FILE] [--zookeeper=ADDR|--etcd=ADDR|--filesystem=ROOT|--consul=ADDR] [--product_name=NAME] [--product_auth=AUTH] [--remove-lock]
+	codis-dashboard [--ncpu=N] [--config=CONF] [--log=FILE] [--log-level=LEVEL] [--host-admin=ADDR] [--pidfile=FILE] [--zookeeper=ADDR|--filesystem=ROOT|--consul=ADDR] [--product_name=NAME] [--product_auth=AUTH] [--remove-lock]
 	codis-dashboard  --default-config
 	codis-dashboard  --version
 

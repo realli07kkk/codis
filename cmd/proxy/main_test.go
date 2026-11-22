@@ -83,10 +83,6 @@ func proxyStringArg(cfg *proxyConfig, flag string) cli.String {
 		return cfg.Coordinator.Zookeeper
 	case "--zookeeper-auth":
 		return cfg.Coordinator.ZookeeperAuth
-	case "--etcd":
-		return cfg.Coordinator.Etcd
-	case "--etcd-auth":
-		return cfg.Coordinator.EtcdAuth
 	case "--filesystem":
 		return cfg.Coordinator.Filesystem
 	case "--consul":
@@ -113,13 +109,13 @@ func proxyStringArg(cfg *proxyConfig, flag string) cli.String {
 var proxyStringFlags = []string{
 	"--ncpu", "--max-ncpu", "--config", "--log", "--log-level",
 	"--host-admin", "--host-proxy", "--dashboard",
-	"--zookeeper", "--zookeeper-auth", "--etcd", "--etcd-auth",
+	"--zookeeper", "--zookeeper-auth",
 	"--filesystem", "--consul", "--consul-auth", "--fillslots",
 	"--ulimit", "--pidfile", "--product_name", "--product_auth", "--session_auth",
 }
 
 var proxyCoordinatorFlags = []string{
-	"--dashboard", "--zookeeper", "--zookeeper-auth", "--etcd", "--etcd-auth",
+	"--dashboard", "--zookeeper", "--zookeeper-auth",
 	"--filesystem", "--consul", "--consul-auth", "--fillslots",
 }
 
@@ -228,8 +224,6 @@ func TestProxyCoordinatorChoices(t *testing.T) {
 		{"dashboard", []string{"--dashboard=127.0.0.1:18080"}, map[string]string{"--dashboard": "127.0.0.1:18080"}},
 		{"zookeeper", []string{"--zookeeper=127.0.0.1:2181"}, map[string]string{"--zookeeper": "127.0.0.1:2181"}},
 		{"zookeeper auth", []string{"--zookeeper=127.0.0.1:2181", "--zookeeper-auth=user:pass"}, map[string]string{"--zookeeper": "127.0.0.1:2181", "--zookeeper-auth": "user:pass"}},
-		{"etcd", []string{"--etcd=127.0.0.1:2379"}, map[string]string{"--etcd": "127.0.0.1:2379"}},
-		{"etcd auth", []string{"--etcd=127.0.0.1:2379", "--etcd-auth=user:pass"}, map[string]string{"--etcd": "127.0.0.1:2379", "--etcd-auth": "user:pass"}},
 		{"filesystem", []string{"--filesystem=/tmp/codis"}, map[string]string{"--filesystem": "/tmp/codis"}},
 		{"consul", []string{"--consul=127.0.0.1:8500"}, map[string]string{"--consul": "127.0.0.1:8500"}},
 		{"consul auth", []string{"--consul=127.0.0.1:8500", "--consul-auth=token"}, map[string]string{"--consul": "127.0.0.1:8500", "--consul-auth": "token"}},
@@ -261,7 +255,6 @@ func TestProxyCoordinatorChoicesRejectMultipleSources(t *testing.T) {
 	sources := [][]string{
 		{"--dashboard=127.0.0.1:18080"},
 		{"--zookeeper=127.0.0.1:2181", "--zookeeper-auth=user:pass"},
-		{"--etcd=127.0.0.1:2379", "--etcd-auth=user:pass"},
 		{"--filesystem=/tmp/codis"},
 		{"--consul=127.0.0.1:8500", "--consul-auth=token"},
 		{"--fillslots=/tmp/slots.json"},
@@ -279,7 +272,7 @@ func TestProxyCoordinatorChoicesRejectMultipleSources(t *testing.T) {
 // TestProxyAuthFlagsRequireTheirCoordinator pins that --*-auth is only valid
 // together with the matching coordinator address.
 func TestProxyAuthFlagsRequireTheirCoordinator(t *testing.T) {
-	for _, flag := range []string{"--zookeeper-auth=user:pass", "--etcd-auth=user:pass", "--consul-auth=token"} {
+	for _, flag := range []string{"--zookeeper-auth=user:pass", "--consul-auth=token"} {
 		if err := parseProxyUsageError(t, flag); err == nil {
 			t.Fatalf("argv %q: expected parse error without coordinator address", flag)
 		}

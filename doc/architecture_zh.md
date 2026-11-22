@@ -8,7 +8,7 @@ Codis 是 Redis 的代理式分片集群：客户端只连接 Codis Proxy，prox
 |---|---|---|
 | Codis Proxy | 面向客户端的 Redis 协议代理：认证、命令解析、slot 路由、pipeline 写回和运行期指标 | `cmd/proxy/main.go`、`pkg/proxy/proxy.go` |
 | Topom / Codis Dashboard | 集群拓扑管理进程，持有 store、cache、slot action、stats 和 HA 状态，对外暴露管理 HTTP API | `cmd/dashboard/main.go`、`pkg/topom/topom.go` |
-| Coordinator / Store | 集群元数据的外部存储抽象：读写、列表、watch、临时节点；实现有 zookeeper、etcd、consul、filesystem | `pkg/models/client.go`、`pkg/models/store.go` |
+| Coordinator / Store | 集群元数据的外部存储抽象：读写、列表、watch、临时节点；实现有 zookeeper、consul、filesystem | `pkg/models/client.go`、`pkg/models/store.go` |
 | Slot / Group | Slot 是路由分片单位，固定 1024 个，模型常量与 proxy 内部状态分属两层；Group 是一组后端 Redis Server，第一台按现有代码语义承担 master 位置 | `pkg/models/slots.go`、`pkg/proxy/slots.go`、`pkg/models/group.go` |
 | Hot key cache | proxy 进程内、默认关闭、按 exact key 配置的短 TTL string 读缓存；只作用于稳定 slot 上的 `GET`/`MGET` 完整 bulk value，不进入 coordinator；启用广播后 source proxy 可经 dashboard 通知其他 online proxy 删除本地条目 | `pkg/proxy/hot_key_cache.go`、`pkg/proxy/hot_key_cache_broadcast.go` |
 | Session auth brute-force guard | proxy 进程内、默认关闭的 `session_auth` `AUTH` 失败保护：按客户端 remote IP 记录失败计数与临时锁定截止时间，不影响已认证 session，不进入 coordinator | `pkg/proxy/auth_bruteforce.go` |
@@ -34,7 +34,7 @@ flowchart LR
   Proxy --> Server[Codis Server / Redis 8]
   Dashboard[Codis Dashboard / Topom] -->|admin HTTP API| Proxy
   Dashboard -->|迁移 / ACL / 复制| Server
-  Dashboard <--> Store[Coordinator: zk / etcd / consul / fs]
+  Dashboard <--> Store[Coordinator: zk / consul / fs]
   FE[Codis FE] --> Dashboard
   Admin[Codis Admin] --> Dashboard
   HA[Codis HA] --> Dashboard
@@ -97,7 +97,7 @@ flowchart LR
 | `/codis3/{product}/proxy_qps_limit` | `models.ProxyQPSLimit` | dashboard 提交的 QPS limit 目标 revision |
 | `/jodis/{product}/proxy-{token}` | proxy 注册数据 | proxy 自身创建与续约的临时节点 |
 
-- `models.NewClient` 按 `zk`/`etcd`/`fs`/`consul` 构造实现，上层只依赖 `models.Client`；`models.NewStore` 在其上加 product 命名空间与缓存失效，路径 helper 集中在 `pkg/models/store.go`（`LockPath`、`SlotPath`、`GroupPath`、`ProxyPath`、`SentinelPath`、`ACLPath`、`ProxyQPSLimitPath`）。`pkg/proxy/jodis.go` 的 `Jodis` 在 `/jodis/{product}/proxy-{token}` 维护临时节点：`Start` 创建、`Rewatch` 在被删除后重建、`Close` 释放，Consul 后端用 Session 表达该 ephemeral ownership。
+- `models.NewClient` 按 `zk`/`fs`/`consul` 构造实现，上层只依赖 `models.Client`；`models.NewStore` 在其上加 product 命名空间与缓存失效，路径 helper 集中在 `pkg/models/store.go`（`LockPath`、`SlotPath`、`GroupPath`、`ProxyPath`、`SentinelPath`、`ACLPath`、`ProxyQPSLimitPath`）。`pkg/proxy/jodis.go` 的 `Jodis` 在 `/jodis/{product}/proxy-{token}` 维护临时节点：`Start` 创建、`Rewatch` 在被删除后重建、`Close` 释放，Consul 后端用 Session 表达该 ephemeral ownership。
 - ACL 元数据只保存 revision、enabled、user enabled、password hash、rules 和 updated_at，不保存客户端明文密码；QPS limit 模型只保存 revision、limit 和 updated_at，不保存每秒 token 状态。
 
 ### dashboard/topom 进程内状态
@@ -162,7 +162,7 @@ flowchart LR
 | `pkg/models/client.go`、`store.go` | `Client` 接口（Create/Update/Delete/Read/List/WatchInOrder/CreateEphemeral）、`NewClient`；`Store`、`NewStore`、路径 helper、`ValidateProduct` |
 | `pkg/models/slots.go`、`action.go` | `MaxSlotNum`、`ForwardSync`/`ForwardSemiAsync`、`Slot`、`SlotMapping`；`ActionPending`、`ActionPreparing`、`ActionPrepared`、`ActionMigrating`、`ActionFinished`、`ActionSyncing` |
 | `pkg/models/group.go`、`proxy.go`、`sentinel.go`、`proxy_qps_limit.go`、`acl.go` | `Group`、`GroupServer`、`Proxy`、`Sentinel`、`ProxyQPSLimit`、`ACL`、`ACLUser`（含 `DB` 绑定字段）、`ACLPasswordHash` |
-| `pkg/models/consul`、`zk`、`etcd`、`fs` | 四种 coordinator 实现；Consul 为 `consul.Client` + KV/Session |
+| `pkg/models/consul`、`zk`、`fs` | 三种 coordinator 实现；Consul 为 `consul.Client` + KV/Session |
 | `pkg/utils/redis/client.go` | `Client`、`Pool`、`InfoCache`、`NewClient`、`NewClientWithAuthIdentity`、`InfoFull`、`SetMaster`、`SlotsInfo`、`MigrateSlot`、`MigrateSlotAsync` |
 | `pkg/utils/redis/reply.go`、`sentinel.go` | `replyString`、`replyInt`、`replyInts`、`replyStringMap` 等 reply shape 解析；`Sentinel`、`SentinelMaster`、`SentinelGroup`、`Subscribe` |
 | `pkg/utils/version.go`、`version` | clean checkout 版本兜底与 ldflags 注入来源 |
@@ -229,7 +229,7 @@ flowchart LR
 
 Consul 后端位于 `pkg/models/consul`，只接入 HashiCorp Go API 模块 `github.com/hashicorp/consul/api`，把 Codis 的 slash path 转成无前导 `/` 的 Consul KV key（`/codis3/{product}/topom` 对应 `codis3/{product}/topom`）：`Create` 使用 `KV.CAS(ModifyIndex=0)`，`List` 使用 `KV.Keys(prefix, "/", ...)`，`WatchInOrder` 使用 blocking query 的 `WaitIndex`；Jodis ephemeral 节点使用 `Session.CreateNoChecks` + `KV.Acquire` + `Session.RenewPeriodic`，`Delete`/`Close` 销毁 session 且只删除仍归属当前 session 的 key；Consul token 通过 `coordinator_auth` / `jodis_auth` 写入 API client config，不进入结构化日志。
 
-边界：该后端只覆盖 Codis 需要的 KV、blocking query 和 Session ephemeral 语义，不表示 Codis 使用 Consul service catalog、health check 或 service mesh；不提供 Zookeeper/Etcd/filesystem 到 Consul 的存量元数据迁移；默认 coordinator 不变，dashboard、proxy、admin、fe 仍通过原有配置/CLI 参数选择后端。
+边界：该后端只覆盖 Codis 需要的 KV、blocking query 和 Session ephemeral 语义，不表示 Codis 使用 Consul service catalog、health check 或 service mesh；不提供 Zookeeper/filesystem 到 Consul 的存量元数据迁移；默认 coordinator 不变，dashboard、proxy、admin、fe 仍通过原有配置/CLI 参数选择后端。
 
 ## 第三方依赖 fork：third_party/rdb
 

@@ -29,7 +29,7 @@ Codis 3.x consists of the following components:
 * **Storage**: Provides external storage for cluster status, and saves cluster metadata.
 
     + Provide the concept of Namespace, different clusters will be organized according to different product name;
-    + Currently only provides Zookeeper, Etcd, Fs three implementations, but provides an abstract interface can be self-expansion.
+    + Currently provides Zookeeper, Fs and Consul three implementations, but provides an abstract interface can be self-expansion.
 
 
 ##  Getting Codis

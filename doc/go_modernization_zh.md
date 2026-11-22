@@ -3,7 +3,7 @@
 > 状态：已完成（macOS 本机回归通过；Linux 发布验证待执行）
 > 日期：2026-11-22
 > 范围：`cmd/`、`pkg/`、Go 测试与 Go 静态检查配置
-> 明确排除：etcd 客户端迁移，以及 `pkg/models/etcd/` 下的任何改动
+> 当时排除：etcd 客户端迁移，以及 `pkg/models/etcd/` 下的任何改动（以下内容均为历史记录，该客户端现已移除）
 
 本文是本轮 Go 现代化改造的执行依据和最终回归清单。顺序固定为：**先写方案与验证方法，再建立基线，然后分阶段实施，最后按本文逐项回归**。实施结果和偏离必须回写到本文末尾，不能只以“编译通过”作为完成标准。
 
@@ -30,16 +30,18 @@
 
 ## 2. 明确排除与兼容边界
 
-### 2.1 etcd 完全排除
+### 2.1 etcd 完全排除（历史记录）
 
-以下内容保持原样：
+以下内容和约束描述的是当时状态：
 
-- `pkg/models/etcd/etcdclient.go` 及其 etcd v2 API 用法；
-- `github.com/coreos/etcd` 依赖及版本；
-- etcd 的 TTL、目录、CAS、watch 和 ephemeral 语义；
-- 与 etcd 客户端迁移相关的测试或文档变更。
+- `pkg/models/etcd/etcdclient.go` 及其 etcd v2 API 用法保持原样；
+- `github.com/coreos/etcd` 依赖及版本保持原样；
+- etcd 的 TTL、目录、CAS、watch 和 ephemeral 语义保持原样；
+- 不做与 etcd 客户端迁移相关的测试或文档变更。
 
-`pkg/utils/resolver.go` 和 `pkg/utils/redis/sentinel.go` 可以从 `golang.org/x/net/context` 改用标准库 `context`，但因为 etcd 文件仍引用 `golang.org/x/net/context`，**本轮不删除 `golang.org/x/net` 模块**。
+`pkg/utils/resolver.go` 和 `pkg/utils/redis/sentinel.go` 可以从 `golang.org/x/net/context` 改用标准库 `context`，但因为当时的 etcd 文件仍引用 `golang.org/x/net/context`，**本轮不删除 `golang.org/x/net` 模块**。
+
+> 后续清理：etcd 客户端及其专属依赖已整体移除，本节只记录当时划分的改造范围，不构成“永久冻结、仍保留、不得修改”的约束；`golang.org/x/net` 仍由其他依赖使用。
 
 ### 2.2 兼容适配层
 
@@ -160,10 +162,10 @@
 | R09 | 日志与错误 | 日志级别/字段/rolling、errors.Is/As/%w、RPC/sentinel 测试 | 错误分类和诊断不丢失 |
 | R10 | 协程退出 | Start/Close 重复调用、取消等待、panic 隔离、goroutine 检查 | 无泄漏、无 panic 出进程 |
 | R11 | 性能基准 | 与 M0 相同 package、bench、benchtime、count 对比 | 无不可解释回退；记录环境噪声 |
-| R12 | 依赖图 | `go list -deps ./cmd/... ./pkg/...` + import grep | docopt/martini/statsd/旧 influx client 消失；etcd 与 x/net 保留 |
+| R12 | 依赖图 | `go list -deps ./cmd/... ./pkg/...` + import grep | docopt/martini/statsd/旧 influx client 消失；当时 etcd 与 x/net 保留 |
 | R13 | module 卫生 | 审查 `go.mod` / `go.sum` diff | 无全量 tidy、无无关升级 |
 | R14 | 生成物与配置 | `git status --short` / `git diff -- config/` | 无 bin、临时文件或意外配置变化 |
-| R15 | 排除项 | `git diff -- pkg/models/etcd go.mod` | etcd 源码与 coreos/etcd 版本不变 |
+| R15 | 排除项 | `git diff -- pkg/models/etcd go.mod` | 当时 etcd 源码与 `coreos/etcd` 版本不变；目录和依赖现已删除，本项不再适用 |
 | R16 | 全量 diff 审查 | 审查所有变更和新增测试 | 无行为夹带、敏感信息、遗留调试代码 |
 
 macOS 上的结论只覆盖本地 Go 单元、集成和微基准。Linux 生产性能、跨平台 cgo/jemalloc、真实 Redis/coordinator 集群切换不在本机回归的替代范围内；需要发布时仍应执行 `doc/redis8_validation_zh.md` 的正式 gate。
@@ -217,10 +219,10 @@ macOS 上的结论只覆盖本地 Go 单元、集成和微基准。Linux 生产�
 | R09 | 通过 | slog 格式/级别/堆栈/Close、errors.Is/As/%w、RPC/sentinel 测试通过 |
 | R10 | 通过 | 重复 Close、Close panic、metrics cleanup、后台 panic、周期任务退出与 accept 分类测试通过 |
 | R11 | 通过（有波动说明） | 同参数完整复跑，40 组 benchmark（原 34 + 新 A/B 6）完成；见下表及限制 |
-| R12 | 通过 | 构建图中 docopt/martini/bpool/statsd/旧 influx client 为零；influxdb1-client 存在；x/net/context 仅因冻结的 etcd 保留 |
+| R12 | 通过 | 构建图中 docopt/martini/bpool/statsd/旧 influx client 为零；influxdb1-client 存在；x/net/context 当时仅因 etcd 保留 |
 | R13 | 通过 | 未运行 go mod tidy；仅有目标依赖替换/删除，无其他版本升级 |
 | R14 | 通过 | `git diff -- config/` 为空；无 bin、临时测试或 smoke 产物进入工作树 |
-| R15 | 通过 | `git diff -- pkg/models/etcd` 为空；coreos/etcd 仍为 v3.3.27+incompatible |
+| R15 | 通过（当时） | 当时 `git diff -- pkg/models/etcd` 为空，`coreos/etcd` 版本未变；该目录与依赖已在后续清理中移除 |
 | R16 | 通过 | 三路独立 diff 审查完成；发现的 gzip、Close、cleanup、benchmark、assert goroutine 等问题均已修复并回归 |
 
 最终基准与基线的代表性中位数（相同机器、Go 1.27.4、300ms、count=5）：
@@ -252,7 +254,7 @@ decoder/offheap 大块项目的多轮结果波动明显：例如 Decode32K/128K 
 
 ### 5.4 保留项、偏离与限制
 
-- **etcd 完整排除**：源码、coreos/etcd 版本均未改；因此 `golang.org/x/net` 继续保留，lint 也只对该目录排除诊断。
+- **etcd 完整排除（当时）**：当时源码与 `coreos/etcd` 版本均未改，`golang.org/x/net` 因它继续保留，lint 也对 `pkg/models/etcd` 排除诊断。后续清理已删除该客户端、专属依赖和 lint 排除规则；本条只属于历史记录。
 - **有意保留**：`topom_slots.go` 两处依赖可变外部状态的旧排序/搜索；RequestChan 的关闭后丢弃、非阻塞入队和关闭后排空；Resp 不池化（共享子树/包级单例无法证明唯一所有权）；WaitGroup 不按值内嵌（子请求必须共享 join）；opstats 不做 atomic snapshot（全局锁不在每请求路径）。
 - **基准例外**：channel producer/consumer 与 RequestChan 批量 drain 使用现代 `for range b.N`，不强行改 b.Loop；这是保证测量形状和不死锁所必需的例外。
 - **CLI 差异**：docopt 的长选项唯一前缀缩写不再支持；help 展示完整 usage；空字符串选项在解析阶段报错而非稍后 panic，失败退出码不变。`--` 恢复为 option terminator，不作为 positional。

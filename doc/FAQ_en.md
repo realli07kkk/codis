@@ -1,9 +1,9 @@
 ####What is Codis?
 Codis is a distributed redis service developed by wandoujia infrasstructure team, codis can be viewed as an redis server with infinite memory, have the ability of dynamically elastic scaling,  it's more fit for storage business, if you need SUBPUB-like command, Codis is not supported, always remember Codis is a distributed storage system.
 
-###Does Codis support etcd ? 
+###Which external storage backends does Codis support?
 
-Yes, please read the tutorial
+ZooKeeper, Consul and filesystem; select one with `coordinator_name`. Please read the tutorial for details.
 
 
 ####Can I use Codis directly in my existing services?

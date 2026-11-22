@@ -4,7 +4,7 @@
 #                                                #
 ##################################################
 
-# Set Coordinator, only accept "zookeeper" & "etcd".
+# Set Coordinator, only accept "zookeeper" & "filesystem" & "consul".
 coordinator_name = "{COORDINATOR_NAME}"
 coordinator_addr = "{COORDINATOR_ADDR}"
 

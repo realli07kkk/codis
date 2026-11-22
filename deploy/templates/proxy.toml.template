@@ -15,7 +15,7 @@ admin_addr = "{ADMIN_ADDR}"
 proto_type = "tcp4"
 proxy_addr = "{PROXY_ADDR}"
 
-# Set jodis address & session timeout, only accept "zookeeper" & "etcd".
+# Set jodis address & session timeout, only accept "zookeeper" & "consul".
 jodis_name = "{JODIS_NAME}"
 jodis_addr = "{JODIS_ADDR}"
 jodis_timeout = "20s"

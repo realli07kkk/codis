@@ -124,10 +124,6 @@ func adminStringArg(cfg *adminConfig, flag string) cli.String {
 		return cfg.Coordinator.Zookeeper
 	case "--zookeeper-auth":
 		return cfg.Coordinator.ZookeeperAuth
-	case "--etcd":
-		return cfg.Coordinator.Etcd
-	case "--etcd-auth":
-		return cfg.Coordinator.EtcdAuth
 	case "--filesystem":
 		return cfg.Coordinator.Filesystem
 	case "--consul":
@@ -551,10 +547,10 @@ func TestAdminTailCommands(t *testing.T) {
 	adminMustUnset(t, adminStringArg(cfg, "--proxy"), "--proxy")
 	adminMustUnset(t, adminStringArg(cfg, "--dashboard"), "--dashboard")
 
-	cfg = parseAdminUsage(t, "--config-dump", "--product=test-product", "--etcd=127.0.0.1:2379")
+	cfg = parseAdminUsage(t, "--config-dump", "--product=test-product", "--consul=127.0.0.1:8500")
 	adminMustBool(t, adminBoolArg(cfg, "--config-dump"), "--config-dump", true)
 	adminMustBool(t, adminBoolArg(cfg, "-1"), "-1", false)
-	cfg = parseAdminUsage(t, "--config-dump", "--product=test-product", "--etcd=127.0.0.1:2379", "-1")
+	cfg = parseAdminUsage(t, "--config-dump", "--product=test-product", "--consul=127.0.0.1:8500", "-1")
 	adminMustBool(t, adminBoolArg(cfg, "-1"), "-1", true)
 
 	cfg = parseAdminUsage(t, "--config-convert=/tmp/config.json")
@@ -579,8 +575,8 @@ func TestAdminTailCommands(t *testing.T) {
 	tests := [][]string{
 		{"--remove-lock", "--product=test-product"},
 		{"--remove-lock", "--filesystem=/tmp/codis"},
-		{"--remove-lock", "--product=test-product", "--zookeeper=z", "--etcd=e"},
-		{"--config-dump", "--etcd=e"},
+		{"--remove-lock", "--product=test-product", "--zookeeper=z", "--consul=c"},
+		{"--config-dump", "--consul=c"},
 		{"--config-dump", "--product=p"},
 		{"--config-convert=/tmp/config.json", "--product=p"},
 		{"--config-restore=/tmp/config.json", "--product=p"},
@@ -594,7 +590,7 @@ func TestAdminTailCommands(t *testing.T) {
 	}
 }
 
-// TestAdminTailCoordinatorChoices covers the four-way coordinator choice on
+// TestAdminTailCoordinatorChoices covers the three-way coordinator choice on
 // the backend-facing commands (--remove-lock/--config-dump/--config-restore/
 // --dashboard-list), including the per-coordinator auth flags.
 func TestAdminTailCoordinatorChoices(t *testing.T) {
@@ -604,11 +600,10 @@ func TestAdminTailCoordinatorChoices(t *testing.T) {
 		want map[string]string
 	}{
 		{"zookeeper auth", []string{"--zookeeper=zk", "--zookeeper-auth=user:pass"}, map[string]string{"--zookeeper": "zk", "--zookeeper-auth": "user:pass"}},
-		{"etcd auth", []string{"--etcd=etcd", "--etcd-auth=user:pass"}, map[string]string{"--etcd": "etcd", "--etcd-auth": "user:pass"}},
 		{"filesystem", []string{"--filesystem=/tmp/codis"}, map[string]string{"--filesystem": "/tmp/codis"}},
 		{"consul auth", []string{"--consul=consul", "--consul-auth=token"}, map[string]string{"--consul": "consul", "--consul-auth": "token"}},
 	}
-	allFlags := []string{"--zookeeper", "--zookeeper-auth", "--etcd", "--etcd-auth", "--filesystem", "--consul", "--consul-auth"}
+	allFlags := []string{"--zookeeper", "--zookeeper-auth", "--filesystem", "--consul", "--consul-auth"}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			argv := append([]string{"--remove-lock", "--product=test-product"}, tt.argv...)
@@ -627,7 +622,6 @@ func TestAdminTailCoordinatorChoices(t *testing.T) {
 
 	sources := [][]string{
 		{"--zookeeper=zk", "--zookeeper-auth=user:pass"},
-		{"--etcd=etcd", "--etcd-auth=user:pass"},
 		{"--filesystem=/tmp/codis"},
 		{"--consul=consul", "--consul-auth=token"},
 	}
@@ -812,7 +806,7 @@ func TestAdminUsageLinesParse(t *testing.T) {
 		{"--dashboard=127.0.0.1:18080", "--sentinel-resync"},
 
 		{"--remove-lock", "--product=test-product", "--zookeeper=127.0.0.1:2181", "--zookeeper-auth=user:pass"},
-		{"--config-dump", "--product=test-product", "--etcd=127.0.0.1:2379", "--etcd-auth=user:pass", "-1"},
+		{"--config-dump", "--product=test-product", "--consul=127.0.0.1:8500", "--consul-auth=token", "-1"},
 		{"--config-convert=/tmp/config.json"},
 		{"--config-restore=/tmp/config.json", "--product=test-product", "--consul=127.0.0.1:8500", "--consul-auth=token", "--confirm"},
 		{"--dashboard-list", "--filesystem=/tmp/codis"},

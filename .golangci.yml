@@ -13,10 +13,3 @@ linters:
     staticcheck:
       # Keep correctness/deprecation checks; leave style-only S/ST/QF rules out.
       checks: ["SA*"]
-  exclusions:
-    rules:
-      # etcd is deliberately frozen for this modernization round.
-      - path: "(^|/)pkg/models/etcd/"
-        linters:
-          - govet
-          - staticcheck

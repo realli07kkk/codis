@@ -82,7 +82,7 @@ func parseProxyArgs(args []string) (*proxyConfig, bool, error) {
 		return cfg, false, nil
 	}
 
-	if err := parsed.AtMostOne("dashboard", "zookeeper", "etcd", "filesystem", "consul", "fillslots"); err != nil {
+	if err := parsed.AtMostOne("dashboard", "zookeeper", "filesystem", "consul", "fillslots"); err != nil {
 		return nil, false, err
 	}
 	if parsed.IsSet("max-ncpu") && !parsed.IsSet("ncpu") {

@@ -4,9 +4,9 @@
 #                                                #
 ##################################################
 
-# Set Coordinator, only accept "zookeeper" & "etcd".
-coordinator_name = "etcd"
-coordinator_addr = "127.0.0.1:2379"
+# Set Coordinator, only accept "zookeeper" & "filesystem" & "consul".
+coordinator_name = "zookeeper"
+coordinator_addr = "127.0.0.1:2181"
 
 # Set Codis Product Name/Auth.
 product_name = "demo-alpha"

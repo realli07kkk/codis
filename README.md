@@ -23,7 +23,7 @@ Donate if you want to help us maintaining this project. Thank you!
 ## Other Features
 * GUI website dashboard & admin tools
 * Supports most of Redis commands, Fully compatible with Twemproxy(https://github.com/twitter/twemproxy)
-* Proxies can register on zk/etcd, clients can avoid dead proxies, see "High Availability" section.
+* Proxies can register on the ZooKeeper or Consul coordinator, clients can avoid dead proxies, see "High Availability" section.
 
 ## Tutorial
 

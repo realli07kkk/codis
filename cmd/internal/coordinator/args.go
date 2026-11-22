@@ -22,8 +22,6 @@ type Args struct {
 type Flags struct {
 	Zookeeper     cli.String
 	ZookeeperAuth cli.String
-	Etcd          cli.String
-	EtcdAuth      cli.String
 	Filesystem    cli.String
 	Consul        cli.String
 	ConsulAuth    cli.String
@@ -40,7 +38,6 @@ type option struct {
 func (f *Flags) options() []option {
 	return []option{
 		{name: "zookeeper", addr: &f.Zookeeper, addrFlag: "zookeeper", auth: &f.ZookeeperAuth, authFlag: "zookeeper-auth"},
-		{name: "etcd", addr: &f.Etcd, addrFlag: "etcd", auth: &f.EtcdAuth, authFlag: "etcd-auth"},
 		{name: "filesystem", addr: &f.Filesystem, addrFlag: "filesystem"},
 		{name: "consul", addr: &f.Consul, addrFlag: "consul", auth: &f.ConsulAuth, authFlag: "consul-auth"},
 	}
@@ -50,7 +47,6 @@ func (f *Flags) options() []option {
 func FlagNames() []string {
 	return []string{
 		"zookeeper", "zookeeper-auth",
-		"etcd", "etcd-auth",
 		"filesystem",
 		"consul", "consul-auth",
 	}
@@ -60,7 +56,6 @@ func FlagNames() []string {
 func (f *Flags) Bind(fs *flag.FlagSet) {
 	f.BindAddresses(fs)
 	fs.Var(&f.ZookeeperAuth, "zookeeper-auth", "zookeeper auth")
-	fs.Var(&f.EtcdAuth, "etcd-auth", "etcd auth")
 	fs.Var(&f.ConsulAuth, "consul-auth", "consul auth")
 }
 
@@ -68,7 +63,6 @@ func (f *Flags) Bind(fs *flag.FlagSet) {
 // deliberately does not accept the --*-auth flags on the command line.
 func (f *Flags) BindAddresses(fs *flag.FlagSet) {
 	fs.Var(&f.Zookeeper, "zookeeper", "zookeeper address")
-	fs.Var(&f.Etcd, "etcd", "etcd address")
 	fs.Var(&f.Filesystem, "filesystem", "filesystem root")
 	fs.Var(&f.Consul, "consul", "consul address")
 }

@@ -563,7 +563,7 @@ func parseAdminTailMode(cfg *adminConfig, parsed *cli.Args) error {
 		return err
 	}
 	if !ok {
-		return fmt.Errorf("exactly one of --zookeeper, --etcd, --filesystem, --consul is required")
+		return fmt.Errorf("exactly one of --zookeeper, --filesystem, --consul is required")
 	}
 	cfg.CoordinatorArg, cfg.HasCoordinator = coordinator, true
 	return nil

@@ -8,7 +8,7 @@ Codis 的目标是让业务像用单机 Redis 一样使用可扩缩容的 Redis 
 | --- | --- | --- |
 | 分片 | 固定 1024 slot，key 取第一个 `{...}` 作 hash tag 后按 CRC32 落到 slot | 不是 Redis Cluster：没有 cluster bus、gossip、`MOVED`/`ASK`、cluster failover；1024 与 16384 是两套独立 slot 空间 |
 | 拓扑变更 | 不停机增删 Codis Server、迁移 slot、重新均衡容量 | 必须经 dashboard/topom 管理，不得绕过它直接改 coordinator 中的状态 |
-| 数据归属 | proxy 按 slot 转发，不在业务路径持久化数据；元数据存于 filesystem、Zookeeper、Etcd、Consul | 后端容量、持久化和资源隔离仍由 Redis 自身承担，Codis 不代为规划 |
+| 数据归属 | proxy 按 slot 转发，不在业务路径持久化数据；元数据存于 filesystem、Zookeeper、Consul | 后端容量、持久化和资源隔离仍由 Redis 自身承担，Codis 不代为规划 |
 | Consul 后端 | 只使用 Consul 的 KV 与 Session 语义保存 `/codis3` 元数据与 `/jodis` 注册 | 不迁移存量元数据；不使用 Consul service catalog、health check 或 service mesh |
 
 ## 数据迁移

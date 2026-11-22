@@ -78,10 +78,6 @@ func feStringArg(cfg *feConfig, flag string) cli.String {
 		return cfg.Coordinator.Zookeeper
 	case "--zookeeper-auth":
 		return cfg.Coordinator.ZookeeperAuth
-	case "--etcd":
-		return cfg.Coordinator.Etcd
-	case "--etcd-auth":
-		return cfg.Coordinator.EtcdAuth
 	case "--filesystem":
 		return cfg.Coordinator.Filesystem
 	case "--consul":
@@ -97,13 +93,13 @@ func feStringArg(cfg *feConfig, flag string) cli.String {
 
 var feStringFlags = []string{
 	"--ncpu", "--log", "--log-level", "--assets-dir", "--pidfile",
-	"--dashboard-list", "--zookeeper", "--etcd", "--filesystem", "--consul",
+	"--dashboard-list", "--zookeeper", "--filesystem", "--consul",
 	"--listen",
 }
 
 var feSourceFlags = []string{
 	"--dashboard-list", "--zookeeper", "--zookeeper-auth",
-	"--etcd", "--etcd-auth", "--filesystem", "--consul", "--consul-auth",
+	"--filesystem", "--consul", "--consul-auth",
 }
 
 // TestFEParserRequiresListenAndSource pins the usage grammar: both a dashboard
@@ -157,8 +153,6 @@ func TestFESourceChoices(t *testing.T) {
 		{"dashboard-list", []string{"--dashboard-list=/tmp/list.json"}, map[string]string{"--dashboard-list": "/tmp/list.json"}},
 		{"zookeeper", []string{"--zookeeper=127.0.0.1:2181"}, map[string]string{"--zookeeper": "127.0.0.1:2181"}},
 		{"zookeeper auth", []string{"--zookeeper=127.0.0.1:2181", "--zookeeper-auth=user:pass"}, map[string]string{"--zookeeper": "127.0.0.1:2181", "--zookeeper-auth": "user:pass"}},
-		{"etcd", []string{"--etcd=127.0.0.1:2379"}, map[string]string{"--etcd": "127.0.0.1:2379"}},
-		{"etcd auth", []string{"--etcd=127.0.0.1:2379", "--etcd-auth=user:pass"}, map[string]string{"--etcd": "127.0.0.1:2379", "--etcd-auth": "user:pass"}},
 		{"filesystem", []string{"--filesystem=/tmp/codis"}, map[string]string{"--filesystem": "/tmp/codis"}},
 		{"consul", []string{"--consul=127.0.0.1:8500"}, map[string]string{"--consul": "127.0.0.1:8500"}},
 		{"consul auth", []string{"--consul=127.0.0.1:8500", "--consul-auth=token"}, map[string]string{"--consul": "127.0.0.1:8500", "--consul-auth": "token"}},
@@ -183,7 +177,6 @@ func TestFESourceChoicesRejectMultipleSources(t *testing.T) {
 	sources := [][]string{
 		{"--dashboard-list=/tmp/list.json"},
 		{"--zookeeper=zk", "--zookeeper-auth=user:pass"},
-		{"--etcd=etcd", "--etcd-auth=user:pass"},
 		{"--filesystem=/tmp/codis"},
 		{"--consul=consul", "--consul-auth=token"},
 	}
@@ -201,7 +194,7 @@ func TestFESourceChoicesRejectMultipleSources(t *testing.T) {
 // TestFEAuthFlagsRequireTheirCoordinator pins that --*-auth only forms a valid
 // argv together with the matching coordinator address.
 func TestFEAuthFlagsRequireTheirCoordinator(t *testing.T) {
-	for _, flag := range []string{"--zookeeper-auth=user:pass", "--etcd-auth=user:pass", "--consul-auth=token"} {
+	for _, flag := range []string{"--zookeeper-auth=user:pass", "--consul-auth=token"} {
 		argv := append([]string{"--listen=:8080"}, flag)
 		if err := parseFEUsageError(t, argv...); err == nil {
 			t.Fatalf("argv %v: expected parse error", argv)
@@ -233,7 +226,7 @@ func TestFEStringFlagsBindValues(t *testing.T) {
 // absent value is a parse error, not a silently empty value.
 func TestFEStringFlagsAbsentExceptRequired(t *testing.T) {
 	cfg := parseFEUsage(t, "--listen=:8080", "--zookeeper=zk")
-	for _, flag := range []string{"--ncpu", "--log", "--log-level", "--assets-dir", "--pidfile", "--dashboard-list", "--etcd", "--filesystem", "--consul"} {
+	for _, flag := range []string{"--ncpu", "--log", "--log-level", "--assets-dir", "--pidfile", "--dashboard-list", "--filesystem", "--consul"} {
 		feMustUnset(t, feStringArg(cfg, flag), flag)
 	}
 }

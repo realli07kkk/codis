@@ -6,7 +6,6 @@ toolchain go1.27.4
 
 require (
 	github.com/BurntSushi/toml v1.6.0
-	github.com/coreos/etcd v3.3.27+incompatible
 	github.com/go-zookeeper/zk v1.0.4
 	github.com/google/uuid v1.6.0
 	github.com/hashicorp/consul/api v1.34.3
@@ -14,7 +13,6 @@ require (
 	github.com/influxdata/influxdb1-client v0.0.0-20220302092344-a9ab5670611c
 	github.com/redis/go-redis/v9 v9.20.0
 	github.com/spinlock/jemalloc-go v0.0.0-20201010032256-e81523fb8524
-	golang.org/x/net v0.62.0
 )
 
 require (
@@ -28,7 +26,6 @@ require (
 	github.com/bytedance/sonic/loader v0.5.0 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/cloudwego/base64x v0.1.6 // indirect
-	github.com/coreos/go-semver v0.3.1 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/fatih/color v1.16.0 // indirect
 	github.com/go-viper/mapstructure/v2 v2.4.0 // indirect
@@ -52,12 +49,11 @@ require (
 	github.com/spf13/pflag v1.0.5 // indirect
 	github.com/twitchyliquid64/golang-asm v0.15.1 // indirect
 	go.uber.org/atomic v1.11.0 // indirect
-	go.uber.org/multierr v1.6.0 // indirect
-	go.uber.org/zap v1.16.0 // indirect
 	golang.org/x/arch v0.9.0 // indirect
 	golang.org/x/crypto v0.58.0 // indirect
 	golang.org/x/exp v0.0.0-20260218203240-3dfff04db8fa // indirect
 	golang.org/x/mod v0.33.0 // indirect
+	golang.org/x/net v0.62.0 // indirect
 	golang.org/x/sync v0.19.0 // indirect
 	golang.org/x/sys v0.49.0 // indirect
 	golang.org/x/telemetry v0.0.0-20260209163413-e7419c687ee4 // indirect

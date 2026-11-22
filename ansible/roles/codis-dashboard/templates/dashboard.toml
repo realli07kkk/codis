@@ -5,7 +5,7 @@
 #                                                #
 ##################################################
 
-# Set Coordinator, only accept "zookeeper" & "etcd" & "filesystem".
+# Set Coordinator, only accept "zookeeper" & "filesystem" & "consul".
 # Quick Start
 coordinator_name = "{{ coordinator_name }}"
 coordinator_addr = "{{ coordinator_addr }}"

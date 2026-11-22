@@ -39,7 +39,7 @@ go build -tags cgo_jemalloc -o bin/codis-proxy ./cmd/proxy
 
 依赖只从 `go.mod` / `go.sum` 解析，`go` 指令为 `go 1.26.1`。旧的 `vendor/` 与 `Godeps/` 已退休，不要恢复基于 GOPATH 或源码级 vendor 副本的构建路径；真需要 vendor mode 时应另起方案用 `go mod vendor` 生成带 `vendor/modules.txt` 的一致目录树。
 
-- **不要跑全量 `go mod tidy`。** 它会顺着 etcd 等依赖的测试链路重写 `go.mod` / `go.sum`，产生大量与本意无关的改动。更新依赖时让构建或测试命令驱动最小的机械变化即可，例如先跑 `go build ./cmd/...` 再补它明确报缺的条目。
+- **不要跑全量 `go mod tidy`。** 它会顺着既有第三方依赖（包括其测试依赖）的链路重写 `go.mod` / `go.sum`，产生大量与本意无关的改动。更新依赖时让构建或测试命令驱动最小的机械变化即可，例如先跑 `go build ./cmd/...` 再补它明确报缺的条目。
 - **不要顺手升级依赖版本。** 版本偏离必须有可复现的现代 Go 编译原因；能编译就保持原状。
 - **`version.go` 归 git。** `pkg/utils/version.go` 提交到仓库，只放 `unknown version` / `unknown datetime` 兜底值，保证 clean checkout 下裸 `go test` 不会因缺少生成文件失败；真实版本信息由 `version` 脚本写成 `-X` 形式塞进 `bin/version.ldflags`，Makefile 通过 `VERSION_LDFLAGS` 注入到每个 build/test 命令。版本信息不能变成运行期外部依赖。
 - **jemalloc 走本地 replace。** `pkg/utils/unsafe2` 在 `cgo_jemalloc` build tag 下 import `github.com/spinlock/jemalloc-go`，`go.mod` 用 `replace github.com/spinlock/jemalloc-go => ./third_party/jemalloc-go` 指向本地副本；相关修改改 `third_party/jemalloc-go`，不要改 vendor 副本或 module cache 里的文件。Linux 上构建 proxy 前会先执行 `make -C third_party/jemalloc-go -f config.mk config` 生成 jemalloc 配置。

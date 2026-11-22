@@ -66,7 +66,7 @@ func parseFEArgs(args []string) (*feConfig, bool, error) {
 	if !cfg.Listen.Provided {
 		return nil, false, fmt.Errorf("option --listen is required")
 	}
-	if _, err := parsed.ExactlyOne("dashboard-list", "zookeeper", "etcd", "filesystem", "consul"); err != nil {
+	if _, err := parsed.ExactlyOne("dashboard-list", "zookeeper", "filesystem", "consul"); err != nil {
 		return nil, false, err
 	}
 

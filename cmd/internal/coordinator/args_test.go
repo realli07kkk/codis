@@ -4,6 +4,7 @@
 package coordinator
 
 import (
+	"flag"
 	"testing"
 
 	"github.com/CodisLabs/codis/cmd/internal/cli"
@@ -27,15 +28,6 @@ func TestParse(t *testing.T) {
 				ZookeeperAuth: testString("user:pass"),
 			},
 			want: Args{Name: "zookeeper", Addr: "127.0.0.1:2181", Auth: "user:pass", HasAuth: true},
-			ok:   true,
-		},
-		{
-			name: "etcd with auth",
-			flags: Flags{
-				Etcd:     testString("127.0.0.1:2379"),
-				EtcdAuth: testString("user:pass"),
-			},
-			want: Args{Name: "etcd", Addr: "127.0.0.1:2379", Auth: "user:pass", HasAuth: true},
 			ok:   true,
 		},
 		{
@@ -92,9 +84,8 @@ func TestParse(t *testing.T) {
 func TestParseAuthWithoutCoordinator(t *testing.T) {
 	for _, flags := range []Flags{
 		{ZookeeperAuth: testString("user:pass")},
-		{EtcdAuth: testString("user:pass")},
 		{ConsulAuth: testString("token")},
-		{ZookeeperAuth: testString("user:pass"), EtcdAuth: testString("user:pass")},
+		{ZookeeperAuth: testString("user:pass"), ConsulAuth: testString("token")},
 	} {
 		if got, ok, err := flags.Parse(); err == nil || ok {
 			t.Fatalf("Parse() = %+v, %v, %v; want an auth binding error", got, ok, err)
@@ -103,7 +94,7 @@ func TestParseAuthWithoutCoordinator(t *testing.T) {
 }
 
 // TestParseBindsAuthToOwningCoordinator pins that each auth flag is only read
-// together with its own address flag; a stray --etcd-auth must not leak into a
+// together with its own address flag; a stray --consul-auth must not leak into a
 // zookeeper result (and vice versa).
 func TestParseBindsAuthToOwningCoordinator(t *testing.T) {
 	flags := Flags{
@@ -120,8 +111,8 @@ func TestParseBindsAuthToOwningCoordinator(t *testing.T) {
 	}
 
 	for _, stray := range []Flags{
-		{Zookeeper: testString("zk"), EtcdAuth: testString("user:pass")},
-		{Etcd: testString("etcd"), ZookeeperAuth: testString("user:pass")},
+		{Zookeeper: testString("zk"), ConsulAuth: testString("token")},
+		{Consul: testString("consul"), ZookeeperAuth: testString("user:pass")},
 	} {
 		if got, ok, err := stray.Parse(); err == nil || ok {
 			t.Fatalf("Parse() = %+v, %v, %v; want a stray auth error", got, ok, err)
@@ -129,14 +120,31 @@ func TestParseBindsAuthToOwningCoordinator(t *testing.T) {
 	}
 }
 
-// TestParseRejectsMultipleCoordinators pins the four-way mutual exclusion.
+// TestParseRejectsMultipleCoordinators pins the three-way mutual exclusion.
 func TestParseRejectsMultipleCoordinators(t *testing.T) {
 	flags := Flags{
-		Zookeeper: testString("zk"),
-		Etcd:      testString("etcd"),
-		Consul:    testString("consul"),
+		Zookeeper:  testString("zk"),
+		Filesystem: testString("/tmp/codis"),
+		Consul:     testString("consul"),
 	}
 	if got, ok, err := flags.Parse(); err == nil || ok {
 		t.Fatalf("Parse() = %+v, %v, %v; want a mutual exclusion error", got, ok, err)
+	}
+}
+
+func TestBindRejectsEtcdFlags(t *testing.T) {
+	for _, addressesOnly := range []bool{false, true} {
+		for _, arg := range []string{"--etcd=127.0.0.1:2379", "--etcd-auth=user:pass"} {
+			var flags Flags
+			fs := flag.NewFlagSet("test", flag.ContinueOnError)
+			if addressesOnly {
+				flags.BindAddresses(fs)
+			} else {
+				flags.Bind(fs)
+			}
+			if err := fs.Parse([]string{arg}); err == nil {
+				t.Fatalf("Parse(%q) with addressesOnly=%v succeeded, want unknown flag error", arg, addressesOnly)
+			}
+		}
 	}
 }

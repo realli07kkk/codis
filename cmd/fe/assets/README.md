@@ -18,7 +18,7 @@ make codis-fe
   --listen=0.0.0.0:18080
 ```
 
-也可将 `--dashboard-list` 替换为现有的 `--zookeeper`、`--etcd`、`--filesystem` 或 `--consul` 配置。打开 `http://<host>:18080/`。
+也可将 `--dashboard-list` 替换为现有的 `--zookeeper`、`--filesystem` 或 `--consul` 配置。打开 `http://<host>:18080/`。
 
 开发时可直接使用源码目录，避免反复复制 assets：
 

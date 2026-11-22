@@ -76,8 +76,6 @@ func dashboardStringArg(cfg *dashboardConfig, flag string) cli.String {
 		return cfg.Pidfile
 	case "--zookeeper":
 		return cfg.Coordinator.Zookeeper
-	case "--etcd":
-		return cfg.Coordinator.Etcd
 	case "--filesystem":
 		return cfg.Coordinator.Filesystem
 	case "--consul":
@@ -93,11 +91,11 @@ func dashboardStringArg(cfg *dashboardConfig, flag string) cli.String {
 
 var dashboardStringFlags = []string{
 	"--ncpu", "--config", "--log", "--log-level", "--host-admin", "--pidfile",
-	"--zookeeper", "--etcd", "--filesystem", "--consul",
+	"--zookeeper", "--filesystem", "--consul",
 	"--product_name", "--product_auth",
 }
 
-var dashboardCoordinatorFlags = []string{"--zookeeper", "--etcd", "--filesystem", "--consul"}
+var dashboardCoordinatorFlags = []string{"--zookeeper", "--filesystem", "--consul"}
 
 func TestDashboardOneShotFlagsParseAsBools(t *testing.T) {
 	tests := []struct {
@@ -169,7 +167,6 @@ func TestDashboardStringFlagsBindValues(t *testing.T) {
 	dashboardMustBool(t, cfg.DefaultConfig, "--default-config", false)
 	dashboardMustBool(t, cfg.Version, "--version", false)
 	dashboardMustBool(t, cfg.RemoveLock, "--remove-lock", false)
-	dashboardMustUnset(t, dashboardStringArg(cfg, "--etcd"), "--etcd")
 	dashboardMustUnset(t, dashboardStringArg(cfg, "--filesystem"), "--filesystem")
 	dashboardMustUnset(t, dashboardStringArg(cfg, "--consul"), "--consul")
 }
@@ -181,7 +178,7 @@ func TestDashboardShortAliases(t *testing.T) {
 	dashboardMustString(t, cfg.Coordinator.Zookeeper, "--zookeeper", "zk")
 }
 
-// TestDashboardCoordinatorChoices covers the four mutual-exclusive coordinator
+// TestDashboardCoordinatorChoices covers the three mutual-exclusive coordinator
 // addresses accepted by codis-dashboard.
 func TestDashboardCoordinatorChoices(t *testing.T) {
 	tests := []struct {
@@ -190,7 +187,6 @@ func TestDashboardCoordinatorChoices(t *testing.T) {
 		want map[string]string
 	}{
 		{"zookeeper", []string{"--zookeeper=127.0.0.1:2181"}, map[string]string{"--zookeeper": "127.0.0.1:2181"}},
-		{"etcd", []string{"--etcd=127.0.0.1:2379"}, map[string]string{"--etcd": "127.0.0.1:2379"}},
 		{"filesystem", []string{"--filesystem=/tmp/codis"}, map[string]string{"--filesystem": "/tmp/codis"}},
 		{"consul", []string{"--consul=127.0.0.1:8500"}, map[string]string{"--consul": "127.0.0.1:8500"}},
 	}
@@ -211,7 +207,6 @@ func TestDashboardCoordinatorChoices(t *testing.T) {
 func TestDashboardCoordinatorChoicesRejectMultipleSources(t *testing.T) {
 	sources := [][]string{
 		{"--zookeeper=zk"},
-		{"--etcd=etcd"},
 		{"--filesystem=/tmp/codis"},
 		{"--consul=consul"},
 	}
@@ -232,7 +227,6 @@ func TestDashboardCoordinatorChoicesRejectMultipleSources(t *testing.T) {
 func TestDashboardRejectsCoordinatorAuthFlags(t *testing.T) {
 	tests := [][]string{
 		{"--zookeeper=zk", "--zookeeper-auth=user:pass"},
-		{"--etcd=etcd", "--etcd-auth=user:pass"},
 		{"--consul=consul", "--consul-auth=token"},
 		{"--zookeeper-auth=user:pass"},
 	}

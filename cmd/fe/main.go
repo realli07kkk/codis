@@ -57,7 +57,7 @@ func init() {
 // the parser tests.
 const feUsage = `
 Usage:
-	codis-fe [--ncpu=N] [--log=FILE] [--log-level=LEVEL] [--assets-dir=PATH] [--pidfile=FILE] (--dashboard-list=FILE|--zookeeper=ADDR [--zookeeper-auth=USR:PWD]|--etcd=ADDR [--etcd-auth=USR:PWD]|--filesystem=ROOT|--consul=ADDR [--consul-auth=TOKEN]) --listen=ADDR
+	codis-fe [--ncpu=N] [--log=FILE] [--log-level=LEVEL] [--assets-dir=PATH] [--pidfile=FILE] (--dashboard-list=FILE|--zookeeper=ADDR [--zookeeper-auth=USR:PWD]|--filesystem=ROOT|--consul=ADDR [--consul-auth=TOKEN]) --listen=ADDR
 	codis-fe  --version
 
 Options:
