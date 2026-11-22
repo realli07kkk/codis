@@ -32,7 +32,7 @@ TARGET_REDIS_MAKE_ARGS := $($(TARGET_REDIS_MAKE_ARGS_VAR))
 GO_BUILD_ENV = GOOS=$(TARGET_OS) GOARCH=$(TARGET_ARCH) CGO_ENABLED=$(TARGET_CGO_ENABLED) $(if $(TARGET_CC),CC="$(TARGET_CC)")
 REDIS_BUILD_ENV = $(if $(TARGET_CC),CC="$(TARGET_CC)") $(if $(TARGET_CXX),CXX="$(TARGET_CXX)") $(TARGET_REDIS_MAKE_ARGS)
 
-.PHONY: build-all host-build-all build-host codis-deps jemalloc-config validate-target-platform check-target-platforms check-target-platform default-configs build-platforms release-platforms build-platform build-platform-artifact build-no-redis-platform codis-dashboard codis-proxy codis-admin codis-ha codis-fe codis-server codis-server-redis8 clean-gotest clean distclean gotest gobench docker demo
+.PHONY: build-all host-build-all build-host codis-deps jemalloc-config validate-target-platform check-target-platforms check-target-platform default-configs build-platforms release-platforms build-platform build-platform-artifact build-no-redis-platform codis-dashboard codis-proxy codis-admin codis-ha codis-fe codis-server codis-server-redis8 clean-gotest clean distclean gotest gobench lint docker demo
 
 build-all: host-build-all
 
@@ -237,6 +237,10 @@ gotest: codis-deps
 
 gobench: codis-deps
 	go test $(VERSION_LDFLAGS) -gcflags -l -bench=. -v ./pkg/...
+
+lint:
+	go vet ./cmd/... ./pkg/...
+	golangci-lint run ./cmd/... ./pkg/...
 
 docker:
 	docker build --force-rm -t codis-image .
