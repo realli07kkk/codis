@@ -7,21 +7,15 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
-	"strings"
-	"sync"
 	"time"
 
 	_ "net/http/pprof"
-
-	"github.com/go-martini/martini"
-	"github.com/martini-contrib/binding"
-	"github.com/martini-contrib/gzip"
-	"github.com/martini-contrib/render"
 
 	"github.com/CodisLabs/codis/pkg/models"
 	"github.com/CodisLabs/codis/pkg/proxy"
 	"github.com/CodisLabs/codis/pkg/utils"
 	"github.com/CodisLabs/codis/pkg/utils/errors"
+	"github.com/CodisLabs/codis/pkg/utils/httpx"
 	"github.com/CodisLabs/codis/pkg/utils/log"
 	"github.com/CodisLabs/codis/pkg/utils/redis"
 	"github.com/CodisLabs/codis/pkg/utils/rpc"
@@ -31,137 +25,100 @@ type apiServer struct {
 	topom *Topom
 }
 
-var apiServerInitMu sync.Mutex
-
+// newApiServer builds the admin HTTP handler from Go 1.22+ http.ServeMux
+// method/path patterns. Handlers are plain http.HandlerFuncs: path parameters
+// come from Request.PathValue and responses use http.ResponseWriter.
 func newApiServer(t *Topom) http.Handler {
-	// martini-contrib/render keeps a package-level template store; serialize
-	// construction so tests that create several topoms do not race.
-	apiServerInitMu.Lock()
-	defer apiServerInitMu.Unlock()
-
-	m := martini.New()
-	m.Use(martini.Recovery())
-	m.Use(render.Renderer())
-	m.Use(func(w http.ResponseWriter, req *http.Request, c martini.Context) {
-		path := req.URL.Path
-		if req.Method != "GET" && strings.HasPrefix(path, "/api/") {
-			path = utils.RedactPathSecret(path, t.XAuth())
-			var remoteAddr = req.RemoteAddr
-			var headerAddr string
-			for _, key := range []string{"X-Real-IP", "X-Forwarded-For"} {
-				if val := req.Header.Get(key); val != "" {
-					headerAddr = val
-					break
-				}
-			}
-			log.Warnf("[%p] API call %s from %s [%s]", t, path, remoteAddr, headerAddr)
-		}
-		c.Next()
-	})
-	m.Use(gzip.All())
-	m.Use(func(c martini.Context, w http.ResponseWriter) {
-		w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	})
-
 	api := &apiServer{topom: t}
 
-	r := martini.NewRouter()
+	r := httpx.NewRouter()
+	r.Get(httpx.Root, api.RedirectToOverview)
+	// martini's "/debug/**" did not match "/debug", so keep the 404 instead of
+	// letting ServeMux redirect "/debug" to "/debug/".
+	r.NotFound("/debug")
+	r.Any("/debug/{rest...}", utils.ServeDebugHTTP)
 
-	r.Get("/", func(r render.Render) {
-		r.Redirect("/topom")
-	})
-	r.Any("/debug/**", utils.ServeDebugHTTP)
+	r.Get("/topom", api.Overview)
+	r.Get("/topom/model", api.Model)
+	r.Get("/topom/stats", api.StatsNoXAuth)
+	r.Get("/topom/slots", api.SlotsNoXAuth)
 
-	r.Group("/topom", func(r martini.Router) {
-		r.Get("", api.Overview)
-		r.Get("/model", api.Model)
-		r.Get("/stats", api.StatsNoXAuth)
-		r.Get("/slots", api.SlotsNoXAuth)
-	})
-	r.Group("/api/topom", func(r martini.Router) {
-		r.Get("/model", api.Model)
-		r.Get("/xping/:xauth", api.XPing)
-		r.Get("/stats/:xauth", api.Stats)
-		r.Get("/slots/:xauth", api.Slots)
-		r.Put("/reload/:xauth", api.Reload)
-		r.Put("/shutdown/:xauth", api.Shutdown)
-		r.Put("/loglevel/:xauth/:value", api.LogLevel)
-		r.Group("/rdb-analysis", func(r martini.Router) {
-			r.Post("/upload/:xauth", api.RDBAnalysisUpload)
-			r.Put("/start/:xauth", api.RDBAnalysisStart)
-			r.Put("/remote-fetch/:xauth", api.RDBAnalysisRemoteFetch)
-			r.Put("/cancel/:xauth/:id", api.RDBAnalysisCancel)
-			r.Put("/remove/:xauth/:id", api.RDBAnalysisRemove)
-			r.Get("/:xauth/:id", api.RDBAnalysisGet)
-		})
-		r.Group("/pitr", func(r martini.Router) {
-			r.Put("/create/:xauth", api.PitrCreate)
-			r.Get("/jobs/:xauth", api.PitrList)
-			r.Get("/:xauth/:id", api.PitrGet)
-			r.Put("/cancel/:xauth/:id", api.PitrCancel)
-			r.Put("/remove/:xauth/:id", api.PitrRemove)
-		})
-		r.Get("/acl/:xauth", api.GetACL)
-		r.Put("/acl/:xauth", binding.Json(ACLUpdateRequest{}), api.SetACL)
-		r.Put("/acl/sync/:xauth", api.SyncACL)
-		r.Get("/proxy/qps-limit/:xauth", api.GetProxyQPSLimit)
-		r.Put("/proxy/qps-limit/:xauth", binding.Json(ProxyQPSLimitUpdateRequest{}), api.SetProxyQPSLimit)
-		r.Put("/hot-key-cache/invalidate/:xauth", binding.Json(proxy.HotKeyCacheBroadcastRequest{}), api.HotKeyCacheInvalidate)
-		r.Group("/proxy", func(r martini.Router) {
-			r.Put("/create/:xauth/:addr", api.CreateProxy)
-			r.Put("/online/:xauth/:addr", api.OnlineProxy)
-			r.Put("/reinit/:xauth/:token", api.ReinitProxy)
-			r.Put("/remove/:xauth/:token/:force", api.RemoveProxy)
-		})
-		r.Group("/group", func(r martini.Router) {
-			r.Put("/create/:xauth/:gid", api.CreateGroup)
-			r.Put("/remove/:xauth/:gid", api.RemoveGroup)
-			r.Put("/resync/:xauth/:gid", api.ResyncGroup)
-			r.Put("/resync-all/:xauth", api.ResyncGroupAll)
-			r.Put("/add/:xauth/:gid/:addr", api.GroupAddServer)
-			r.Put("/add/:xauth/:gid/:addr/:datacenter", api.GroupAddServer)
-			r.Put("/del/:xauth/:gid/:addr", api.GroupDelServer)
-			r.Put("/promote/:xauth/:gid/:addr", api.GroupPromoteServer)
-			r.Put("/replica-groups/:xauth/:gid/:addr/:value", api.EnableReplicaGroups)
-			r.Put("/replica-groups-all/:xauth/:value", api.EnableReplicaGroupsAll)
-			r.Group("/action", func(r martini.Router) {
-				r.Put("/create/:xauth/:addr", api.SyncCreateAction)
-				r.Put("/remove/:xauth/:addr", api.SyncRemoveAction)
-			})
-			r.Get("/info/:addr", api.InfoServer)
-		})
-		r.Group("/slots", func(r martini.Router) {
-			r.Group("/action", func(r martini.Router) {
-				r.Put("/create/:xauth/:sid/:gid", api.SlotCreateAction)
-				r.Put("/create-some/:xauth/:src/:dst/:num", api.SlotCreateActionSome)
-				r.Put("/create-range/:xauth/:beg/:end/:gid", api.SlotCreateActionRange)
-				r.Put("/remove/:xauth/:sid", api.SlotRemoveAction)
-				r.Put("/interval/:xauth/:value", api.SetSlotActionInterval)
-				r.Put("/disabled/:xauth/:value", api.SetSlotActionDisabled)
-			})
-			r.Put("/assign/:xauth", binding.Json([]*models.SlotMapping{}), api.SlotsAssignGroup)
-			r.Put("/assign/:xauth/offline", binding.Json([]*models.SlotMapping{}), api.SlotsAssignOffline)
-			r.Put("/rebalance/:xauth/:confirm", api.SlotsRebalance)
-		})
-		r.Group("/sentinels", func(r martini.Router) {
-			r.Put("/add/:xauth/:addr", api.AddSentinel)
-			r.Put("/del/:xauth/:addr/:force", api.DelSentinel)
-			r.Put("/resync-all/:xauth", api.ResyncSentinels)
-			r.Get("/info/:addr", api.InfoSentinel)
-			r.Get("/info/:addr/monitored", api.InfoSentinelMonitored)
-		})
-	})
+	r.Get("/api/topom/model", api.Model)
+	r.Get("/api/topom/xping/{xauth}", api.XPing)
+	r.Get("/api/topom/stats/{xauth}", api.Stats)
+	r.Get("/api/topom/slots/{xauth}", api.Slots)
+	r.Put("/api/topom/reload/{xauth}", api.Reload)
+	r.Put("/api/topom/shutdown/{xauth}", api.Shutdown)
+	r.Put("/api/topom/loglevel/{xauth}/{value}", api.LogLevel)
 
-	m.MapTo(r, (*martini.Routes)(nil))
-	m.Action(r.Handle)
-	return m
+	r.Post("/api/topom/rdb-analysis/upload/{xauth}", api.RDBAnalysisUpload)
+	r.Put("/api/topom/rdb-analysis/start/{xauth}", api.RDBAnalysisStart)
+	r.Put("/api/topom/rdb-analysis/remote-fetch/{xauth}", api.RDBAnalysisRemoteFetch)
+	r.Put("/api/topom/rdb-analysis/cancel/{xauth}/{id}", api.RDBAnalysisCancel)
+	r.Put("/api/topom/rdb-analysis/remove/{xauth}/{id}", api.RDBAnalysisRemove)
+	r.Get("/api/topom/rdb-analysis/{xauth}/{id}", api.RDBAnalysisGet)
+
+	r.Put("/api/topom/pitr/create/{xauth}", api.PitrCreate)
+	r.Get("/api/topom/pitr/jobs/{xauth}", api.PitrList)
+	r.Get("/api/topom/pitr/{xauth}/{id}", api.PitrGet)
+	r.Put("/api/topom/pitr/cancel/{xauth}/{id}", api.PitrCancel)
+	r.Put("/api/topom/pitr/remove/{xauth}/{id}", api.PitrRemove)
+
+	r.Get("/api/topom/acl/{xauth}", api.GetACL)
+	r.Put("/api/topom/acl/{xauth}", api.SetACL)
+	r.Put("/api/topom/acl/sync/{xauth}", api.SyncACL)
+	r.Get("/api/topom/proxy/qps-limit/{xauth}", api.GetProxyQPSLimit)
+	r.Put("/api/topom/proxy/qps-limit/{xauth}", api.SetProxyQPSLimit)
+	r.Put("/api/topom/hot-key-cache/invalidate/{xauth}", api.HotKeyCacheInvalidate)
+
+	r.Put("/api/topom/proxy/create/{xauth}/{addr}", api.CreateProxy)
+	r.Put("/api/topom/proxy/online/{xauth}/{addr}", api.OnlineProxy)
+	r.Put("/api/topom/proxy/reinit/{xauth}/{token}", api.ReinitProxy)
+	r.Put("/api/topom/proxy/remove/{xauth}/{token}/{force}", api.RemoveProxy)
+
+	r.Put("/api/topom/group/create/{xauth}/{gid}", api.CreateGroup)
+	r.Put("/api/topom/group/remove/{xauth}/{gid}", api.RemoveGroup)
+	r.Put("/api/topom/group/resync/{xauth}/{gid}", api.ResyncGroup)
+	r.Put("/api/topom/group/resync-all/{xauth}", api.ResyncGroupAll)
+	r.Put("/api/topom/group/add/{xauth}/{gid}/{addr}", api.GroupAddServer)
+	r.Put("/api/topom/group/add/{xauth}/{gid}/{addr}/{datacenter}", api.GroupAddServer)
+	r.Put("/api/topom/group/del/{xauth}/{gid}/{addr}", api.GroupDelServer)
+	r.Put("/api/topom/group/promote/{xauth}/{gid}/{addr}", api.GroupPromoteServer)
+	r.Put("/api/topom/group/replica-groups/{xauth}/{gid}/{addr}/{value}", api.EnableReplicaGroups)
+	r.Put("/api/topom/group/replica-groups-all/{xauth}/{value}", api.EnableReplicaGroupsAll)
+	r.Put("/api/topom/group/action/create/{xauth}/{addr}", api.SyncCreateAction)
+	r.Put("/api/topom/group/action/remove/{xauth}/{addr}", api.SyncRemoveAction)
+	r.Get("/api/topom/group/info/{addr}", api.InfoServer)
+
+	r.Put("/api/topom/slots/action/create/{xauth}/{sid}/{gid}", api.SlotCreateAction)
+	r.Put("/api/topom/slots/action/create-some/{xauth}/{src}/{dst}/{num}", api.SlotCreateActionSome)
+	r.Put("/api/topom/slots/action/create-range/{xauth}/{beg}/{end}/{gid}", api.SlotCreateActionRange)
+	r.Put("/api/topom/slots/action/remove/{xauth}/{sid}", api.SlotRemoveAction)
+	r.Put("/api/topom/slots/action/interval/{xauth}/{value}", api.SetSlotActionInterval)
+	r.Put("/api/topom/slots/action/disabled/{xauth}/{value}", api.SetSlotActionDisabled)
+	r.Put("/api/topom/slots/assign/{xauth}", api.SlotsAssignGroup)
+	r.Put("/api/topom/slots/assign/{xauth}/offline", api.SlotsAssignOffline)
+	r.Put("/api/topom/slots/rebalance/{xauth}/{confirm}", api.SlotsRebalance)
+
+	r.Put("/api/topom/sentinels/add/{xauth}/{addr}", api.AddSentinel)
+	r.Put("/api/topom/sentinels/del/{xauth}/{addr}/{force}", api.DelSentinel)
+	r.Put("/api/topom/sentinels/resync-all/{xauth}", api.ResyncSentinels)
+	r.Get("/api/topom/sentinels/info/{addr}", api.InfoSentinel)
+	r.Get("/api/topom/sentinels/info/{addr}/monitored", api.InfoSentinelMonitored)
+
+	return httpx.Chain(r,
+		httpx.Recovery(),
+		httpx.AuditLog(t, t.XAuth),
+		httpx.Gzip(),
+		httpx.ContentType("application/json; charset=utf-8"),
+	)
 }
 
-func (s *apiServer) verifyXAuth(params martini.Params) error {
+func (s *apiServer) verifyXAuth(req *http.Request) error {
 	if s.topom.IsClosed() {
 		return ErrClosedTopom
 	}
-	xauth := params["xauth"]
+	xauth := req.PathValue("xauth")
 	if xauth == "" {
 		return errors.New("missing xauth, please check product name & auth")
 	}
@@ -171,154 +128,200 @@ func (s *apiServer) verifyXAuth(params martini.Params) error {
 	return nil
 }
 
-func (s *apiServer) Overview() (int, string) {
+// writeError writes the legacy 800 response used by the codis admin API.
+func (s *apiServer) writeError(w http.ResponseWriter, err error) {
+	status, body := rpc.ApiResponseError(err)
+	httpx.WriteResponse(w, status, body)
+}
+
+func (s *apiServer) writeJSON(w http.ResponseWriter, v any) {
+	status, body := rpc.ApiResponseJson(v)
+	httpx.WriteResponse(w, status, body)
+}
+
+func (s *apiServer) RedirectToOverview(w http.ResponseWriter, req *http.Request) {
+	http.Redirect(w, req, "/topom", http.StatusFound)
+}
+
+func (s *apiServer) Overview(w http.ResponseWriter, req *http.Request) {
 	o, err := s.topom.Overview()
 	if err != nil {
-		return rpc.ApiResponseError(err)
-	} else {
-		return rpc.ApiResponseJson(o)
+		s.writeError(w, err)
+		return
 	}
+	s.writeJSON(w, o)
 }
 
-func (s *apiServer) Model() (int, string) {
-	return rpc.ApiResponseJson(s.topom.Model())
+func (s *apiServer) Model(w http.ResponseWriter, req *http.Request) {
+	s.writeJSON(w, s.topom.Model())
 }
 
-func (s *apiServer) StatsNoXAuth() (int, string) {
-	if stats, err := s.topom.Stats(); err != nil {
-		return rpc.ApiResponseError(err)
-	} else {
-		return rpc.ApiResponseJson(stats)
+func (s *apiServer) StatsNoXAuth(w http.ResponseWriter, req *http.Request) {
+	stats, err := s.topom.Stats()
+	if err != nil {
+		s.writeError(w, err)
+		return
 	}
+	s.writeJSON(w, stats)
 }
 
-func (s *apiServer) SlotsNoXAuth() (int, string) {
-	if slots, err := s.topom.Slots(); err != nil {
-		return rpc.ApiResponseError(err)
-	} else {
-		return rpc.ApiResponseJson(slots)
+func (s *apiServer) SlotsNoXAuth(w http.ResponseWriter, req *http.Request) {
+	slots, err := s.topom.Slots()
+	if err != nil {
+		s.writeError(w, err)
+		return
 	}
+	s.writeJSON(w, slots)
 }
 
-func (s *apiServer) XPing(params martini.Params) (int, string) {
-	if err := s.verifyXAuth(params); err != nil {
-		return rpc.ApiResponseError(err)
-	} else {
-		return rpc.ApiResponseJson("OK")
+func (s *apiServer) XPing(w http.ResponseWriter, req *http.Request) {
+	if err := s.verifyXAuth(req); err != nil {
+		s.writeError(w, err)
+		return
 	}
+	s.writeJSON(w, "OK")
 }
 
-func (s *apiServer) GetACL(params martini.Params) (int, string) {
-	if err := s.verifyXAuth(params); err != nil {
-		return rpc.ApiResponseError(err)
+func (s *apiServer) GetACL(w http.ResponseWriter, req *http.Request) {
+	if err := s.verifyXAuth(req); err != nil {
+		s.writeError(w, err)
+		return
 	}
 	view, err := s.topom.GetACL()
 	if err != nil {
-		return rpc.ApiResponseError(err)
+		s.writeError(w, err)
+		return
 	}
-	return rpc.ApiResponseJson(view)
+	s.writeJSON(w, view)
 }
 
-func (s *apiServer) SetACL(req ACLUpdateRequest, params martini.Params) (int, string) {
-	if err := s.verifyXAuth(params); err != nil {
-		return rpc.ApiResponseError(err)
+func (s *apiServer) SetACL(w http.ResponseWriter, req *http.Request) {
+	if err := s.verifyXAuth(req); err != nil {
+		s.writeError(w, err)
+		return
 	}
-	view, err := s.topom.UpdateACL(&req)
+	var request ACLUpdateRequest
+	httpx.BindJSON(req, &request)
+	view, err := s.topom.UpdateACL(&request)
 	if err != nil {
-		return rpc.ApiResponseError(err)
+		s.writeError(w, err)
+		return
 	}
-	return rpc.ApiResponseJson(view)
+	s.writeJSON(w, view)
 }
 
-func (s *apiServer) SyncACL(params martini.Params) (int, string) {
-	if err := s.verifyXAuth(params); err != nil {
-		return rpc.ApiResponseError(err)
+func (s *apiServer) SyncACL(w http.ResponseWriter, req *http.Request) {
+	if err := s.verifyXAuth(req); err != nil {
+		s.writeError(w, err)
+		return
 	}
 	view, err := s.topom.SyncACL()
 	if err != nil {
-		return rpc.ApiResponseError(err)
+		s.writeError(w, err)
+		return
 	}
-	return rpc.ApiResponseJson(view)
+	s.writeJSON(w, view)
 }
 
-func (s *apiServer) GetProxyQPSLimit(params martini.Params) (int, string) {
-	if err := s.verifyXAuth(params); err != nil {
-		return rpc.ApiResponseError(err)
+func (s *apiServer) GetProxyQPSLimit(w http.ResponseWriter, req *http.Request) {
+	if err := s.verifyXAuth(req); err != nil {
+		s.writeError(w, err)
+		return
 	}
 	view, err := s.topom.GetProxyQPSLimit()
 	if err != nil {
-		return rpc.ApiResponseError(err)
+		s.writeError(w, err)
+		return
 	}
-	return rpc.ApiResponseJson(view)
+	s.writeJSON(w, view)
 }
 
-func (s *apiServer) SetProxyQPSLimit(req ProxyQPSLimitUpdateRequest, params martini.Params) (int, string) {
-	if err := s.verifyXAuth(params); err != nil {
-		return rpc.ApiResponseError(err)
+func (s *apiServer) SetProxyQPSLimit(w http.ResponseWriter, req *http.Request) {
+	if err := s.verifyXAuth(req); err != nil {
+		s.writeError(w, err)
+		return
 	}
-	view, err := s.topom.UpdateProxyQPSLimit(&req)
+	var request ProxyQPSLimitUpdateRequest
+	httpx.BindJSON(req, &request)
+	view, err := s.topom.UpdateProxyQPSLimit(&request)
 	if err != nil {
-		return rpc.ApiResponseError(err)
+		s.writeError(w, err)
+		return
 	}
-	return rpc.ApiResponseJson(view)
+	s.writeJSON(w, view)
 }
 
-func (s *apiServer) Stats(params martini.Params) (int, string) {
-	if err := s.verifyXAuth(params); err != nil {
-		return rpc.ApiResponseError(err)
-	} else {
-		return s.StatsNoXAuth()
+func (s *apiServer) Stats(w http.ResponseWriter, req *http.Request) {
+	if err := s.verifyXAuth(req); err != nil {
+		s.writeError(w, err)
+		return
 	}
+	stats, err := s.topom.Stats()
+	if err != nil {
+		s.writeError(w, err)
+		return
+	}
+	s.writeJSON(w, stats)
 }
 
-func (s *apiServer) Slots(params martini.Params) (int, string) {
-	if err := s.verifyXAuth(params); err != nil {
-		return rpc.ApiResponseError(err)
-	} else {
-		return s.SlotsNoXAuth()
+func (s *apiServer) Slots(w http.ResponseWriter, req *http.Request) {
+	if err := s.verifyXAuth(req); err != nil {
+		s.writeError(w, err)
+		return
 	}
+	slots, err := s.topom.Slots()
+	if err != nil {
+		s.writeError(w, err)
+		return
+	}
+	s.writeJSON(w, slots)
 }
 
-func (s *apiServer) Reload(params martini.Params) (int, string) {
-	if err := s.verifyXAuth(params); err != nil {
-		return rpc.ApiResponseError(err)
+func (s *apiServer) Reload(w http.ResponseWriter, req *http.Request) {
+	if err := s.verifyXAuth(req); err != nil {
+		s.writeError(w, err)
+		return
 	}
 	if err := s.topom.Reload(); err != nil {
-		return rpc.ApiResponseError(err)
-	} else {
-		return rpc.ApiResponseJson("OK")
+		s.writeError(w, err)
+		return
 	}
+	s.writeJSON(w, "OK")
 }
 
-func (s *apiServer) HotKeyCacheInvalidate(req proxy.HotKeyCacheBroadcastRequest, params martini.Params) (int, string) {
-	if err := s.verifyXAuth(params); err != nil {
-		return rpc.ApiResponseError(err)
+func (s *apiServer) HotKeyCacheInvalidate(w http.ResponseWriter, req *http.Request) {
+	if err := s.verifyXAuth(req); err != nil {
+		s.writeError(w, err)
+		return
 	}
-	result, err := s.topom.HotKeyCacheInvalidate(&req)
+	var request proxy.HotKeyCacheBroadcastRequest
+	httpx.BindJSON(req, &request)
+	result, err := s.topom.HotKeyCacheInvalidate(&request)
 	if err != nil {
-		return rpc.ApiResponseError(err)
+		s.writeError(w, err)
+		return
 	}
-	return rpc.ApiResponseJson(result)
+	s.writeJSON(w, result)
 }
 
-func (s *apiServer) parseAddr(params martini.Params) (string, error) {
-	addr := params["addr"]
+func (s *apiServer) parseAddr(req *http.Request) (string, error) {
+	addr := req.PathValue("addr")
 	if addr == "" {
 		return "", errors.New("missing addr")
 	}
 	return addr, nil
 }
 
-func (s *apiServer) parseToken(params martini.Params) (string, error) {
-	token := params["token"]
+func (s *apiServer) parseToken(req *http.Request) (string, error) {
+	token := req.PathValue("token")
 	if token == "" {
 		return "", errors.New("missing token")
 	}
 	return token, nil
 }
 
-func (s *apiServer) parseInteger(params martini.Params, entry string) (int, error) {
-	text := params[entry]
+func (s *apiServer) parseInteger(req *http.Request, entry string) (int, error) {
+	text := req.PathValue(entry)
 	if text == "" {
 		return 0, fmt.Errorf("missing %s", entry)
 	}
@@ -329,526 +332,606 @@ func (s *apiServer) parseInteger(params martini.Params, entry string) (int, erro
 	return v, nil
 }
 
-func (s *apiServer) CreateProxy(params martini.Params) (int, string) {
-	if err := s.verifyXAuth(params); err != nil {
-		return rpc.ApiResponseError(err)
+func (s *apiServer) CreateProxy(w http.ResponseWriter, req *http.Request) {
+	if err := s.verifyXAuth(req); err != nil {
+		s.writeError(w, err)
+		return
 	}
-	addr, err := s.parseAddr(params)
+	addr, err := s.parseAddr(req)
 	if err != nil {
-		return rpc.ApiResponseError(err)
+		s.writeError(w, err)
+		return
 	}
 	if err := s.topom.CreateProxy(addr); err != nil {
-		return rpc.ApiResponseError(err)
-	} else {
-		return rpc.ApiResponseJson("OK")
+		s.writeError(w, err)
+		return
 	}
+	s.writeJSON(w, "OK")
 }
 
-func (s *apiServer) OnlineProxy(params martini.Params) (int, string) {
-	if err := s.verifyXAuth(params); err != nil {
-		return rpc.ApiResponseError(err)
+func (s *apiServer) OnlineProxy(w http.ResponseWriter, req *http.Request) {
+	if err := s.verifyXAuth(req); err != nil {
+		s.writeError(w, err)
+		return
 	}
-	addr, err := s.parseAddr(params)
+	addr, err := s.parseAddr(req)
 	if err != nil {
-		return rpc.ApiResponseError(err)
+		s.writeError(w, err)
+		return
 	}
 	if err := s.topom.OnlineProxy(addr); err != nil {
-		return rpc.ApiResponseError(err)
-	} else {
-		return rpc.ApiResponseJson("OK")
+		s.writeError(w, err)
+		return
 	}
+	s.writeJSON(w, "OK")
 }
 
-func (s *apiServer) ReinitProxy(params martini.Params) (int, string) {
-	if err := s.verifyXAuth(params); err != nil {
-		return rpc.ApiResponseError(err)
+func (s *apiServer) ReinitProxy(w http.ResponseWriter, req *http.Request) {
+	if err := s.verifyXAuth(req); err != nil {
+		s.writeError(w, err)
+		return
 	}
-	token, err := s.parseToken(params)
+	token, err := s.parseToken(req)
 	if err != nil {
-		return rpc.ApiResponseError(err)
+		s.writeError(w, err)
+		return
 	}
 	if err := s.topom.ReinitProxy(token); err != nil {
-		return rpc.ApiResponseError(err)
-	} else {
-		return rpc.ApiResponseJson("OK")
+		s.writeError(w, err)
+		return
 	}
+	s.writeJSON(w, "OK")
 }
 
-func (s *apiServer) RemoveProxy(params martini.Params) (int, string) {
-	if err := s.verifyXAuth(params); err != nil {
-		return rpc.ApiResponseError(err)
+func (s *apiServer) RemoveProxy(w http.ResponseWriter, req *http.Request) {
+	if err := s.verifyXAuth(req); err != nil {
+		s.writeError(w, err)
+		return
 	}
-	token, err := s.parseToken(params)
+	token, err := s.parseToken(req)
 	if err != nil {
-		return rpc.ApiResponseError(err)
+		s.writeError(w, err)
+		return
 	}
-	force, err := s.parseInteger(params, "force")
+	force, err := s.parseInteger(req, "force")
 	if err != nil {
-		return rpc.ApiResponseError(err)
+		s.writeError(w, err)
+		return
 	}
 	if err := s.topom.RemoveProxy(token, force != 0); err != nil {
-		return rpc.ApiResponseError(err)
-	} else {
-		return rpc.ApiResponseJson("OK")
+		s.writeError(w, err)
+		return
 	}
+	s.writeJSON(w, "OK")
 }
 
-func (s *apiServer) CreateGroup(params martini.Params) (int, string) {
-	if err := s.verifyXAuth(params); err != nil {
-		return rpc.ApiResponseError(err)
+func (s *apiServer) CreateGroup(w http.ResponseWriter, req *http.Request) {
+	if err := s.verifyXAuth(req); err != nil {
+		s.writeError(w, err)
+		return
 	}
-	gid, err := s.parseInteger(params, "gid")
+	gid, err := s.parseInteger(req, "gid")
 	if err != nil {
-		return rpc.ApiResponseError(err)
+		s.writeError(w, err)
+		return
 	}
 	if err := s.topom.CreateGroup(gid); err != nil {
-		return rpc.ApiResponseError(err)
-	} else {
-		return rpc.ApiResponseJson("OK")
+		s.writeError(w, err)
+		return
 	}
+	s.writeJSON(w, "OK")
 }
 
-func (s *apiServer) RemoveGroup(params martini.Params) (int, string) {
-	if err := s.verifyXAuth(params); err != nil {
-		return rpc.ApiResponseError(err)
+func (s *apiServer) RemoveGroup(w http.ResponseWriter, req *http.Request) {
+	if err := s.verifyXAuth(req); err != nil {
+		s.writeError(w, err)
+		return
 	}
-	gid, err := s.parseInteger(params, "gid")
+	gid, err := s.parseInteger(req, "gid")
 	if err != nil {
-		return rpc.ApiResponseError(err)
+		s.writeError(w, err)
+		return
 	}
 	if err := s.topom.RemoveGroup(gid); err != nil {
-		return rpc.ApiResponseError(err)
-	} else {
-		return rpc.ApiResponseJson("OK")
+		s.writeError(w, err)
+		return
 	}
+	s.writeJSON(w, "OK")
 }
 
-func (s *apiServer) ResyncGroup(params martini.Params) (int, string) {
-	if err := s.verifyXAuth(params); err != nil {
-		return rpc.ApiResponseError(err)
+func (s *apiServer) ResyncGroup(w http.ResponseWriter, req *http.Request) {
+	if err := s.verifyXAuth(req); err != nil {
+		s.writeError(w, err)
+		return
 	}
-	gid, err := s.parseInteger(params, "gid")
+	gid, err := s.parseInteger(req, "gid")
 	if err != nil {
-		return rpc.ApiResponseError(err)
+		s.writeError(w, err)
+		return
 	}
 	if err := s.topom.ResyncGroup(gid); err != nil {
-		return rpc.ApiResponseError(err)
-	} else {
-		return rpc.ApiResponseJson("OK")
+		s.writeError(w, err)
+		return
 	}
+	s.writeJSON(w, "OK")
 }
 
-func (s *apiServer) ResyncGroupAll(params martini.Params) (int, string) {
-	if err := s.verifyXAuth(params); err != nil {
-		return rpc.ApiResponseError(err)
+func (s *apiServer) ResyncGroupAll(w http.ResponseWriter, req *http.Request) {
+	if err := s.verifyXAuth(req); err != nil {
+		s.writeError(w, err)
+		return
 	}
 	if err := s.topom.ResyncGroupAll(); err != nil {
-		return rpc.ApiResponseError(err)
-	} else {
-		return rpc.ApiResponseJson("OK")
+		s.writeError(w, err)
+		return
 	}
+	s.writeJSON(w, "OK")
 }
 
-func (s *apiServer) GroupAddServer(params martini.Params) (int, string) {
-	if err := s.verifyXAuth(params); err != nil {
-		return rpc.ApiResponseError(err)
+func (s *apiServer) GroupAddServer(w http.ResponseWriter, req *http.Request) {
+	if err := s.verifyXAuth(req); err != nil {
+		s.writeError(w, err)
+		return
 	}
-	gid, err := s.parseInteger(params, "gid")
+	gid, err := s.parseInteger(req, "gid")
 	if err != nil {
-		return rpc.ApiResponseError(err)
+		s.writeError(w, err)
+		return
 	}
-	addr, err := s.parseAddr(params)
+	addr, err := s.parseAddr(req)
 	if err != nil {
-		return rpc.ApiResponseError(err)
+		s.writeError(w, err)
+		return
 	}
-	dc := params["datacenter"]
+	dc := req.PathValue("datacenter")
 	c, err := redis.NewClientWithAuthIdentity(addr, s.topom.Config().BackendAuthIdentity(), time.Second)
 	if err != nil {
 		log.WarnErrorf(err, "create redis client to %s failed", addr)
-		return rpc.ApiResponseError(err)
+		s.writeError(w, err)
+		return
 	}
 	defer c.Close()
 	if _, err := c.SlotsInfo(); err != nil {
 		log.WarnErrorf(err, "redis %s check slots-info failed", addr)
-		return rpc.ApiResponseError(err)
+		s.writeError(w, err)
+		return
 	}
 	if err := s.topom.GroupAddServer(gid, dc, addr); err != nil {
-		return rpc.ApiResponseError(err)
-	} else {
-		return rpc.ApiResponseJson("OK")
+		s.writeError(w, err)
+		return
 	}
+	s.writeJSON(w, "OK")
 }
 
-func (s *apiServer) GroupDelServer(params martini.Params) (int, string) {
-	if err := s.verifyXAuth(params); err != nil {
-		return rpc.ApiResponseError(err)
+func (s *apiServer) GroupDelServer(w http.ResponseWriter, req *http.Request) {
+	if err := s.verifyXAuth(req); err != nil {
+		s.writeError(w, err)
+		return
 	}
-	gid, err := s.parseInteger(params, "gid")
+	gid, err := s.parseInteger(req, "gid")
 	if err != nil {
-		return rpc.ApiResponseError(err)
+		s.writeError(w, err)
+		return
 	}
-	addr, err := s.parseAddr(params)
+	addr, err := s.parseAddr(req)
 	if err != nil {
-		return rpc.ApiResponseError(err)
+		s.writeError(w, err)
+		return
 	}
 	if err := s.topom.GroupDelServer(gid, addr); err != nil {
-		return rpc.ApiResponseError(err)
-	} else {
-		return rpc.ApiResponseJson("OK")
+		s.writeError(w, err)
+		return
 	}
+	s.writeJSON(w, "OK")
 }
 
-func (s *apiServer) GroupPromoteServer(params martini.Params) (int, string) {
-	if err := s.verifyXAuth(params); err != nil {
-		return rpc.ApiResponseError(err)
+func (s *apiServer) GroupPromoteServer(w http.ResponseWriter, req *http.Request) {
+	if err := s.verifyXAuth(req); err != nil {
+		s.writeError(w, err)
+		return
 	}
-	gid, err := s.parseInteger(params, "gid")
+	gid, err := s.parseInteger(req, "gid")
 	if err != nil {
-		return rpc.ApiResponseError(err)
+		s.writeError(w, err)
+		return
 	}
-	addr, err := s.parseAddr(params)
+	addr, err := s.parseAddr(req)
 	if err != nil {
-		return rpc.ApiResponseError(err)
+		s.writeError(w, err)
+		return
 	}
 	if err := s.topom.GroupPromoteServer(gid, addr); err != nil {
-		return rpc.ApiResponseError(err)
-	} else {
-		return rpc.ApiResponseJson("OK")
+		s.writeError(w, err)
+		return
 	}
+	s.writeJSON(w, "OK")
 }
 
-func (s *apiServer) EnableReplicaGroups(params martini.Params) (int, string) {
-	if err := s.verifyXAuth(params); err != nil {
-		return rpc.ApiResponseError(err)
+func (s *apiServer) EnableReplicaGroups(w http.ResponseWriter, req *http.Request) {
+	if err := s.verifyXAuth(req); err != nil {
+		s.writeError(w, err)
+		return
 	}
-	gid, err := s.parseInteger(params, "gid")
+	gid, err := s.parseInteger(req, "gid")
 	if err != nil {
-		return rpc.ApiResponseError(err)
+		s.writeError(w, err)
+		return
 	}
-	addr, err := s.parseAddr(params)
+	addr, err := s.parseAddr(req)
 	if err != nil {
-		return rpc.ApiResponseError(err)
+		s.writeError(w, err)
+		return
 	}
-	n, err := s.parseInteger(params, "value")
+	n, err := s.parseInteger(req, "value")
 	if err != nil {
-		return rpc.ApiResponseError(err)
+		s.writeError(w, err)
+		return
 	}
 	if err := s.topom.EnableReplicaGroups(gid, addr, n != 0); err != nil {
-		return rpc.ApiResponseError(err)
-	} else {
-		return rpc.ApiResponseJson("OK")
+		s.writeError(w, err)
+		return
 	}
+	s.writeJSON(w, "OK")
 }
 
-func (s *apiServer) EnableReplicaGroupsAll(params martini.Params) (int, string) {
-	if err := s.verifyXAuth(params); err != nil {
-		return rpc.ApiResponseError(err)
+func (s *apiServer) EnableReplicaGroupsAll(w http.ResponseWriter, req *http.Request) {
+	if err := s.verifyXAuth(req); err != nil {
+		s.writeError(w, err)
+		return
 	}
-	n, err := s.parseInteger(params, "value")
+	n, err := s.parseInteger(req, "value")
 	if err != nil {
-		return rpc.ApiResponseError(err)
+		s.writeError(w, err)
+		return
 	}
 	if err := s.topom.EnableReplicaGroupsAll(n != 0); err != nil {
-		return rpc.ApiResponseError(err)
-	} else {
-		return rpc.ApiResponseJson("OK")
+		s.writeError(w, err)
+		return
 	}
+	s.writeJSON(w, "OK")
 }
 
-func (s *apiServer) AddSentinel(params martini.Params) (int, string) {
-	if err := s.verifyXAuth(params); err != nil {
-		return rpc.ApiResponseError(err)
+func (s *apiServer) AddSentinel(w http.ResponseWriter, req *http.Request) {
+	if err := s.verifyXAuth(req); err != nil {
+		s.writeError(w, err)
+		return
 	}
-	addr, err := s.parseAddr(params)
+	addr, err := s.parseAddr(req)
 	if err != nil {
-		return rpc.ApiResponseError(err)
+		s.writeError(w, err)
+		return
 	}
 	if err := s.topom.AddSentinel(addr); err != nil {
-		return rpc.ApiResponseError(err)
-	} else {
-		return rpc.ApiResponseJson("OK")
+		s.writeError(w, err)
+		return
 	}
+	s.writeJSON(w, "OK")
 }
 
-func (s *apiServer) DelSentinel(params martini.Params) (int, string) {
-	if err := s.verifyXAuth(params); err != nil {
-		return rpc.ApiResponseError(err)
+func (s *apiServer) DelSentinel(w http.ResponseWriter, req *http.Request) {
+	if err := s.verifyXAuth(req); err != nil {
+		s.writeError(w, err)
+		return
 	}
-	addr, err := s.parseAddr(params)
+	addr, err := s.parseAddr(req)
 	if err != nil {
-		return rpc.ApiResponseError(err)
+		s.writeError(w, err)
+		return
 	}
-	force, err := s.parseInteger(params, "force")
+	force, err := s.parseInteger(req, "force")
 	if err != nil {
-		return rpc.ApiResponseError(err)
+		s.writeError(w, err)
+		return
 	}
 	if err := s.topom.DelSentinel(addr, force != 0); err != nil {
-		return rpc.ApiResponseError(err)
-	} else {
-		return rpc.ApiResponseJson("OK")
+		s.writeError(w, err)
+		return
 	}
+	s.writeJSON(w, "OK")
 }
 
-func (s *apiServer) ResyncSentinels(params martini.Params) (int, string) {
-	if err := s.verifyXAuth(params); err != nil {
-		return rpc.ApiResponseError(err)
+func (s *apiServer) ResyncSentinels(w http.ResponseWriter, req *http.Request) {
+	if err := s.verifyXAuth(req); err != nil {
+		s.writeError(w, err)
+		return
 	}
 	if err := s.topom.ResyncSentinels(); err != nil {
-		return rpc.ApiResponseError(err)
-	} else {
-		return rpc.ApiResponseJson("OK")
+		s.writeError(w, err)
+		return
 	}
+	s.writeJSON(w, "OK")
 }
 
-func (s *apiServer) InfoServer(params martini.Params) (int, string) {
-	addr, err := s.parseAddr(params)
+func (s *apiServer) InfoServer(w http.ResponseWriter, req *http.Request) {
+	addr, err := s.parseAddr(req)
 	if err != nil {
-		return rpc.ApiResponseError(err)
+		s.writeError(w, err)
+		return
 	}
 	c, err := redis.NewClientWithAuthIdentity(addr, s.topom.Config().BackendAuthIdentity(), time.Second)
 	if err != nil {
 		log.WarnErrorf(err, "create redis client to %s failed", addr)
-		return rpc.ApiResponseError(err)
+		s.writeError(w, err)
+		return
 	}
 	defer c.Close()
-	if info, err := c.InfoFull(); err != nil {
-		return rpc.ApiResponseError(err)
-	} else {
-		return rpc.ApiResponseJson(info)
+	info, err := c.InfoFull()
+	if err != nil {
+		s.writeError(w, err)
+		return
 	}
+	s.writeJSON(w, info)
 }
 
-func (s *apiServer) InfoSentinel(params martini.Params) (int, string) {
-	addr, err := s.parseAddr(params)
+func (s *apiServer) InfoSentinel(w http.ResponseWriter, req *http.Request) {
+	addr, err := s.parseAddr(req)
 	if err != nil {
-		return rpc.ApiResponseError(err)
+		s.writeError(w, err)
+		return
 	}
 	c, err := redis.NewClientNoAuth(addr, time.Second)
 	if err != nil {
 		log.WarnErrorf(err, "create redis client to %s failed", addr)
-		return rpc.ApiResponseError(err)
+		s.writeError(w, err)
+		return
 	}
 	defer c.Close()
-	if info, err := c.Info(); err != nil {
-		return rpc.ApiResponseError(err)
-	} else {
-		return rpc.ApiResponseJson(info)
+	info, err := c.Info()
+	if err != nil {
+		s.writeError(w, err)
+		return
 	}
+	s.writeJSON(w, info)
 }
 
-func (s *apiServer) InfoSentinelMonitored(params martini.Params) (int, string) {
-	addr, err := s.parseAddr(params)
+func (s *apiServer) InfoSentinelMonitored(w http.ResponseWriter, req *http.Request) {
+	addr, err := s.parseAddr(req)
 	if err != nil {
-		return rpc.ApiResponseError(err)
+		s.writeError(w, err)
+		return
 	}
 	sentinel := redis.NewSentinel(s.topom.Config().ProductName, s.topom.Config().ProductAuth)
-	if info, err := sentinel.MastersAndSlaves(addr, s.topom.Config().SentinelClientTimeout.Duration()); err != nil {
-		return rpc.ApiResponseError(err)
-	} else {
-		return rpc.ApiResponseJson(info)
+	info, err := sentinel.MastersAndSlaves(addr, s.topom.Config().SentinelClientTimeout.Duration())
+	if err != nil {
+		s.writeError(w, err)
+		return
 	}
+	s.writeJSON(w, info)
 }
 
-func (s *apiServer) SyncCreateAction(params martini.Params) (int, string) {
-	if err := s.verifyXAuth(params); err != nil {
-		return rpc.ApiResponseError(err)
+func (s *apiServer) SyncCreateAction(w http.ResponseWriter, req *http.Request) {
+	if err := s.verifyXAuth(req); err != nil {
+		s.writeError(w, err)
+		return
 	}
-	addr, err := s.parseAddr(params)
+	addr, err := s.parseAddr(req)
 	if err != nil {
-		return rpc.ApiResponseError(err)
+		s.writeError(w, err)
+		return
 	}
 	if err := s.topom.SyncCreateAction(addr); err != nil {
-		return rpc.ApiResponseError(err)
-	} else {
-		return rpc.ApiResponseJson("OK")
+		s.writeError(w, err)
+		return
 	}
+	s.writeJSON(w, "OK")
 }
 
-func (s *apiServer) SyncRemoveAction(params martini.Params) (int, string) {
-	if err := s.verifyXAuth(params); err != nil {
-		return rpc.ApiResponseError(err)
+func (s *apiServer) SyncRemoveAction(w http.ResponseWriter, req *http.Request) {
+	if err := s.verifyXAuth(req); err != nil {
+		s.writeError(w, err)
+		return
 	}
-	addr, err := s.parseAddr(params)
+	addr, err := s.parseAddr(req)
 	if err != nil {
-		return rpc.ApiResponseError(err)
+		s.writeError(w, err)
+		return
 	}
 	if err := s.topom.SyncRemoveAction(addr); err != nil {
-		return rpc.ApiResponseError(err)
-	} else {
-		return rpc.ApiResponseJson("OK")
+		s.writeError(w, err)
+		return
 	}
+	s.writeJSON(w, "OK")
 }
 
-func (s *apiServer) SlotCreateAction(params martini.Params) (int, string) {
-	if err := s.verifyXAuth(params); err != nil {
-		return rpc.ApiResponseError(err)
+func (s *apiServer) SlotCreateAction(w http.ResponseWriter, req *http.Request) {
+	if err := s.verifyXAuth(req); err != nil {
+		s.writeError(w, err)
+		return
 	}
-	sid, err := s.parseInteger(params, "sid")
+	sid, err := s.parseInteger(req, "sid")
 	if err != nil {
-		return rpc.ApiResponseError(err)
+		s.writeError(w, err)
+		return
 	}
-	gid, err := s.parseInteger(params, "gid")
+	gid, err := s.parseInteger(req, "gid")
 	if err != nil {
-		return rpc.ApiResponseError(err)
+		s.writeError(w, err)
+		return
 	}
 	if err := s.topom.SlotCreateAction(sid, gid); err != nil {
-		return rpc.ApiResponseError(err)
-	} else {
-		return rpc.ApiResponseJson("OK")
+		s.writeError(w, err)
+		return
 	}
+	s.writeJSON(w, "OK")
 }
 
-func (s *apiServer) SlotCreateActionSome(params martini.Params) (int, string) {
-	if err := s.verifyXAuth(params); err != nil {
-		return rpc.ApiResponseError(err)
+func (s *apiServer) SlotCreateActionSome(w http.ResponseWriter, req *http.Request) {
+	if err := s.verifyXAuth(req); err != nil {
+		s.writeError(w, err)
+		return
 	}
-	groupFrom, err := s.parseInteger(params, "src")
+	groupFrom, err := s.parseInteger(req, "src")
 	if err != nil {
-		return rpc.ApiResponseError(err)
+		s.writeError(w, err)
+		return
 	}
-	groupTo, err := s.parseInteger(params, "dst")
+	groupTo, err := s.parseInteger(req, "dst")
 	if err != nil {
-		return rpc.ApiResponseError(err)
+		s.writeError(w, err)
+		return
 	}
-	numSlots, err := s.parseInteger(params, "num")
+	numSlots, err := s.parseInteger(req, "num")
 	if err != nil {
-		return rpc.ApiResponseError(err)
+		s.writeError(w, err)
+		return
 	}
 	if err := s.topom.SlotCreateActionSome(groupFrom, groupTo, numSlots); err != nil {
-		return rpc.ApiResponseError(err)
-	} else {
-		return rpc.ApiResponseJson("OK")
+		s.writeError(w, err)
+		return
 	}
+	s.writeJSON(w, "OK")
 }
 
-func (s *apiServer) SlotCreateActionRange(params martini.Params) (int, string) {
-	if err := s.verifyXAuth(params); err != nil {
-		return rpc.ApiResponseError(err)
+func (s *apiServer) SlotCreateActionRange(w http.ResponseWriter, req *http.Request) {
+	if err := s.verifyXAuth(req); err != nil {
+		s.writeError(w, err)
+		return
 	}
-	beg, err := s.parseInteger(params, "beg")
+	beg, err := s.parseInteger(req, "beg")
 	if err != nil {
-		return rpc.ApiResponseError(err)
+		s.writeError(w, err)
+		return
 	}
-	end, err := s.parseInteger(params, "end")
+	end, err := s.parseInteger(req, "end")
 	if err != nil {
-		return rpc.ApiResponseError(err)
+		s.writeError(w, err)
+		return
 	}
-	gid, err := s.parseInteger(params, "gid")
+	gid, err := s.parseInteger(req, "gid")
 	if err != nil {
-		return rpc.ApiResponseError(err)
+		s.writeError(w, err)
+		return
 	}
 	if err := s.topom.SlotCreateActionRange(beg, end, gid, true); err != nil {
-		return rpc.ApiResponseError(err)
-	} else {
-		return rpc.ApiResponseJson("OK")
+		s.writeError(w, err)
+		return
 	}
+	s.writeJSON(w, "OK")
 }
 
-func (s *apiServer) SlotRemoveAction(params martini.Params) (int, string) {
-	if err := s.verifyXAuth(params); err != nil {
-		return rpc.ApiResponseError(err)
+func (s *apiServer) SlotRemoveAction(w http.ResponseWriter, req *http.Request) {
+	if err := s.verifyXAuth(req); err != nil {
+		s.writeError(w, err)
+		return
 	}
-	sid, err := s.parseInteger(params, "sid")
+	sid, err := s.parseInteger(req, "sid")
 	if err != nil {
-		return rpc.ApiResponseError(err)
+		s.writeError(w, err)
+		return
 	}
 	if err := s.topom.SlotRemoveAction(sid); err != nil {
-		return rpc.ApiResponseError(err)
-	} else {
-		return rpc.ApiResponseJson("OK")
+		s.writeError(w, err)
+		return
 	}
+	s.writeJSON(w, "OK")
 }
 
-func (s *apiServer) LogLevel(params martini.Params) (int, string) {
-	if err := s.verifyXAuth(params); err != nil {
-		return rpc.ApiResponseError(err)
+func (s *apiServer) LogLevel(w http.ResponseWriter, req *http.Request) {
+	if err := s.verifyXAuth(req); err != nil {
+		s.writeError(w, err)
+		return
 	}
-	v := params["value"]
+	v := req.PathValue("value")
 	if v == "" {
-		return rpc.ApiResponseError(errors.New("missing loglevel"))
+		s.writeError(w, errors.New("missing loglevel"))
+		return
 	}
 	if !log.SetLevelString(v) {
-		return rpc.ApiResponseError(errors.New("invalid loglevel"))
-	} else {
-		log.Warnf("set loglevel to %s", v)
-		return rpc.ApiResponseJson("OK")
+		s.writeError(w, errors.New("invalid loglevel"))
+		return
 	}
+	log.Warnf("set loglevel to %s", v)
+	s.writeJSON(w, "OK")
 }
 
-func (s *apiServer) Shutdown(params martini.Params) (int, string) {
-	if err := s.verifyXAuth(params); err != nil {
-		return rpc.ApiResponseError(err)
+func (s *apiServer) Shutdown(w http.ResponseWriter, req *http.Request) {
+	if err := s.verifyXAuth(req); err != nil {
+		s.writeError(w, err)
+		return
 	}
 	if err := s.topom.Close(); err != nil {
-		return rpc.ApiResponseError(err)
-	} else {
-		return rpc.ApiResponseJson("OK")
+		s.writeError(w, err)
+		return
 	}
+	s.writeJSON(w, "OK")
 }
 
-func (s *apiServer) SetSlotActionInterval(params martini.Params) (int, string) {
-	if err := s.verifyXAuth(params); err != nil {
-		return rpc.ApiResponseError(err)
+func (s *apiServer) SetSlotActionInterval(w http.ResponseWriter, req *http.Request) {
+	if err := s.verifyXAuth(req); err != nil {
+		s.writeError(w, err)
+		return
 	}
-	value, err := s.parseInteger(params, "value")
+	value, err := s.parseInteger(req, "value")
 	if err != nil {
-		return rpc.ApiResponseError(err)
-	} else {
-		s.topom.SetSlotActionInterval(value)
-		return rpc.ApiResponseJson("OK")
+		s.writeError(w, err)
+		return
 	}
+	s.topom.SetSlotActionInterval(value)
+	s.writeJSON(w, "OK")
 }
 
-func (s *apiServer) SetSlotActionDisabled(params martini.Params) (int, string) {
-	if err := s.verifyXAuth(params); err != nil {
-		return rpc.ApiResponseError(err)
+func (s *apiServer) SetSlotActionDisabled(w http.ResponseWriter, req *http.Request) {
+	if err := s.verifyXAuth(req); err != nil {
+		s.writeError(w, err)
+		return
 	}
-	value, err := s.parseInteger(params, "value")
+	value, err := s.parseInteger(req, "value")
 	if err != nil {
-		return rpc.ApiResponseError(err)
-	} else {
-		s.topom.SetSlotActionDisabled(value != 0)
-		return rpc.ApiResponseJson("OK")
+		s.writeError(w, err)
+		return
 	}
+	s.topom.SetSlotActionDisabled(value != 0)
+	s.writeJSON(w, "OK")
 }
 
-func (s *apiServer) SlotsAssignGroup(slots []*models.SlotMapping, params martini.Params) (int, string) {
-	if err := s.verifyXAuth(params); err != nil {
-		return rpc.ApiResponseError(err)
+func (s *apiServer) SlotsAssignGroup(w http.ResponseWriter, req *http.Request) {
+	if err := s.verifyXAuth(req); err != nil {
+		s.writeError(w, err)
+		return
 	}
+	var slots []*models.SlotMapping
+	httpx.BindJSON(req, &slots)
 	if err := s.topom.SlotsAssignGroup(slots); err != nil {
-		return rpc.ApiResponseError(err)
+		s.writeError(w, err)
+		return
 	}
-	return rpc.ApiResponseJson("OK")
+	s.writeJSON(w, "OK")
 }
 
-func (s *apiServer) SlotsAssignOffline(slots []*models.SlotMapping, params martini.Params) (int, string) {
-	if err := s.verifyXAuth(params); err != nil {
-		return rpc.ApiResponseError(err)
+func (s *apiServer) SlotsAssignOffline(w http.ResponseWriter, req *http.Request) {
+	if err := s.verifyXAuth(req); err != nil {
+		s.writeError(w, err)
+		return
 	}
+	var slots []*models.SlotMapping
+	httpx.BindJSON(req, &slots)
 	if err := s.topom.SlotsAssignOffline(slots); err != nil {
-		return rpc.ApiResponseError(err)
+		s.writeError(w, err)
+		return
 	}
-	return rpc.ApiResponseJson("OK")
+	s.writeJSON(w, "OK")
 }
 
-func (s *apiServer) SlotsRebalance(params martini.Params) (int, string) {
-	if err := s.verifyXAuth(params); err != nil {
-		return rpc.ApiResponseError(err)
+func (s *apiServer) SlotsRebalance(w http.ResponseWriter, req *http.Request) {
+	if err := s.verifyXAuth(req); err != nil {
+		s.writeError(w, err)
+		return
 	}
-	confirm, err := s.parseInteger(params, "confirm")
+	confirm, err := s.parseInteger(req, "confirm")
 	if err != nil {
-		return rpc.ApiResponseError(err)
+		s.writeError(w, err)
+		return
 	}
-	if plans, err := s.topom.SlotsRebalance(confirm != 0); err != nil {
-		return rpc.ApiResponseError(err)
-	} else {
-		m := make(map[string]int)
-		for sid, gid := range plans {
-			m[strconv.Itoa(sid)] = gid
-		}
-		return rpc.ApiResponseJson(m)
+	plans, err := s.topom.SlotsRebalance(confirm != 0)
+	if err != nil {
+		s.writeError(w, err)
+		return
 	}
+	m := make(map[string]int)
+	for sid, gid := range plans {
+		m[strconv.Itoa(sid)] = gid
+	}
+	s.writeJSON(w, m)
 }
 
 type ApiClient struct {

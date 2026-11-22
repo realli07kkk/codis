@@ -17,79 +17,79 @@ import (
 )
 
 func TestProxyStats(x *testing.T) {
-	t := openTopom()
+	t := openTopom(x)
 	defer t.Close()
 
 	check := func(succ, fail []string) {
 		w, err := t.RefreshProxyStats(time.Second * 5)
-		assert.MustNoError(err)
+		assert.MustNoError(x, err)
 		m := w.Wait()
-		assert.Must(len(m) == len(succ)+len(fail))
+		assert.Must(x, len(m) == len(succ)+len(fail))
 		for _, t := range succ {
 			s, ok := m[t].(*ProxyStats)
-			assert.Must(ok && s != nil && s.Stats != nil)
+			assert.Must(x, ok && s != nil && s.Stats != nil)
 		}
 		for _, t := range fail {
 			s, ok := m[t].(*ProxyStats)
-			assert.Must(ok && s != nil && s.Stats == nil)
-			assert.Must(s.Error != nil)
+			assert.Must(x, ok && s != nil && s.Stats == nil)
+			assert.Must(x, s.Error != nil)
 		}
 	}
 
-	p1, c1 := openProxy()
+	p1, c1 := openProxy(x)
 	defer c1.Shutdown()
 
-	p2, c2 := openProxy()
+	p2, c2 := openProxy(x)
 	defer c2.Shutdown()
 
-	contextCreateProxy(t, p1)
+	contextCreateProxy(x, t, p1)
 	check([]string{p1.Token}, []string{})
 
-	contextCreateProxy(t, p2)
+	contextCreateProxy(x, t, p2)
 	check([]string{p1.Token, p2.Token}, []string{})
 
-	assert.MustNoError(c1.Shutdown())
+	assert.MustNoError(x, c1.Shutdown())
 	check([]string{p2.Token}, []string{p1.Token})
 
-	assert.MustNoError(c2.Shutdown())
+	assert.MustNoError(x, c2.Shutdown())
 	check([]string{}, []string{p1.Token, p2.Token})
 
-	p3, c3 := openProxy()
+	p3, c3 := openProxy(x)
 	defer c3.Shutdown()
 
-	contextCreateProxy(t, p3)
+	contextCreateProxy(x, t, p3)
 	check([]string{p3.Token}, []string{p1.Token, p2.Token})
 
-	contextRemoveProxy(t, p1)
+	contextRemoveProxy(x, t, p1)
 	check([]string{p3.Token}, []string{p2.Token})
 }
 
 func TestRedisStats(x *testing.T) {
-	t := openTopom()
+	t := openTopom(x)
 	defer t.Close()
 
 	check := func(succ, fail []string) {
 		w, err := t.RefreshRedisStats(time.Second * 5)
-		assert.MustNoError(err)
+		assert.MustNoError(x, err)
 		m := w.Wait()
-		assert.Must(len(m) == len(succ)+len(fail))
+		assert.Must(x, len(m) == len(succ)+len(fail))
 		for _, addr := range succ {
 			s, ok := m[addr].(*RedisStats)
-			assert.Must(ok && s != nil && s.Stats != nil)
+			assert.Must(x, ok && s != nil && s.Stats != nil)
 		}
 		for _, addr := range fail {
 			s, ok := m[addr].(*RedisStats)
-			assert.Must(ok && s != nil && s.Stats == nil)
-			assert.Must(s.Error != nil)
+			assert.Must(x, ok && s != nil && s.Stats == nil)
+			assert.Must(x, s.Error != nil)
 		}
 	}
 
 	g := &models.Group{Id: 1}
 
-	s1 := newFakeServer()
+	s1 := newFakeServer(x)
 	defer s1.Close()
 
-	s2 := newFakeServer()
+	s2 := newFakeServer(x)
 	defer s2.Close()
 
 	g.Servers = []*models.GroupServer{
@@ -99,7 +99,7 @@ func TestRedisStats(x *testing.T) {
 
 	check([]string{}, []string{})
 
-	contextCreateGroup(t, g)
+	contextCreateGroup(x, t, g)
 	check([]string{s1.Addr, s2.Addr}, []string{})
 
 	s1.Close()
@@ -108,16 +108,16 @@ func TestRedisStats(x *testing.T) {
 	s2.Close()
 	check([]string{}, []string{s1.Addr, s2.Addr})
 
-	s3 := newFakeServer()
+	s3 := newFakeServer(x)
 	defer s3.Close()
 
 	g.Servers = []*models.GroupServer{
 		&models.GroupServer{Addr: s3.Addr},
 	}
-	contextUpdateGroup(t, g)
+	contextUpdateGroup(x, t, g)
 	check([]string{s3.Addr}, []string{})
 
-	contextRemoveGroup(t, g)
+	contextRemoveGroup(x, t, g)
 	check([]string{}, []string{})
 }
 
@@ -126,16 +126,17 @@ type fakeServer struct {
 	list.List
 	Addr    string
 	handler func([]string) *redis.Resp
+	t       *testing.T
 }
 
-func newFakeServer() *fakeServer {
-	return newFakeServerWithHandler(nil)
+func newFakeServer(t *testing.T) *fakeServer {
+	return newFakeServerWithHandler(t, nil)
 }
 
-func newFakeServerWithHandler(handler func([]string) *redis.Resp) *fakeServer {
+func newFakeServerWithHandler(t *testing.T, handler func([]string) *redis.Resp) *fakeServer {
 	l, err := net.Listen("tcp", "127.0.0.1:0")
-	assert.MustNoError(err)
-	f := &fakeServer{Listener: l, Addr: l.Addr().String(), handler: handler}
+	assert.MustNoError(t, err)
+	f := &fakeServer{Listener: l, Addr: l.Addr().String(), handler: handler, t: t}
 	go func() {
 		for {
 			c, err := l.Accept()
@@ -166,7 +167,7 @@ func (s *fakeServer) Serve(c net.Conn) {
 		if err != nil {
 			return
 		}
-		assert.Must(r.Type == redis.TypeArray && len(r.Array) != 0)
+		assert.Must(s.t, r.Type == redis.TypeArray && len(r.Array) != 0)
 		args := make([]string, len(r.Array))
 		for i, a := range r.Array {
 			args[i] = string(a.Value)
@@ -182,7 +183,7 @@ func (s *fakeServer) Serve(c net.Conn) {
 				continue
 			}
 		}
-		assert.MustNoError(enc.Encode(resp, true))
+		assert.MustNoError(s.t, enc.Encode(resp, true))
 	}
 }
 
@@ -205,15 +206,15 @@ func (s *fakeServer) defaultResponse(r *redis.Resp, multi *int) (*redis.Resp, bo
 		}
 		return redis.NewBulkBytes([]byte("#Fake Codis Server\r\nloading:0\r\nmaster_link_status:up\r\n")), true
 	case "MULTI":
-		assert.Must(*multi == 0)
+		assert.Must(s.t, *multi == 0)
 		(*multi)++
 		return nil, false
 	case "SLAVEOF", "CLIENT":
-		assert.Must(*multi != 0)
+		assert.Must(s.t, *multi != 0)
 		(*multi)++
 		return nil, false
 	case "EXEC":
-		assert.Must(*multi != 0)
+		assert.Must(s.t, *multi != 0)
 		resp := redis.NewArray([]*redis.Resp{})
 		for i := 1; i < *multi; i++ {
 			resp.Array = append(resp.Array, redis.NewBulkBytes([]byte("OK")))
@@ -225,7 +226,7 @@ func (s *fakeServer) defaultResponse(r *redis.Resp, multi *int) (*redis.Resp, bo
 			(*multi)++
 			return nil, false
 		}
-		assert.Must(len(r.Array) >= 2)
+		assert.Must(s.t, len(r.Array) >= 2)
 		var sub = strings.ToUpper(string(r.Array[1].Value))
 		var key string
 		if len(r.Array) >= 3 {
@@ -233,7 +234,7 @@ func (s *fakeServer) defaultResponse(r *redis.Resp, multi *int) (*redis.Resp, bo
 		}
 		switch {
 		case sub == "GET" && key == "maxmemory":
-			assert.Must(len(r.Array) == 3)
+			assert.Must(s.t, len(r.Array) == 3)
 			return redis.NewArray([]*redis.Resp{
 				redis.NewBulkBytes([]byte("maxmemory")),
 				redis.NewInt([]byte("0")),

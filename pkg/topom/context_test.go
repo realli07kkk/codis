@@ -11,7 +11,7 @@ import (
 )
 
 func TestSlotState(x *testing.T) {
-	t := openTopom()
+	t := openTopom(x)
 	defer t.Close()
 
 	const sid = 1
@@ -22,53 +22,53 @@ func TestSlotState(x *testing.T) {
 
 	check := func() {
 		ctx, err := t.newContext()
-		assert.MustNoError(err)
+		assert.MustNoError(x, err)
 		m, err := ctx.getSlotMapping(sid)
-		assert.MustNoError(err)
-		assert.Must(m.Id == sid)
-		assert.Must(m.GroupId == gid1 && m.Action.TargetId == gid2)
+		assert.MustNoError(x, err)
+		assert.Must(x, m.Id == sid)
+		assert.Must(x, m.GroupId == gid1 && m.Action.TargetId == gid2)
 
 		g1, err := ctx.getGroup(gid1)
-		assert.MustNoError(err)
-		assert.Must(ctx.getGroupMaster(gid1) == server1)
+		assert.MustNoError(x, err)
+		assert.Must(x, ctx.getGroupMaster(gid1) == server1)
 
 		g2, err := ctx.getGroup(gid2)
-		assert.MustNoError(err)
-		assert.Must(ctx.getGroupMaster(gid2) == server2)
+		assert.MustNoError(x, err)
+		assert.Must(x, ctx.getGroupMaster(gid2) == server2)
 
 		slot := ctx.toSlot(m, nil)
 
 		switch m.Action.State {
 		case models.ActionPrepared:
-			assert.Must(slot.Locked == true)
+			assert.Must(x, slot.Locked == true)
 		case models.ActionMigrating:
 			switch {
 			case g1.Promoting.State == models.ActionPrepared:
-				assert.Must(slot.Locked == true)
+				assert.Must(x, slot.Locked == true)
 			case g2.Promoting.State == models.ActionPrepared:
-				assert.Must(slot.Locked == true)
+				assert.Must(x, slot.Locked == true)
 			default:
-				assert.Must(slot.Locked == false)
-				assert.Must(slot.BackendAddr == server2)
-				assert.Must(slot.MigrateFrom == server1)
+				assert.Must(x, slot.Locked == false)
+				assert.Must(x, slot.BackendAddr == server2)
+				assert.Must(x, slot.MigrateFrom == server1)
 			}
 		case models.ActionFinished:
 			switch {
 			case g2.Promoting.State == models.ActionPrepared:
-				assert.Must(slot.Locked == true)
+				assert.Must(x, slot.Locked == true)
 			default:
-				assert.Must(slot.Locked == false)
-				assert.Must(slot.BackendAddr == server2)
-				assert.Must(slot.MigrateFrom == "")
+				assert.Must(x, slot.Locked == false)
+				assert.Must(x, slot.BackendAddr == server2)
+				assert.Must(x, slot.MigrateFrom == "")
 			}
 		default:
 			switch {
 			case g1.Promoting.State == models.ActionPrepared:
-				assert.Must(slot.Locked == true)
+				assert.Must(x, slot.Locked == true)
 			default:
-				assert.Must(slot.Locked == false)
-				assert.Must(slot.BackendAddr == server1)
-				assert.Must(slot.MigrateFrom == "")
+				assert.Must(x, slot.Locked == false)
+				assert.Must(x, slot.BackendAddr == server1)
+				assert.Must(x, slot.MigrateFrom == "")
 			}
 		}
 	}
@@ -107,11 +107,11 @@ func TestSlotState(x *testing.T) {
 	}
 
 	for _, m.Action.State = range sstates {
-		contextUpdateSlotMapping(t, m)
+		contextUpdateSlotMapping(x, t, m)
 		for _, g1.Promoting.State = range gstates {
-			contextUpdateGroup(t, g1)
+			contextUpdateGroup(x, t, g1)
 			for _, g2.Promoting.State = range gstates {
-				contextUpdateGroup(t, g2)
+				contextUpdateGroup(x, t, g2)
 				check()
 			}
 		}

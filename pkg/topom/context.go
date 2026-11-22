@@ -249,14 +249,6 @@ func (ctx *context) getGroupMasters() map[int]string {
 	return masters
 }
 
-func (ctx *context) getGroupIds() map[int]bool {
-	var groups = make(map[int]bool)
-	for _, g := range ctx.group {
-		groups[g.Id] = true
-	}
-	return groups
-}
-
 func (ctx *context) isGroupInUse(gid int) bool {
 	for _, m := range ctx.slots {
 		if m.GroupId == gid || m.Action.TargetId == gid {

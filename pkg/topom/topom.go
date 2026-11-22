@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"runtime/debug"
 	"strconv"
 	"strings"
 	"sync"
@@ -49,6 +50,11 @@ type Topom struct {
 	exit struct {
 		C chan struct{}
 	}
+
+	// bg tracks the periodic background tasks. Close cancels them through
+	// exit.C and waits before closing the stores they use.
+	bg        sync.WaitGroup
+	closeDone chan struct{}
 
 	config *Config
 	online bool
@@ -98,6 +104,7 @@ func New(client models.Client, config *Config) (*Topom, error) {
 	s := &Topom{}
 	s.config = config
 	s.exit.C = make(chan struct{})
+	s.closeDone = make(chan struct{})
 	s.action.redisp = redis.NewPoolWithAuthIdentity(config.BackendAuthIdentity(), config.MigrationTimeout.Duration())
 	s.action.progress.status.Store("")
 
@@ -156,24 +163,24 @@ func (s *Topom) setup(config *Config) error {
 	return nil
 }
 
+// Close stops the topom. It is idempotent and must not be called from a
+// registered background task. Periodic tasks stop before their Redis pools and
+// coordinator store are closed; concurrent Close callers wait for the same
+// cleanup to finish.
 func (s *Topom) Close() error {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	if s.closed {
+		done := s.closeDone
+		s.mu.Unlock()
+		<-done
 		return nil
 	}
 	s.closed = true
+	defer close(s.closeDone)
 	close(s.exit.C)
 
 	if s.ladmin != nil {
 		s.ladmin.Close()
-	}
-	for _, p := range []*redis.Pool{
-		s.action.redisp, s.stats.redisp, s.ha.redisp,
-	} {
-		if p != nil {
-			p.Close()
-		}
 	}
 	if s.rdbAnalysis != nil {
 		s.rdbAnalysis.Close()
@@ -181,16 +188,31 @@ func (s *Topom) Close() error {
 	if s.pitr != nil {
 		s.pitr.Close()
 	}
+	s.mu.Unlock()
 
-	defer s.store.Close()
+	// Periodic functions may need s.mu and their stores while an in-flight
+	// tick finishes, so release both only after they have exited.
+	s.bg.Wait()
 
-	if s.online {
-		if err := s.store.Release(); err != nil {
-			log.ErrorErrorf(err, "store: release lock of %s failed", s.config.ProductName)
-			return errors.Errorf("store: release lock of %s failed", s.config.ProductName)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, p := range []*redis.Pool{
+		s.action.redisp, s.stats.redisp, s.ha.redisp,
+	} {
+		if p != nil {
+			p.Close()
 		}
 	}
-	return nil
+
+	var err error
+	if s.online {
+		if e := s.store.Release(); e != nil {
+			log.ErrorErrorf(e, "store: release lock of %s failed", s.config.ProductName)
+			err = errors.Errorf("store: release lock of %s failed", s.config.ProductName)
+		}
+	}
+	s.store.Close()
+	return err
 }
 
 func (s *Topom) Start(routines bool) error {
@@ -218,41 +240,56 @@ func (s *Topom) Start(routines bool) error {
 	}
 	s.rewatchSentinels(ctx.sentinel.Servers)
 
-	go s.runPeriodic("topom redis stats refresh", time.Second, func() {
+	s.startPeriodic("topom redis stats refresh", time.Second, func() {
 		w, _ := s.RefreshRedisStats(time.Second)
 		if w != nil {
 			w.Wait()
 		}
 	})
 
-	go s.runPeriodic("topom proxy stats refresh", time.Second, func() {
+	s.startPeriodic("topom proxy stats refresh", time.Second, func() {
 		w, _ := s.RefreshProxyStats(time.Second)
 		if w != nil {
 			w.Wait()
 		}
 	})
 
-	go s.runPeriodic("topom slot action", time.Second, func() {
+	s.startPeriodic("topom slot action", time.Second, func() {
 		if err := s.ProcessSlotAction(); err != nil {
 			log.WarnErrorf(err, "process slot action failed")
-			time.Sleep(time.Second * 5)
+			s.sleepFor(time.Second * 5)
 		}
 	})
 
-	go s.runPeriodic("topom sync action", time.Second, func() {
+	s.startPeriodic("topom sync action", time.Second, func() {
 		if err := s.ProcessSyncAction(); err != nil {
 			log.WarnErrorf(err, "process sync action failed")
-			time.Sleep(time.Second * 5)
+			s.sleepFor(time.Second * 5)
 		}
 	})
 
 	return nil
 }
 
-// runPeriodic runs fn on a ticker until the topom is closed. Unlike a bare
-// for/sleep loop it wakes up immediately on Close and isolates panics.
+// startPeriodic registers a periodic task with the topom lifecycle. Callers
+// must hold s.mu or run before the topom is closed, so no task is added while
+// Close is waiting.
+func (s *Topom) startPeriodic(scope string, period time.Duration, fn func()) {
+	if s.closed {
+		return
+	}
+	s.bg.Add(1)
+	go func() {
+		defer s.bg.Done()
+		defer utils.Recover(scope)
+		s.runPeriodic(scope, period, fn)
+	}()
+}
+
+// runPeriodic runs fn on a ticker until the topom is closed. The ticker is
+// stopped on exit; a panic inside fn stops this loop (the state machine may be
+// half applied) instead of retrying it every tick.
 func (s *Topom) runPeriodic(scope string, period time.Duration, fn func()) {
-	defer utils.Recover(scope)
 	ticker := time.NewTicker(period)
 	defer ticker.Stop()
 	for {
@@ -260,24 +297,38 @@ func (s *Topom) runPeriodic(scope string, period time.Duration, fn func()) {
 		case <-s.exit.C:
 			return
 		case <-ticker.C:
-			if s.IsOnline() {
-				stopped := false
-				func() {
-					defer func() {
-						if x := recover(); x != nil {
-							log.Errorf("%s panic: %v", scope, x)
-							stopped = true
-						}
-					}()
-					fn()
-				}()
-				if stopped {
-					// A panic may leave the state machine half-applied; stop
-					// this loop instead of retrying it every tick.
-					return
-				}
+			if s.IsOnline() && !s.runPeriodicOnce(scope, fn) {
+				return
 			}
 		}
+	}
+}
+
+// runPeriodicOnce reports false when fn panicked and the loop must stop.
+func (s *Topom) runPeriodicOnce(scope string, fn func()) (ok bool) {
+	defer func() {
+		if x := recover(); x != nil {
+			log.Errorf("%s panic: %v\n%s", scope, x, debug.Stack())
+			ok = false
+		}
+	}()
+	fn()
+	return true
+}
+
+// sleepFor waits for d, returning false if the topom shuts down first so an
+// error backoff cannot delay Close.
+func (s *Topom) sleepFor(d time.Duration) bool {
+	if d <= 0 {
+		return !s.IsClosed()
+	}
+	timer := time.NewTimer(d)
+	defer timer.Stop()
+	select {
+	case <-s.exit.C:
+		return false
+	case <-timer.C:
+		return true
 	}
 }
 
@@ -456,11 +507,15 @@ func (s *Topom) Reload() error {
 	return nil
 }
 
+// serveAdmin owns the topom admin HTTP server and shuts the topom down if it
+// fails. It is not part of the background WaitGroup: the API "shutdown" handler
+// calls Close from inside this server.
 func (s *Topom) serveAdmin() {
 	if s.IsClosed() {
 		return
 	}
 	defer s.Close()
+	defer utils.Recover("topom admin server")
 
 	log.Warnf("admin start service on %s", s.ladmin.Addr())
 
@@ -469,7 +524,12 @@ func (s *Topom) serveAdmin() {
 	h.Handle("/", newApiServer(s))
 	hs := utils.NewAdminHTTPServer(h)
 	go func(l net.Listener) {
-		eh <- hs.Serve(l)
+		var err error
+		defer func() {
+			eh <- err
+		}()
+		defer utils.RecoverAsError("topom admin http server", &err)
+		err = hs.Serve(l)
 	}(s.ladmin)
 
 	select {
@@ -477,7 +537,9 @@ func (s *Topom) serveAdmin() {
 		utils.ShutdownHTTPServer(hs, 5*time.Second)
 		log.Warnf("admin shutdown")
 	case err := <-eh:
-		log.ErrorErrorf(err, "admin exit on error")
+		if !s.IsClosed() {
+			log.ErrorErrorf(err, "admin exit on error")
+		}
 	}
 }
 

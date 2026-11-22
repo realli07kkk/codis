@@ -4,6 +4,8 @@
 package topom
 
 import (
+	"cmp"
+	"slices"
 	"sort"
 	"time"
 
@@ -557,7 +559,7 @@ func (s *Topom) SlotsRebalance(confirm bool) (map[int]int, error) {
 	}
 	// groupIds stays sorted by gid: the final assignment loop walks it and the
 	// previous implementation relied on that order.
-	sort.Ints(groupIds)
+	slices.Sort(groupIds)
 
 	if len(groupIds) == 0 {
 		return nil, errors.Errorf("no valid group could be found")
@@ -678,14 +680,16 @@ func (s *Topom) SlotsRebalance(confirm bool) (map[int]int, error) {
 		}
 		if n > 0 {
 			sids := pendings[gid]
-			sort.Sort(sort.Reverse(sort.IntSlice(sids)))
+			slices.SortFunc(sids, func(a, b int) int {
+				return cmp.Compare(b, a)
+			})
 
 			docking = append(docking, sids[0:n]...)
 			pendings[gid] = sids[n:]
 		}
 		delete(moveout, gid)
 	}
-	sort.Ints(docking)
+	slices.Sort(docking)
 
 	var plans = make(map[int]int)
 
@@ -705,7 +709,7 @@ func (s *Topom) SlotsRebalance(confirm bool) (map[int]int, error) {
 	for sid, _ := range plans {
 		slotIds = append(slotIds, sid)
 	}
-	sort.Ints(slotIds)
+	slices.Sort(slotIds)
 
 	for _, sid := range slotIds {
 		m, err := ctx.getSlotMapping(sid)

@@ -4,8 +4,9 @@
 package topom
 
 import (
+	"cmp"
 	"regexp"
-	"sort"
+	"slices"
 	"strings"
 	"time"
 
@@ -147,8 +148,8 @@ func (s *Topom) buildACL(current *models.ACL, req *ACLUpdateRequest) (*models.AC
 		seen[user.Name] = true
 		users = append(users, user)
 	}
-	sort.Slice(users, func(i, j int) bool {
-		return users[i].Name < users[j].Name
+	slices.SortFunc(users, func(a, b *models.ACLUser) int {
+		return cmp.Compare(a.Name, b.Name)
 	})
 	revision := int64(1)
 	if current != nil && current.Revision >= revision {
@@ -327,7 +328,7 @@ func aclTargetServerAddrs(ctx *context) []string {
 			addrs = append(addrs, server.Addr)
 		}
 	}
-	sort.Strings(addrs)
+	slices.Sort(addrs)
 	return addrs
 }
 
@@ -405,7 +406,7 @@ func removedACLUsers(current, next *models.ACL) []string {
 			removed = append(removed, user.Name)
 		}
 	}
-	sort.Strings(removed)
+	slices.Sort(removed)
 	return removed
 }
 
@@ -414,7 +415,7 @@ func (s *Topom) syncACLToProxies(ctx *context, acl *models.ACL) ([]string, error
 	for token := range ctx.proxy {
 		tokens = append(tokens, token)
 	}
-	sort.Strings(tokens)
+	slices.Sort(tokens)
 	var failed []string
 	for _, token := range tokens {
 		p := ctx.proxy[token]

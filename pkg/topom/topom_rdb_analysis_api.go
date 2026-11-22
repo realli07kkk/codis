@@ -7,8 +7,6 @@ import (
 	"encoding/json"
 	"net/http"
 
-	"github.com/go-martini/martini"
-
 	"github.com/CodisLabs/codis/pkg/utils/errors"
 	"github.com/CodisLabs/codis/pkg/utils/rpc"
 )
@@ -34,121 +32,146 @@ func (s *apiServer) rdbAnalysisManager() (*RDBAnalysisManager, error) {
 	return s.topom.rdbAnalysis, nil
 }
 
-func (s *apiServer) RDBAnalysisUpload(params martini.Params, w http.ResponseWriter, req *http.Request) (int, string) {
-	if err := s.verifyXAuth(params); err != nil {
-		return rpc.ApiResponseError(err)
+func (s *apiServer) RDBAnalysisUpload(w http.ResponseWriter, req *http.Request) {
+	if err := s.verifyXAuth(req); err != nil {
+		s.writeError(w, err)
+		return
 	}
 	manager, err := s.rdbAnalysisManager()
 	if err != nil {
-		return rpc.ApiResponseError(err)
+		s.writeError(w, err)
+		return
 	}
 	req.Body = http.MaxBytesReader(w, req.Body, manager.MaxUploadSize()+1)
 	if err := req.ParseMultipartForm(rdbAnalysisMultipartMemoryMax); err != nil {
-		return rpc.ApiResponseError(errors.Trace(err))
+		s.writeError(w, errors.Trace(err))
+		return
 	}
 	file, header, err := req.FormFile("file")
 	if err != nil {
-		return rpc.ApiResponseError(errors.Trace(err))
+		s.writeError(w, errors.Trace(err))
+		return
 	}
 	defer file.Close()
 
 	options, err := parseRDBAnalysisOptionsFromRequest(req)
 	if err != nil {
-		return rpc.ApiResponseError(err)
+		s.writeError(w, err)
+		return
 	}
 	job, err := manager.StartUpload(header.Filename, file, options)
 	if err != nil {
-		return rpc.ApiResponseError(err)
+		s.writeError(w, err)
+		return
 	}
-	return rpc.ApiResponseJson(&RDBAnalysisStartResponse{ID: job.ID})
+	s.writeJSON(w, &RDBAnalysisStartResponse{ID: job.ID})
 }
 
-func (s *apiServer) RDBAnalysisStart(params martini.Params, req *http.Request) (int, string) {
-	if err := s.verifyXAuth(params); err != nil {
-		return rpc.ApiResponseError(err)
+func (s *apiServer) RDBAnalysisStart(w http.ResponseWriter, req *http.Request) {
+	if err := s.verifyXAuth(req); err != nil {
+		s.writeError(w, err)
+		return
 	}
 	manager, err := s.rdbAnalysisManager()
 	if err != nil {
-		return rpc.ApiResponseError(err)
+		s.writeError(w, err)
+		return
 	}
 	var request RDBAnalysisStartRequest
 	if err := json.NewDecoder(req.Body).Decode(&request); err != nil {
-		return rpc.ApiResponseError(errors.Trace(err))
+		s.writeError(w, errors.Trace(err))
+		return
 	}
 	job, err := manager.StartWorkspace(request.Path, request.Options)
 	if err != nil {
-		return rpc.ApiResponseError(err)
+		s.writeError(w, err)
+		return
 	}
-	return rpc.ApiResponseJson(&RDBAnalysisStartResponse{ID: job.ID})
+	s.writeJSON(w, &RDBAnalysisStartResponse{ID: job.ID})
 }
 
-func (s *apiServer) RDBAnalysisRemoteFetch(params martini.Params, req *http.Request) (int, string) {
-	if err := s.verifyXAuth(params); err != nil {
-		return rpc.ApiResponseError(err)
+func (s *apiServer) RDBAnalysisRemoteFetch(w http.ResponseWriter, req *http.Request) {
+	if err := s.verifyXAuth(req); err != nil {
+		s.writeError(w, err)
+		return
 	}
 	if _, err := s.rdbAnalysisManager(); err != nil {
-		return rpc.ApiResponseError(err)
+		s.writeError(w, err)
+		return
 	}
 	config := s.topom.Config()
 	if !config.RDBAnalysisRemoteFetchEnabled {
-		return rpc.ApiResponseError(errors.New("rdb analysis remote fetch is disabled"))
+		s.writeError(w, errors.New("rdb analysis remote fetch is disabled"))
+		return
 	}
 	if config.RDBAnalysisRemoteFetchAuth == "" {
-		return rpc.ApiResponseError(errors.New("missing rdb_analysis_remote_fetch_auth"))
+		s.writeError(w, errors.New("missing rdb_analysis_remote_fetch_auth"))
+		return
 	}
 
 	var request RDBAnalysisRemoteFetchRequest
 	if err := json.NewDecoder(req.Body).Decode(&request); err != nil {
-		return rpc.ApiResponseError(errors.Trace(err))
+		s.writeError(w, errors.Trace(err))
+		return
 	}
 	job, err := s.topom.startRDBAnalysisRemoteFetch(req.Context(), request.ServerAddr, request.Options)
 	if err != nil {
-		return rpc.ApiResponseError(err)
+		s.writeError(w, err)
+		return
 	}
-	return rpc.ApiResponseJson(&RDBAnalysisStartResponse{ID: job.ID})
+	s.writeJSON(w, &RDBAnalysisStartResponse{ID: job.ID})
 }
 
-func (s *apiServer) RDBAnalysisGet(params martini.Params) (int, string) {
-	if err := s.verifyXAuth(params); err != nil {
-		return rpc.ApiResponseError(err)
+func (s *apiServer) RDBAnalysisGet(w http.ResponseWriter, req *http.Request) {
+	if err := s.verifyXAuth(req); err != nil {
+		s.writeError(w, err)
+		return
 	}
 	manager, err := s.rdbAnalysisManager()
 	if err != nil {
-		return rpc.ApiResponseError(err)
+		s.writeError(w, err)
+		return
 	}
-	job, err := manager.Get(params["id"])
+	job, err := manager.Get(req.PathValue("id"))
 	if err != nil {
-		return rpc.ApiResponseError(err)
+		s.writeError(w, err)
+		return
 	}
-	return rpc.ApiResponseJson(job)
+	s.writeJSON(w, job)
 }
 
-func (s *apiServer) RDBAnalysisCancel(params martini.Params) (int, string) {
-	if err := s.verifyXAuth(params); err != nil {
-		return rpc.ApiResponseError(err)
+func (s *apiServer) RDBAnalysisCancel(w http.ResponseWriter, req *http.Request) {
+	if err := s.verifyXAuth(req); err != nil {
+		s.writeError(w, err)
+		return
 	}
 	manager, err := s.rdbAnalysisManager()
 	if err != nil {
-		return rpc.ApiResponseError(err)
+		s.writeError(w, err)
+		return
 	}
-	if err := manager.Cancel(params["id"]); err != nil {
-		return rpc.ApiResponseError(err)
+	if err := manager.Cancel(req.PathValue("id")); err != nil {
+		s.writeError(w, err)
+		return
 	}
-	return rpc.ApiResponseJson("OK")
+	s.writeJSON(w, "OK")
 }
 
-func (s *apiServer) RDBAnalysisRemove(params martini.Params) (int, string) {
-	if err := s.verifyXAuth(params); err != nil {
-		return rpc.ApiResponseError(err)
+func (s *apiServer) RDBAnalysisRemove(w http.ResponseWriter, req *http.Request) {
+	if err := s.verifyXAuth(req); err != nil {
+		s.writeError(w, err)
+		return
 	}
 	manager, err := s.rdbAnalysisManager()
 	if err != nil {
-		return rpc.ApiResponseError(err)
+		s.writeError(w, err)
+		return
 	}
-	if err := manager.Remove(params["id"]); err != nil {
-		return rpc.ApiResponseError(err)
+	if err := manager.Remove(req.PathValue("id")); err != nil {
+		s.writeError(w, err)
+		return
 	}
-	return rpc.ApiResponseJson("OK")
+	s.writeJSON(w, "OK")
 }
 
 func parseRDBAnalysisOptionsFromRequest(req *http.Request) (RDBAnalysisOptions, error) {

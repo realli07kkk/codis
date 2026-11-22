@@ -27,10 +27,10 @@ const rdbAnalysisFixtureBase64 = "UkVESVMwMDAz/gAAFmtleV9pbl96ZXJvdGhfZGF0YWJhc2
 func writeRDBAnalysisFixture(t *testing.T, dir, name string) string {
 	t.Helper()
 	data, err := base64.StdEncoding.DecodeString(rdbAnalysisFixtureBase64)
-	assert.MustNoError(err)
+	assert.MustNoError(t, err)
 	path := filepath.Join(dir, name)
-	assert.MustNoError(os.MkdirAll(filepath.Dir(path), 0755))
-	assert.MustNoError(os.WriteFile(path, data, 0644))
+	assert.MustNoError(t, os.MkdirAll(filepath.Dir(path), 0755))
+	assert.MustNoError(t, os.WriteFile(path, data, 0644))
 	return path
 }
 
@@ -39,7 +39,7 @@ func waitRDBAnalysisJob(t *testing.T, get func() (*RDBAnalysisJob, error)) *RDBA
 	deadline := time.Now().Add(time.Second * 5)
 	for time.Now().Before(deadline) {
 		job, err := get()
-		assert.MustNoError(err)
+		assert.MustNoError(t, err)
 		switch job.Status {
 		case RDBAnalysisStatusDone, RDBAnalysisStatusError, RDBAnalysisStatusCanceled:
 			return job
@@ -53,14 +53,14 @@ func waitRDBAnalysisJob(t *testing.T, get func() (*RDBAnalysisJob, error)) *RDBA
 func assertRDBAnalysisJobIDV7(t *testing.T, id string) {
 	t.Helper()
 	u, err := uuid.Parse(id)
-	assert.MustNoError(err)
-	assert.Must(u.Version() == 7)
+	assert.MustNoError(t, err)
+	assert.Must(t, u.Version() == 7)
 }
 
-func openTopomWithConfig(cfg *Config) *Topom {
-	t, err := New(newDiskClient(), cfg)
-	assert.MustNoError(err)
-	assert.MustNoError(t.Start(false))
+func openTopomWithConfig(x *testing.T, cfg *Config) *Topom {
+	t, err := New(newDiskClient(x), cfg)
+	assert.MustNoError(x, err)
+	assert.MustNoError(x, t.Start(false))
 	return t
 }
 
@@ -72,20 +72,20 @@ func TestRDBAnalysisManagerParsesWorkspaceFile(t *testing.T) {
 
 	writeRDBAnalysisFixture(t, cfg.RDBAnalysisWorkspace, "sample.rdb")
 	job, err := manager.StartWorkspace("sample.rdb", RDBAnalysisOptions{TopN: 10})
-	assert.MustNoError(err)
+	assert.MustNoError(t, err)
 	assertRDBAnalysisJobIDV7(t, job.ID)
 
 	done := waitRDBAnalysisJob(t, func() (*RDBAnalysisJob, error) {
 		return manager.Get(job.ID)
 	})
-	assert.Must(done.Status == RDBAnalysisStatusDone)
-	assert.Must(done.ObjectsRead == 2)
-	assert.Must(done.DBCount == 2)
-	assert.Must(done.TotalSize > 0)
-	assert.Must(len(done.TypeSummary) == 1)
-	assert.Must(done.TypeSummary[0].Name == "string")
-	assert.Must(len(done.TopBigKeys) == 2)
-	assert.Must(done.FlameGraph != nil)
+	assert.Must(t, done.Status == RDBAnalysisStatusDone)
+	assert.Must(t, done.ObjectsRead == 2)
+	assert.Must(t, done.DBCount == 2)
+	assert.Must(t, done.TotalSize > 0)
+	assert.Must(t, len(done.TypeSummary) == 1)
+	assert.Must(t, done.TypeSummary[0].Name == "string")
+	assert.Must(t, len(done.TopBigKeys) == 2)
+	assert.Must(t, done.FlameGraph != nil)
 }
 
 func TestRDBAnalysisManagerUploadGeneratesUUIDV7JobID(t *testing.T) {
@@ -95,15 +95,15 @@ func TestRDBAnalysisManagerUploadGeneratesUUIDV7JobID(t *testing.T) {
 	defer manager.Close()
 
 	data, err := base64.StdEncoding.DecodeString(rdbAnalysisFixtureBase64)
-	assert.MustNoError(err)
+	assert.MustNoError(t, err)
 	job, err := manager.StartUpload("upload.rdb", strings.NewReader(string(data)), RDBAnalysisOptions{})
-	assert.MustNoError(err)
+	assert.MustNoError(t, err)
 	assertRDBAnalysisJobIDV7(t, job.ID)
 }
 
 func TestRDBAnalysisConfigAllowsOldConfigWithoutRDBFields(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "dashboard.toml")
-	assert.MustNoError(os.WriteFile(path, []byte(`
+	assert.MustNoError(t, os.WriteFile(path, []byte(`
 coordinator_name = "filesystem"
 coordinator_addr = "/tmp/codis"
 product_name = "codis-demo"
@@ -125,23 +125,23 @@ sentinel_client_reconfig_script = ""
 `), 0644))
 
 	cfg := &Config{}
-	assert.MustNoError(cfg.LoadFromFile(path))
+	assert.MustNoError(t, cfg.LoadFromFile(path))
 	manager := NewRDBAnalysisManager(cfg)
 	defer manager.Close()
-	assert.Must(manager.workspace != "")
-	assert.Must(manager.maxUpload > 0)
-	assert.Must(manager.maxConcurrent > 0)
-	assert.Must(manager.maxRetained > 0)
-	assert.Must(manager.maxTopN > 0)
-	assert.Must(!cfg.RDBAnalysisRemoteFetchEnabled)
-	assert.Must(cfg.RDBAnalysisRemoteFetchAuth == "")
+	assert.Must(t, manager.workspace != "")
+	assert.Must(t, manager.maxUpload > 0)
+	assert.Must(t, manager.maxConcurrent > 0)
+	assert.Must(t, manager.maxRetained > 0)
+	assert.Must(t, manager.maxTopN > 0)
+	assert.Must(t, !cfg.RDBAnalysisRemoteFetchEnabled)
+	assert.Must(t, cfg.RDBAnalysisRemoteFetchAuth == "")
 }
 
 func TestRDBAnalysisRemoteFetchConfigRequiresAuthWhenEnabled(t *testing.T) {
 	cfg := NewDefaultConfig()
 	cfg.RDBAnalysisRemoteFetchEnabled = true
 	cfg.RDBAnalysisRemoteFetchAuth = ""
-	assert.Must(cfg.Validate() != nil)
+	assert.Must(t, cfg.Validate() != nil)
 }
 
 func TestRDBAnalysisManagerRejectsWorkspaceEscape(t *testing.T) {
@@ -151,7 +151,7 @@ func TestRDBAnalysisManagerRejectsWorkspaceEscape(t *testing.T) {
 	defer manager.Close()
 
 	_, err := manager.StartWorkspace("../outside.rdb", RDBAnalysisOptions{})
-	assert.Must(err != nil)
+	assert.Must(t, err != nil)
 }
 
 func TestRDBAnalysisManagerReportsInvalidRDB(t *testing.T) {
@@ -160,15 +160,15 @@ func TestRDBAnalysisManagerReportsInvalidRDB(t *testing.T) {
 	manager := NewRDBAnalysisManager(cfg)
 	defer manager.Close()
 
-	assert.MustNoError(os.WriteFile(filepath.Join(cfg.RDBAnalysisWorkspace, "bad.rdb"), []byte("not an rdb"), 0644))
+	assert.MustNoError(t, os.WriteFile(filepath.Join(cfg.RDBAnalysisWorkspace, "bad.rdb"), []byte("not an rdb"), 0644))
 	job, err := manager.StartWorkspace("bad.rdb", RDBAnalysisOptions{})
-	assert.MustNoError(err)
+	assert.MustNoError(t, err)
 
 	done := waitRDBAnalysisJob(t, func() (*RDBAnalysisJob, error) {
 		return manager.Get(job.ID)
 	})
-	assert.Must(done.Status == RDBAnalysisStatusError)
-	assert.Must(done.Error != "")
+	assert.Must(t, done.Status == RDBAnalysisStatusError)
+	assert.Must(t, done.Error != "")
 }
 
 func TestRDBAnalysisManagerRejectsOversizedUpload(t *testing.T) {
@@ -179,11 +179,11 @@ func TestRDBAnalysisManagerRejectsOversizedUpload(t *testing.T) {
 	manager.maxUpload = 3
 
 	_, err := manager.StartUpload("too-large.rdb", strings.NewReader("1234"), RDBAnalysisOptions{})
-	assert.Must(err != nil)
+	assert.Must(t, err != nil)
 
 	entries, err := os.ReadDir(filepath.Join(cfg.RDBAnalysisWorkspace, "uploads"))
-	assert.MustNoError(err)
-	assert.Must(len(entries) == 0)
+	assert.MustNoError(t, err)
+	assert.Must(t, len(entries) == 0)
 }
 
 func TestRDBAnalysisManagerRejectsConcurrentJobLimit(t *testing.T) {
@@ -201,7 +201,7 @@ func TestRDBAnalysisManagerRejectsConcurrentJobLimit(t *testing.T) {
 	}
 
 	_, err := manager.StartWorkspace("sample.rdb", RDBAnalysisOptions{})
-	assert.Must(err != nil)
+	assert.Must(t, err != nil)
 }
 
 func TestRDBAnalysisOptionsAndPrefixHelpers(t *testing.T) {
@@ -215,15 +215,15 @@ func TestRDBAnalysisOptionsAndPrefixHelpers(t *testing.T) {
 		MaxDepth:         100,
 		PrefixSeparators: []string{"", "|", ":"},
 	})
-	assert.Must(options.TopN == 2)
-	assert.Must(options.MaxDepth == rdbAnalysisMaxDepth)
-	assert.Must(len(options.PrefixSeparators) == 2)
-	assert.Must(options.PrefixSeparators[0] == "|")
+	assert.Must(t, options.TopN == 2)
+	assert.Must(t, options.MaxDepth == rdbAnalysisMaxDepth)
+	assert.Must(t, len(options.PrefixSeparators) == 2)
+	assert.Must(t, options.PrefixSeparators[0] == "|")
 
 	prefixes := analysisPrefixes(0, "svc:tenant:user:42", []string{":"}, 2)
-	assert.Must(len(prefixes) == 2)
-	assert.Must(prefixes[0] == "db0:svc:*")
-	assert.Must(prefixes[1] == "db0:svc:tenant:*")
+	assert.Must(t, len(prefixes) == 2)
+	assert.Must(t, prefixes[0] == "db0:svc:*")
+	assert.Must(t, prefixes[1] == "db0:svc:tenant:*")
 }
 
 func TestRDBAnalysisTopHotKeysSortsByFrequency(t *testing.T) {
@@ -236,13 +236,13 @@ func TestRDBAnalysisTopHotKeysSortsByFrequency(t *testing.T) {
 	for _, key := range keys {
 		top = addTopKeyByFrequency(top, key, 2)
 	}
-	assert.Must(len(top) == 2)
-	assert.Must(top[0].Key == "a")
-	assert.Must(top[1].Key == "c")
+	assert.Must(t, len(top) == 2)
+	assert.Must(t, top[0].Key == "a")
+	assert.Must(t, top[1].Key == "c")
 }
 
 func TestApiRDBAnalysis(t *testing.T) {
-	topom := openTopom()
+	topom := openTopom(t)
 	defer topom.Close()
 	topom.rdbAnalysis.workspace = t.TempDir()
 
@@ -250,48 +250,48 @@ func TestApiRDBAnalysis(t *testing.T) {
 
 	client := newApiClient(topom)
 	id, err := client.StartRDBAnalysis("api.rdb", RDBAnalysisOptions{TopN: 5})
-	assert.MustNoError(err)
-	assert.Must(id != "")
+	assert.MustNoError(t, err)
+	assert.Must(t, id != "")
 
 	done := waitRDBAnalysisJob(t, func() (*RDBAnalysisJob, error) {
 		return client.GetRDBAnalysis(id)
 	})
-	assert.Must(done.Status == RDBAnalysisStatusDone)
-	assert.Must(done.Source == "workspace:api.rdb")
-	assert.Must(done.ObjectsRead == 2)
+	assert.Must(t, done.Status == RDBAnalysisStatusDone)
+	assert.Must(t, done.Source == "workspace:api.rdb")
+	assert.Must(t, done.ObjectsRead == 2)
 
-	assert.MustNoError(client.CancelRDBAnalysis(id))
-	assert.MustNoError(client.RemoveRDBAnalysis(id))
+	assert.MustNoError(t, client.CancelRDBAnalysis(id))
+	assert.MustNoError(t, client.RemoveRDBAnalysis(id))
 	_, err = client.GetRDBAnalysis(id)
-	assert.Must(err != nil)
+	assert.Must(t, err != nil)
 }
 
 func TestApiRDBAnalysisRequiresXAuth(t *testing.T) {
-	topom := openTopom()
+	topom := openTopom(t)
 	defer topom.Close()
 	topom.rdbAnalysis.workspace = t.TempDir()
 	writeRDBAnalysisFixture(t, topom.rdbAnalysis.workspace, "api.rdb")
 
 	client := NewApiClient(topom.model.AdminAddr)
 	_, err := client.StartRDBAnalysis("api.rdb", RDBAnalysisOptions{})
-	assert.Must(err != nil)
+	assert.Must(t, err != nil)
 }
 
 func TestApiRDBAnalysisRemoteFetchDisabled(t *testing.T) {
-	topom := openTopom()
+	topom := openTopom(t)
 	defer topom.Close()
 
 	client := newApiClient(topom)
 	_, err := client.StartRDBAnalysisRemoteFetch("127.0.0.1:6379", RDBAnalysisOptions{})
-	assert.Must(err != nil)
-	assert.Must(strings.Contains(err.Error(), "remote fetch is disabled"))
+	assert.Must(t, err != nil)
+	assert.Must(t, strings.Contains(err.Error(), "remote fetch is disabled"))
 }
 
 func TestApiRDBAnalysisRemoteFetchRejectsServerOutsideProduct(t *testing.T) {
 	cfg := *config
 	cfg.RDBAnalysisRemoteFetchEnabled = true
 	cfg.RDBAnalysisRemoteFetchAuth = "secret"
-	topom := openTopomWithConfig(&cfg)
+	topom := openTopomWithConfig(t, &cfg)
 	defer topom.Close()
 
 	var hits int
@@ -304,9 +304,9 @@ func TestApiRDBAnalysisRemoteFetchRejectsServerOutsideProduct(t *testing.T) {
 	client := newApiClient(topom)
 	addr := strings.TrimPrefix(server.URL, "http://")
 	_, err := client.StartRDBAnalysisRemoteFetch(addr, RDBAnalysisOptions{})
-	assert.Must(err != nil)
-	assert.Must(strings.Contains(err.Error(), "not in current product"))
-	assert.Must(hits == 0)
+	assert.Must(t, err != nil)
+	assert.Must(t, strings.Contains(err.Error(), "not in current product"))
+	assert.Must(t, hits == 0)
 }
 
 func TestApiRDBAnalysisRemoteFetchRequiresXAuthBeforeOutbound(t *testing.T) {
@@ -321,13 +321,13 @@ func TestApiRDBAnalysisRemoteFetchRequiresXAuthBeforeOutbound(t *testing.T) {
 	defer server.Close()
 
 	addr := remoteFetchAddr(server)
-	assert.MustNoError(topom.CreateGroup(102))
-	assert.MustNoError(topom.GroupAddServer(102, "", addr))
+	assert.MustNoError(t, topom.CreateGroup(102))
+	assert.MustNoError(t, topom.GroupAddServer(102, "", addr))
 
 	client := NewApiClient(topom.model.AdminAddr)
 	_, err := client.StartRDBAnalysisRemoteFetch(addr, RDBAnalysisOptions{})
-	assert.Must(err != nil)
-	assert.Must(hits == 0)
+	assert.Must(t, err != nil)
+	assert.Must(t, hits == 0)
 }
 
 func TestApiRDBAnalysisRemoteFetchRejectsInvalidServerAddr(t *testing.T) {
@@ -350,10 +350,10 @@ func TestApiRDBAnalysisRemoteFetchRejectsInvalidServerAddr(t *testing.T) {
 		addr + "#fragment",
 	} {
 		_, err := client.StartRDBAnalysisRemoteFetch(serverAddr, RDBAnalysisOptions{})
-		assert.Must(err != nil)
-		assert.Must(strings.Contains(err.Error(), "invalid rdb analysis remote fetch server_addr"))
+		assert.Must(t, err != nil)
+		assert.Must(t, strings.Contains(err.Error(), "invalid rdb analysis remote fetch server_addr"))
 	}
-	assert.Must(hits == 0)
+	assert.Must(t, hits == 0)
 }
 
 func openRemoteFetchTopom(t *testing.T) *Topom {
@@ -361,7 +361,7 @@ func openRemoteFetchTopom(t *testing.T) *Topom {
 	cfg := *config
 	cfg.RDBAnalysisRemoteFetchEnabled = true
 	cfg.RDBAnalysisRemoteFetchAuth = "secret"
-	topom := openTopomWithConfig(&cfg)
+	topom := openTopomWithConfig(t, &cfg)
 	topom.rdbAnalysis.workspace = t.TempDir()
 	return topom
 }
@@ -369,10 +369,10 @@ func openRemoteFetchTopom(t *testing.T) *Topom {
 func newRDBExportFixtureServer(t *testing.T) (*httptest.Server, []byte) {
 	t.Helper()
 	data, err := base64.StdEncoding.DecodeString(rdbAnalysisFixtureBase64)
-	assert.MustNoError(err)
+	assert.MustNoError(t, err)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-		assert.Must(req.URL.Path == rdbAnalysisRemoteFetchPath)
-		assert.Must(req.Header.Get(rdbAnalysisRemoteFetchAuthHeader) == "secret")
+		assert.Must(t, req.URL.Path == rdbAnalysisRemoteFetchPath)
+		assert.Must(t, req.Header.Get(rdbAnalysisRemoteFetchAuthHeader) == "secret")
 		w.Header().Set("Content-Disposition", `attachment; filename="remote.rdb"`)
 		w.Header().Set("Content-Length", strconv.Itoa(len(data)))
 		w.Write(data)
@@ -387,25 +387,25 @@ func TestApiRDBAnalysisRemoteFetchStartsJob(t *testing.T) {
 	defer server.Close()
 
 	addr := remoteFetchAddr(server)
-	assert.MustNoError(topom.CreateGroup(100))
-	assert.MustNoError(topom.GroupAddServer(100, "", addr))
+	assert.MustNoError(t, topom.CreateGroup(100))
+	assert.MustNoError(t, topom.GroupAddServer(100, "", addr))
 
 	client := newApiClient(topom)
 	id, err := client.StartRDBAnalysisRemoteFetch(addr, RDBAnalysisOptions{TopN: 5})
-	assert.MustNoError(err)
-	assert.Must(id != "")
+	assert.MustNoError(t, err)
+	assert.Must(t, id != "")
 	assertRDBAnalysisJobIDV7(t, id)
 
 	done := waitRDBAnalysisJob(t, func() (*RDBAnalysisJob, error) {
 		return client.GetRDBAnalysis(id)
 	})
-	assert.Must(done.Status == RDBAnalysisStatusDone)
-	assert.Must(done.Source == "remote-http:"+addr+"/remote.rdb")
-	assert.Must(done.ObjectsRead == 2)
-	assert.Must(remoteFetchTempFileCount(t, topom.rdbAnalysis) == 1)
+	assert.Must(t, done.Status == RDBAnalysisStatusDone)
+	assert.Must(t, done.Source == "remote-http:"+addr+"/remote.rdb")
+	assert.Must(t, done.ObjectsRead == 2)
+	assert.Must(t, remoteFetchTempFileCount(t, topom.rdbAnalysis) == 1)
 
-	assert.MustNoError(client.RemoveRDBAnalysis(id))
-	assert.Must(remoteFetchTempFileCount(t, topom.rdbAnalysis) == 0)
+	assert.MustNoError(t, client.RemoveRDBAnalysis(id))
+	assert.Must(t, remoteFetchTempFileCount(t, topom.rdbAnalysis) == 0)
 }
 
 func TestApiRDBAnalysisRemoteFetchCleansUpWhenAnalysisLimitReached(t *testing.T) {
@@ -421,14 +421,14 @@ func TestApiRDBAnalysisRemoteFetchCleansUpWhenAnalysisLimitReached(t *testing.T)
 	defer server.Close()
 
 	addr := remoteFetchAddr(server)
-	assert.MustNoError(topom.CreateGroup(101))
-	assert.MustNoError(topom.GroupAddServer(101, "", addr))
+	assert.MustNoError(t, topom.CreateGroup(101))
+	assert.MustNoError(t, topom.GroupAddServer(101, "", addr))
 
 	client := newApiClient(topom)
 	_, err := client.StartRDBAnalysisRemoteFetch(addr, RDBAnalysisOptions{})
-	assert.Must(err != nil)
-	assert.Must(strings.Contains(err.Error(), "too many running rdb analysis jobs"))
-	assert.Must(remoteFetchTempFileCount(t, topom.rdbAnalysis) == 0)
+	assert.Must(t, err != nil)
+	assert.Must(t, strings.Contains(err.Error(), "too many running rdb analysis jobs"))
+	assert.Must(t, remoteFetchTempFileCount(t, topom.rdbAnalysis) == 0)
 }
 
 func TestApiRDBAnalysisRemoteFetchRejectsFetchConcurrencyLimit(t *testing.T) {
@@ -436,7 +436,7 @@ func TestApiRDBAnalysisRemoteFetchRejectsFetchConcurrencyLimit(t *testing.T) {
 	defer topom.Close()
 	topom.rdbAnalysis.remoteFetchMaxConcurrent = 1
 	data, err := base64.StdEncoding.DecodeString(rdbAnalysisFixtureBase64)
-	assert.MustNoError(err)
+	assert.MustNoError(t, err)
 
 	started := make(chan struct{})
 	release := make(chan struct{})
@@ -453,8 +453,8 @@ func TestApiRDBAnalysisRemoteFetchRejectsFetchConcurrencyLimit(t *testing.T) {
 	defer server.Close()
 
 	addr := remoteFetchAddr(server)
-	assert.MustNoError(topom.CreateGroup(103))
-	assert.MustNoError(topom.GroupAddServer(103, "", addr))
+	assert.MustNoError(t, topom.CreateGroup(103))
+	assert.MustNoError(t, topom.GroupAddServer(103, "", addr))
 
 	client := newApiClient(topom)
 	type result struct {
@@ -473,13 +473,13 @@ func TestApiRDBAnalysisRemoteFetchRejectsFetchConcurrencyLimit(t *testing.T) {
 		t.Fatalf("first remote fetch did not start")
 	}
 	_, err = client.StartRDBAnalysisRemoteFetch(addr, RDBAnalysisOptions{})
-	assert.Must(err != nil)
-	assert.Must(strings.Contains(err.Error(), "too many running rdb analysis remote fetches"))
-	assert.Must(atomic.LoadInt32(&hits) == 1)
+	assert.Must(t, err != nil)
+	assert.Must(t, strings.Contains(err.Error(), "too many running rdb analysis remote fetches"))
+	assert.Must(t, atomic.LoadInt32(&hits) == 1)
 
 	close(release)
 	first := <-done
-	assert.MustNoError(first.err)
+	assert.MustNoError(t, first.err)
 	assertRDBAnalysisJobIDV7(t, first.id)
 }
 
@@ -507,7 +507,7 @@ func remoteFetchTempFileCount(t *testing.T, manager *RDBAnalysisManager) int {
 	if os.IsNotExist(err) {
 		return 0
 	}
-	assert.MustNoError(err)
+	assert.MustNoError(t, err)
 	return len(entries)
 }
 
@@ -515,7 +515,7 @@ func TestRDBAnalysisRemoteFetchDownloadsToTempFile(t *testing.T) {
 	manager := newRemoteFetchTestManager(t)
 	defer manager.Close()
 	data, err := base64.StdEncoding.DecodeString(rdbAnalysisFixtureBase64)
-	assert.MustNoError(err)
+	assert.MustNoError(t, err)
 
 	var auth string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
@@ -527,14 +527,14 @@ func TestRDBAnalysisRemoteFetchDownloadsToTempFile(t *testing.T) {
 	defer server.Close()
 
 	file, err := manager.fetchRemoteRDB(stdcontext.Background(), remoteFetchTarget(server))
-	assert.MustNoError(err)
+	assert.MustNoError(t, err)
 	defer os.Remove(file.path)
-	assert.Must(auth == "secret")
-	assert.Must(file.size == int64(len(data)))
-	assert.Must(file.source == "remote-http:"+remoteFetchAddr(server)+"/dump.rdb")
+	assert.Must(t, auth == "secret")
+	assert.Must(t, file.size == int64(len(data)))
+	assert.Must(t, file.source == "remote-http:"+remoteFetchAddr(server)+"/dump.rdb")
 	got, err := os.ReadFile(file.path)
-	assert.MustNoError(err)
-	assert.Must(string(got) == string(data))
+	assert.MustNoError(t, err)
+	assert.Must(t, string(got) == string(data))
 }
 
 func TestRDBAnalysisRemoteFetchRejectsHTTPError(t *testing.T) {
@@ -547,10 +547,10 @@ func TestRDBAnalysisRemoteFetchRejectsHTTPError(t *testing.T) {
 	defer server.Close()
 
 	_, err := manager.fetchRemoteRDB(stdcontext.Background(), remoteFetchTarget(server))
-	assert.Must(err != nil)
-	assert.Must(strings.Contains(err.Error(), "403 Forbidden"))
-	assert.Must(!strings.Contains(err.Error(), "secret path"))
-	assert.Must(remoteFetchTempFileCount(t, manager) == 0)
+	assert.Must(t, err != nil)
+	assert.Must(t, strings.Contains(err.Error(), "403 Forbidden"))
+	assert.Must(t, !strings.Contains(err.Error(), "secret path"))
+	assert.Must(t, remoteFetchTempFileCount(t, manager) == 0)
 }
 
 func TestRDBAnalysisRemoteFetchDoesNotFollowRedirect(t *testing.T) {
@@ -568,9 +568,9 @@ func TestRDBAnalysisRemoteFetchDoesNotFollowRedirect(t *testing.T) {
 	defer server.Close()
 
 	_, err := manager.fetchRemoteRDB(stdcontext.Background(), remoteFetchTarget(server))
-	assert.Must(err != nil)
-	assert.Must(strings.Contains(err.Error(), "302 Found"))
-	assert.Must(redirectedAuth == "")
+	assert.Must(t, err != nil)
+	assert.Must(t, strings.Contains(err.Error(), "302 Found"))
+	assert.Must(t, redirectedAuth == "")
 }
 
 func TestRDBAnalysisRemoteFetchRejectsOversizedContentLength(t *testing.T) {
@@ -584,9 +584,9 @@ func TestRDBAnalysisRemoteFetchRejectsOversizedContentLength(t *testing.T) {
 	defer server.Close()
 
 	_, err := manager.fetchRemoteRDB(stdcontext.Background(), remoteFetchTarget(server))
-	assert.Must(err != nil)
-	assert.Must(strings.Contains(err.Error(), "exceeds max size"))
-	assert.Must(remoteFetchTempFileCount(t, manager) == 0)
+	assert.Must(t, err != nil)
+	assert.Must(t, strings.Contains(err.Error(), "exceeds max size"))
+	assert.Must(t, remoteFetchTempFileCount(t, manager) == 0)
 }
 
 func TestRDBAnalysisRemoteFetchRejectsOversizedBody(t *testing.T) {
@@ -599,9 +599,9 @@ func TestRDBAnalysisRemoteFetchRejectsOversizedBody(t *testing.T) {
 	defer server.Close()
 
 	_, err := manager.fetchRemoteRDB(stdcontext.Background(), remoteFetchTarget(server))
-	assert.Must(err != nil)
-	assert.Must(strings.Contains(err.Error(), "exceeds max size"))
-	assert.Must(remoteFetchTempFileCount(t, manager) == 0)
+	assert.Must(t, err != nil)
+	assert.Must(t, strings.Contains(err.Error(), "exceeds max size"))
+	assert.Must(t, remoteFetchTempFileCount(t, manager) == 0)
 }
 
 func TestRDBAnalysisRemoteFetchHonorsContextCancel(t *testing.T) {
@@ -615,6 +615,6 @@ func TestRDBAnalysisRemoteFetchHonorsContextCancel(t *testing.T) {
 	ctx, cancel := stdcontext.WithCancel(stdcontext.Background())
 	cancel()
 	_, err := manager.fetchRemoteRDB(ctx, remoteFetchTarget(server))
-	assert.Must(err != nil)
-	assert.Must(remoteFetchTempFileCount(t, manager) == 0)
+	assert.Must(t, err != nil)
+	assert.Must(t, remoteFetchTempFileCount(t, manager) == 0)
 }

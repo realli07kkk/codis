@@ -10,71 +10,71 @@ import (
 )
 
 func TestCreateProxy(x *testing.T) {
-	t := openTopom()
+	t := openTopom(x)
 	defer t.Close()
 
 	check := func(tokens []string) {
 		ctx, err := t.newContext()
-		assert.MustNoError(err)
-		assert.Must(len(ctx.proxy) == len(tokens))
+		assert.MustNoError(x, err)
+		assert.Must(x, len(ctx.proxy) == len(tokens))
 		for _, t := range tokens {
-			assert.Must(ctx.proxy[t] != nil)
+			assert.Must(x, ctx.proxy[t] != nil)
 		}
 	}
 
-	p1, c1 := openProxy()
+	p1, c1 := openProxy(x)
 	defer c1.Shutdown()
 
 	check([]string{})
-	assert.MustNoError(t.CreateProxy(p1.AdminAddr))
+	assert.MustNoError(x, t.CreateProxy(p1.AdminAddr))
 	check([]string{p1.Token})
-	assert.Must(t.CreateProxy(p1.AdminAddr) != nil)
+	assert.Must(x, t.CreateProxy(p1.AdminAddr) != nil)
 	check([]string{p1.Token})
 
-	p2, c2 := openProxy()
+	p2, c2 := openProxy(x)
 	defer c2.Shutdown()
 
-	assert.MustNoError(c2.Shutdown())
+	assert.MustNoError(x, c2.Shutdown())
 	check([]string{p1.Token})
-	assert.Must(t.CreateProxy(p2.AdminAddr) != nil)
+	assert.Must(x, t.CreateProxy(p2.AdminAddr) != nil)
 	check([]string{p1.Token})
 
-	assert.MustNoError(c1.Shutdown())
+	assert.MustNoError(x, c1.Shutdown())
 	check([]string{p1.Token})
 }
 
 func TestRemoveProxy(x *testing.T) {
-	t := openTopom()
+	t := openTopom(x)
 	defer t.Close()
 
 	check := func(tokens []string) {
 		ctx, err := t.newContext()
-		assert.MustNoError(err)
-		assert.Must(len(ctx.proxy) == len(tokens))
+		assert.MustNoError(x, err)
+		assert.Must(x, len(ctx.proxy) == len(tokens))
 		for _, t := range tokens {
-			assert.Must(ctx.proxy[t] != nil)
+			assert.Must(x, ctx.proxy[t] != nil)
 		}
 	}
 
-	p1, c1 := openProxy()
+	p1, c1 := openProxy(x)
 	defer c1.Shutdown()
 
 	check([]string{})
-	assert.MustNoError(t.CreateProxy(p1.AdminAddr))
+	assert.MustNoError(x, t.CreateProxy(p1.AdminAddr))
 	check([]string{p1.Token})
-	assert.MustNoError(t.RemoveProxy(p1.Token, false))
+	assert.MustNoError(x, t.RemoveProxy(p1.Token, false))
 	check([]string{})
 
-	p2, c2 := openProxy()
+	p2, c2 := openProxy(x)
 	defer c2.Shutdown()
 
-	assert.MustNoError(t.CreateProxy(p2.AdminAddr))
+	assert.MustNoError(x, t.CreateProxy(p2.AdminAddr))
 	check([]string{p2.Token})
 
-	assert.MustNoError(c2.Shutdown())
-	assert.Must(t.RemoveProxy(p2.Token, false) != nil)
+	assert.MustNoError(x, c2.Shutdown())
+	assert.Must(x, t.RemoveProxy(p2.Token, false) != nil)
 	check([]string{p2.Token})
 
-	assert.MustNoError(t.RemoveProxy(p2.Token, true))
+	assert.MustNoError(x, t.RemoveProxy(p2.Token, true))
 	check([]string{})
 }

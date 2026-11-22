@@ -4,6 +4,7 @@
 package topom
 
 import (
+	"cmp"
 	stdcontext "context"
 	"fmt"
 	"io"
@@ -12,7 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"sort"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -412,8 +413,8 @@ func (m *RDBAnalysisManager) pruneLocked() {
 			jobs = append(jobs, job)
 		}
 	}
-	sort.SliceStable(jobs, func(i, j int) bool {
-		return jobs[i].CreatedAt.Before(jobs[j].CreatedAt)
+	slices.SortStableFunc(jobs, func(a, b *RDBAnalysisJob) int {
+		return a.CreatedAt.Compare(b.CreatedAt)
 	})
 	for len(m.jobs) > m.maxRetained && len(jobs) > 0 {
 		job := jobs[0]
@@ -635,11 +636,11 @@ func (s *rdbAnalysisSnapshot) typeSummary() []RDBAnalysisSummary {
 	for _, stat := range s.typeStats {
 		list = append(list, *stat)
 	}
-	sort.SliceStable(list, func(i, j int) bool {
-		if list[i].Size == list[j].Size {
-			return list[i].Name < list[j].Name
+	slices.SortStableFunc(list, func(a, b RDBAnalysisSummary) int {
+		if a.Size == b.Size {
+			return cmp.Compare(a.Name, b.Name)
 		}
-		return list[i].Size > list[j].Size
+		return cmp.Compare(b.Size, a.Size)
 	})
 	return list
 }
@@ -649,8 +650,8 @@ func (s *rdbAnalysisSnapshot) dbSummary() []RDBAnalysisSummary {
 	for _, stat := range s.dbStats {
 		list = append(list, *stat)
 	}
-	sort.SliceStable(list, func(i, j int) bool {
-		return list[i].DB < list[j].DB
+	slices.SortStableFunc(list, func(a, b RDBAnalysisSummary) int {
+		return cmp.Compare(a.DB, b.DB)
 	})
 	return list
 }
@@ -660,11 +661,11 @@ func (s *rdbAnalysisSnapshot) prefixSummary() []RDBAnalysisSummary {
 	for _, stat := range s.prefixStats {
 		list = append(list, *stat)
 	}
-	sort.SliceStable(list, func(i, j int) bool {
-		if list[i].Size == list[j].Size {
-			return list[i].Name < list[j].Name
+	slices.SortStableFunc(list, func(a, b RDBAnalysisSummary) int {
+		if a.Size == b.Size {
+			return cmp.Compare(a.Name, b.Name)
 		}
-		return list[i].Size > list[j].Size
+		return cmp.Compare(b.Size, a.Size)
 	})
 	if len(list) > s.options.TopN {
 		list = list[:s.options.TopN]
@@ -688,11 +689,11 @@ func newRDBAnalysisKeyEntry(object rdbmodel.RedisObject, frequency int64) RDBAna
 
 func addTopKeyBySize(list []RDBAnalysisKeyEntry, entry RDBAnalysisKeyEntry, limit int) []RDBAnalysisKeyEntry {
 	list = append(list, entry)
-	sort.SliceStable(list, func(i, j int) bool {
-		if list[i].Size == list[j].Size {
-			return list[i].Key < list[j].Key
+	slices.SortStableFunc(list, func(a, b RDBAnalysisKeyEntry) int {
+		if a.Size == b.Size {
+			return cmp.Compare(a.Key, b.Key)
 		}
-		return list[i].Size > list[j].Size
+		return cmp.Compare(b.Size, a.Size)
 	})
 	if len(list) > limit {
 		list = list[:limit]
@@ -702,11 +703,11 @@ func addTopKeyBySize(list []RDBAnalysisKeyEntry, entry RDBAnalysisKeyEntry, limi
 
 func addTopKeyByFrequency(list []RDBAnalysisKeyEntry, entry RDBAnalysisKeyEntry, limit int) []RDBAnalysisKeyEntry {
 	list = append(list, entry)
-	sort.SliceStable(list, func(i, j int) bool {
-		if list[i].Frequency == list[j].Frequency {
-			return list[i].Key < list[j].Key
+	slices.SortStableFunc(list, func(a, b RDBAnalysisKeyEntry) int {
+		if a.Frequency == b.Frequency {
+			return cmp.Compare(a.Key, b.Key)
 		}
-		return list[i].Frequency > list[j].Frequency
+		return cmp.Compare(b.Frequency, a.Frequency)
 	})
 	if len(list) > limit {
 		list = list[:limit]
@@ -782,7 +783,7 @@ func (n *rdbAnalysisFlameBuilder) export() *RDBAnalysisFlameNode {
 	for name := range n.children {
 		names = append(names, name)
 	}
-	sort.Strings(names)
+	slices.Sort(names)
 	for _, name := range names {
 		out.Children = append(out.Children, n.children[name].export())
 	}

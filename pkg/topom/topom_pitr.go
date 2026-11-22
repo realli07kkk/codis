@@ -617,13 +617,13 @@ func (d *topomPitrDeps) ResyncReplica(ctx stdcontext.Context, masterAddr, replic
 // independent of that unexported logic.
 func parsePitrInfoText(text string) map[string]string {
 	info := make(map[string]string)
-	for _, line := range strings.Split(text, "\n") {
-		kv := strings.SplitN(line, ":", 2)
-		if len(kv) != 2 {
+	for line := range strings.SplitSeq(text, "\n") {
+		key, value, ok := strings.Cut(line, ":")
+		if !ok {
 			continue
 		}
-		if key := strings.TrimSpace(kv[0]); key != "" {
-			info[key] = strings.TrimSpace(kv[1])
+		if key = strings.TrimSpace(key); key != "" {
+			info[key] = strings.TrimSpace(value)
 		}
 	}
 	return info

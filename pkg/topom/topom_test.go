@@ -39,28 +39,28 @@ func TestMain(m *testing.M) {
 	os.Exit(code)
 }
 
-func newDiskClient() *fsclient.Client {
+func newDiskClient(t *testing.T) *fsclient.Client {
 	d, err := os.MkdirTemp(testRootDir, "")
-	assert.MustNoError(err)
+	assert.MustNoError(t, err)
 	c, err := fsclient.New(d)
-	assert.MustNoError(err)
+	assert.MustNoError(t, err)
 	return c
 }
 
-func newForkClient(client *fsclient.Client) *fsclient.Client {
+func newForkClient(t *testing.T, client *fsclient.Client) *fsclient.Client {
 	c, err := fsclient.New(client.RootDir)
-	assert.MustNoError(err)
+	assert.MustNoError(t, err)
 	return c
 }
 
-func openTopom() *Topom {
-	t, err := New(newDiskClient(), config)
-	assert.MustNoError(err)
-	assert.MustNoError(t.Start(false))
+func openTopom(x *testing.T) *Topom {
+	t, err := New(newDiskClient(x), config)
+	assert.MustNoError(x, err)
+	assert.MustNoError(x, t.Start(false))
 	return t
 }
 
-func openProxy() (*models.Proxy, *proxy.ApiClient) {
+func openProxy(t *testing.T) (*models.Proxy, *proxy.ApiClient) {
 	config := proxy.NewDefaultConfig()
 	config.AdminAddr = "127.0.0.1:0"
 	config.ProxyAddr = "0.0.0.0:0"
@@ -70,41 +70,41 @@ func openProxy() (*models.Proxy, *proxy.ApiClient) {
 	config.ProxyMaxOffheapBytes = 0
 
 	s, err := proxy.New(config)
-	assert.MustNoError(err)
+	assert.MustNoError(t, err)
 
 	c := proxy.NewApiClient(s.Model().AdminAddr)
 	c.SetXAuth(config.ProductName, config.ProductAuth, s.Model().Token)
 
 	p, err := c.Model()
-	assert.MustNoError(err)
+	assert.MustNoError(t, err)
 	return p, c
 }
 
 func TestTopomClose(x *testing.T) {
-	t := openTopom()
+	t := openTopom(x)
 	defer t.Close()
 
-	assert.Must(t.IsClosed() == false)
-	assert.MustNoError(t.Close())
-	assert.Must(t.IsClosed() == true)
+	assert.Must(x, t.IsClosed() == false)
+	assert.MustNoError(x, t.Close())
+	assert.Must(x, t.IsClosed() == true)
 }
 
 func TestTopomExclusive(x *testing.T) {
-	client := newDiskClient()
+	client := newDiskClient(x)
 
-	t1, err := New(newForkClient(client), config)
-	assert.MustNoError(err)
-	assert.MustNoError(t1.Start(false))
+	t1, err := New(newForkClient(x, client), config)
+	assert.MustNoError(x, err)
+	assert.MustNoError(x, t1.Start(false))
 
 	defer t1.Close()
 
-	t2, err := New(newForkClient(client), config)
-	assert.MustNoError(err)
-	assert.Must(t2.Start(false) != nil)
+	t2, err := New(newForkClient(x, client), config)
+	assert.MustNoError(x, err)
+	assert.Must(x, t2.Start(false) != nil)
 
 	t1.Close()
 
-	t3, err := New(newForkClient(client), config)
-	assert.MustNoError(err)
-	assert.MustNoError(t3.Start(false))
+	t3, err := New(newForkClient(x, client), config)
+	assert.MustNoError(x, err)
+	assert.MustNoError(x, t3.Start(false))
 }

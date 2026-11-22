@@ -232,7 +232,7 @@ func readPitrAofManifest(manifestPath string) ([]string, error) {
 	}
 	var base string
 	var incrs []string
-	for _, line := range strings.Split(string(data), "\n") {
+	for line := range strings.SplitSeq(string(data), "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" || strings.HasPrefix(line, "#") {
 			continue
@@ -519,6 +519,8 @@ func (m *PitrManager) stepRestart(ctx stdcontext.Context, job *PitrJob, deps Pit
 // replicas until loading completes.
 func (m *PitrManager) stepWaitLoad(ctx stdcontext.Context, job *PitrJob, deps PitrDeps) error {
 	deadline := time.Now().Add(m.jobTimeout)
+	ticker := time.NewTicker(time.Second)
+	defer ticker.Stop()
 	for {
 		if err := ctx.Err(); err != nil {
 			return err
@@ -535,7 +537,7 @@ func (m *PitrManager) stepWaitLoad(ctx stdcontext.Context, job *PitrJob, deps Pi
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
-		case <-time.After(time.Second):
+		case <-ticker.C:
 		}
 	}
 }
@@ -622,6 +624,8 @@ func copyFile(src, dst string) error {
 // timeout. It does NOT wait for loading to finish — that's stepWaitLoad.
 func pollUntilResponsive(ctx stdcontext.Context, job *PitrJob, deps PitrDeps, timeout time.Duration) error {
 	deadline := time.Now().Add(timeout)
+	ticker := time.NewTicker(time.Second)
+	defer ticker.Stop()
 	for {
 		if err := ctx.Err(); err != nil {
 			return err
@@ -635,7 +639,7 @@ func pollUntilResponsive(ctx stdcontext.Context, job *PitrJob, deps PitrDeps, ti
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
-		case <-time.After(time.Second):
+		case <-ticker.C:
 		}
 	}
 }

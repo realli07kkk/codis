@@ -7,8 +7,6 @@ import (
 	"encoding/json"
 	"net/http"
 
-	"github.com/go-martini/martini"
-
 	"github.com/CodisLabs/codis/pkg/utils/errors"
 	"github.com/CodisLabs/codis/pkg/utils/rpc"
 )
@@ -54,91 +52,108 @@ func (s *apiServer) pitrManagerEnabled() (*PitrManager, error) {
 // xauth, then delegates to PitrManager.Create. The manager performs the
 // enabled / concurrency / per-server-lock checks synchronously and launches
 // the state machine asynchronously.
-func (s *apiServer) PitrCreate(params martini.Params, req *http.Request) (int, string) {
-	if err := s.verifyXAuth(params); err != nil {
-		return rpc.ApiResponseError(err)
+func (s *apiServer) PitrCreate(w http.ResponseWriter, req *http.Request) {
+	if err := s.verifyXAuth(req); err != nil {
+		s.writeError(w, err)
+		return
 	}
 	manager, err := s.pitrManagerEnabled()
 	if err != nil {
-		return rpc.ApiResponseError(err)
+		s.writeError(w, err)
+		return
 	}
 	var request PitrCreateRequest
 	if err := json.NewDecoder(req.Body).Decode(&request); err != nil {
-		return rpc.ApiResponseError(errors.Trace(err))
+		s.writeError(w, errors.Trace(err))
+		return
 	}
 	if request.ServerAddr == "" {
-		return rpc.ApiResponseError(errors.New("missing server_addr"))
+		s.writeError(w, errors.New("missing server_addr"))
+		return
 	}
 	if request.TruncateTs <= 0 {
-		return rpc.ApiResponseError(errors.New("invalid truncate_ts"))
+		s.writeError(w, errors.New("invalid truncate_ts"))
+		return
 	}
 	deps := s.topom.newPitrDeps()
 	job, err := manager.Create(s.topom.Config().ProductName, request.ServerAddr, request.TruncateTs, deps)
 	if err != nil {
-		return rpc.ApiResponseError(err)
+		s.writeError(w, err)
+		return
 	}
-	return rpc.ApiResponseJson(&PitrCreateResponse{JobID: job.ID})
+	s.writeJSON(w, &PitrCreateResponse{JobID: job.ID})
 }
 
 // PitrList is the GET /api/topom/pitr/jobs/:xauth handler. It returns
 // snapshots of all jobs (newest first) without secrets or AOF contents.
-func (s *apiServer) PitrList(params martini.Params) (int, string) {
-	if err := s.verifyXAuth(params); err != nil {
-		return rpc.ApiResponseError(err)
+func (s *apiServer) PitrList(w http.ResponseWriter, req *http.Request) {
+	if err := s.verifyXAuth(req); err != nil {
+		s.writeError(w, err)
+		return
 	}
 	manager, err := s.pitrManagerEnabled()
 	if err != nil {
-		return rpc.ApiResponseError(err)
+		s.writeError(w, err)
+		return
 	}
-	return rpc.ApiResponseJson(manager.List())
+	s.writeJSON(w, manager.List())
 }
 
 // PitrGet is the GET /api/topom/pitr/:xauth/:id handler.
-func (s *apiServer) PitrGet(params martini.Params) (int, string) {
-	if err := s.verifyXAuth(params); err != nil {
-		return rpc.ApiResponseError(err)
+func (s *apiServer) PitrGet(w http.ResponseWriter, req *http.Request) {
+	if err := s.verifyXAuth(req); err != nil {
+		s.writeError(w, err)
+		return
 	}
 	manager, err := s.pitrManagerEnabled()
 	if err != nil {
-		return rpc.ApiResponseError(err)
+		s.writeError(w, err)
+		return
 	}
-	job, err := manager.Get(params["id"])
+	job, err := manager.Get(req.PathValue("id"))
 	if err != nil {
-		return rpc.ApiResponseError(err)
+		s.writeError(w, err)
+		return
 	}
-	return rpc.ApiResponseJson(job)
+	s.writeJSON(w, job)
 }
 
 // PitrCancel is the PUT /api/topom/pitr/cancel/:xauth/:id handler. Cancelling
 // a terminal job is a no-op (returns OK).
-func (s *apiServer) PitrCancel(params martini.Params) (int, string) {
-	if err := s.verifyXAuth(params); err != nil {
-		return rpc.ApiResponseError(err)
+func (s *apiServer) PitrCancel(w http.ResponseWriter, req *http.Request) {
+	if err := s.verifyXAuth(req); err != nil {
+		s.writeError(w, err)
+		return
 	}
 	manager, err := s.pitrManagerEnabled()
 	if err != nil {
-		return rpc.ApiResponseError(err)
+		s.writeError(w, err)
+		return
 	}
-	if err := manager.Cancel(params["id"]); err != nil {
-		return rpc.ApiResponseError(err)
+	if err := manager.Cancel(req.PathValue("id")); err != nil {
+		s.writeError(w, err)
+		return
 	}
-	return rpc.ApiResponseJson("OK")
+	s.writeJSON(w, "OK")
 }
 
 // PitrRemove is the PUT /api/topom/pitr/remove/:xauth/:id handler. It deletes
 // the job and best-effort removes its snapshot directory.
-func (s *apiServer) PitrRemove(params martini.Params) (int, string) {
-	if err := s.verifyXAuth(params); err != nil {
-		return rpc.ApiResponseError(err)
+func (s *apiServer) PitrRemove(w http.ResponseWriter, req *http.Request) {
+	if err := s.verifyXAuth(req); err != nil {
+		s.writeError(w, err)
+		return
 	}
 	manager, err := s.pitrManagerEnabled()
 	if err != nil {
-		return rpc.ApiResponseError(err)
+		s.writeError(w, err)
+		return
 	}
-	if err := manager.Remove(params["id"]); err != nil {
-		return rpc.ApiResponseError(err)
+	if err := manager.Remove(req.PathValue("id")); err != nil {
+		s.writeError(w, err)
+		return
 	}
-	return rpc.ApiResponseJson("OK")
+	s.writeJSON(w, "OK")
 }
 
 // --- ApiClient methods (used by codis-admin, which never connects directly) ---

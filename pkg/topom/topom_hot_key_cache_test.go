@@ -18,7 +18,7 @@ import (
 )
 
 func TestHotKeyCacheInvalidateFansOutToOtherProxies(t *testing.T) {
-	topom := openTopom()
+	topom := openTopom(t)
 	defer topom.Close()
 
 	binaryKey := []byte{0xff, 'h', 'o', 't'}
@@ -26,7 +26,7 @@ func TestHotKeyCacheInvalidateFansOutToOtherProxies(t *testing.T) {
 	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		defer r.Body.Close()
 		var req proxy.HotKeyCacheInvalidationRequest
-		assert.MustNoError(json.NewDecoder(r.Body).Decode(&req))
+		assert.MustNoError(t, json.NewDecoder(r.Body).Decode(&req))
 		requests <- req
 		_ = json.NewEncoder(w).Encode(&proxy.HotKeyCacheInvalidationResult{
 			TotalKeys:   len(req.Keys),
@@ -41,13 +41,13 @@ func TestHotKeyCacheInvalidateFansOutToOtherProxies(t *testing.T) {
 	defer failed.Close()
 
 	targetURL, err := url.Parse(target.URL)
-	assert.MustNoError(err)
+	assert.MustNoError(t, err)
 	failedURL, err := url.Parse(failed.URL)
-	assert.MustNoError(err)
+	assert.MustNoError(t, err)
 
-	contextCreateProxy(topom, &models.Proxy{Token: "source", AdminAddr: "127.0.0.1:1"})
-	contextCreateProxy(topom, &models.Proxy{Token: "target", AdminAddr: targetURL.Host})
-	contextCreateProxy(topom, &models.Proxy{Token: "failed", AdminAddr: failedURL.Host})
+	contextCreateProxy(t, topom, &models.Proxy{Token: "source", AdminAddr: "127.0.0.1:1"})
+	contextCreateProxy(t, topom, &models.Proxy{Token: "target", AdminAddr: targetURL.Host})
+	contextCreateProxy(t, topom, &models.Proxy{Token: "failed", AdminAddr: failedURL.Host})
 
 	result, err := topom.HotKeyCacheInvalidate(&proxy.HotKeyCacheBroadcastRequest{
 		SourceProxyToken: "source",
@@ -55,7 +55,7 @@ func TestHotKeyCacheInvalidateFansOutToOtherProxies(t *testing.T) {
 		Keys:             [][]byte{binaryKey},
 		TimeoutMillis:    1000,
 	})
-	assert.MustNoError(err)
+	assert.MustNoError(t, err)
 	if result.TotalProxies != 2 || result.FailedProxies != 1 || result.Invalidated != 1 {
 		t.Fatalf("fan-out result = %+v", result)
 	}

@@ -4,7 +4,7 @@
 package topom
 
 import (
-	"sort"
+	"slices"
 	"strings"
 	"time"
 
@@ -131,7 +131,7 @@ func (s *Topom) proxyQPSLimitSyncStatus(proxies map[string]*models.Proxy, config
 			tokens = append(tokens, token)
 		}
 	}
-	sort.Strings(tokens)
+	slices.Sort(tokens)
 
 	var fut sync2.Future
 	for _, token := range tokens {
@@ -176,7 +176,7 @@ func (s *Topom) syncProxyQPSLimitToProxies(ctx *context, config *models.ProxyQPS
 	for token := range ctx.proxy {
 		tokens = append(tokens, token)
 	}
-	sort.Strings(tokens)
+	slices.Sort(tokens)
 
 	var failed []string
 	for _, token := range tokens {
