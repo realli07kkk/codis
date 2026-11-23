@@ -1,0 +1,153 @@
+package commands
+
+import (
+	"fmt"
+	"math"
+	"strconv"
+	"strings"
+
+	"github.com/CodisLabs/codis/pkg/shake/log"
+	"github.com/CodisLabs/codis/pkg/shake/utils"
+)
+
+// CalcKeys https://redis.io/docs/reference/key-specs/
+func CalcKeys(argv []string) (cmaName string, group string, keys []string, keysIndexes []int) {
+	argc := len(argv)
+	group = "unknown"
+	cmaName = strings.ToUpper(argv[0])
+	if cmaName == "SORT" {
+		group = "GENERIC"
+		if argc < 2 {
+			log.Panicf("missing SORT source key. argv=%v", argv)
+		}
+		storeInx := 0
+		for inx := 2; inx < argc; inx++ {
+			switch strings.ToUpper(argv[inx]) {
+			case "ASC", "DESC", "ALPHA":
+			case "BY", "GET":
+				inx++
+			case "LIMIT":
+				inx += 2
+			case "STORE":
+				inx++
+				storeInx = inx // Redis uses the last STORE destination.
+			default:
+				log.Panicf("invalid SORT option. argv=%v", argv)
+			}
+			if inx >= argc {
+				log.Panicf("missing SORT option argument. argv=%v", argv)
+			}
+		}
+		keys, keysIndexes = []string{argv[1]}, []int{2}
+		if storeInx > 0 {
+			keys = append(keys, argv[storeInx])
+			keysIndexes = append(keysIndexes, storeInx+1)
+		}
+		return
+	}
+	if _, ok := containers[cmaName]; ok {
+		if len(argv) > 1 {
+			cmaName = fmt.Sprintf("%s-%s", cmaName, strings.ToUpper(argv[1]))
+		}
+	}
+	cmd, ok := redisCommands[cmaName]
+	if !ok {
+		log.Warnf("unknown command. argv=%v", argv)
+		return
+	}
+	group = cmd.group
+	for _, spec := range cmd.keySpec {
+		begin := 0
+		switch spec.beginSearchType {
+		case "index":
+			begin = spec.beginSearchIndex
+		case "keyword":
+			var inx, step int
+			if spec.beginSearchStartFrom > 0 {
+				inx = spec.beginSearchStartFrom
+				step = 1
+			} else {
+				inx = -spec.beginSearchStartFrom
+				step = -1
+			}
+			found := false
+			for ; inx >= 0 && inx < argc; inx += step {
+				if strings.ToUpper(argv[inx]) == spec.beginSearchKeyword {
+					begin = inx + 1
+					found = true
+					break
+				}
+			}
+			if !found {
+				continue // optional keyword not present, skip this key spec
+			}
+		default:
+			log.Panicf("wrong type: %s", spec.beginSearchType)
+		}
+		switch spec.findKeysType {
+		case "range":
+			var lastKeyInx int
+			if spec.findKeysRangeLastKey >= 0 {
+				lastKeyInx = begin + spec.findKeysRangeLastKey
+			} else {
+				lastKeyInx = argc + spec.findKeysRangeLastKey
+			}
+			limitCount := math.MaxInt32
+			if spec.findKeysRangeLimit <= -2 {
+				limitCount = (argc - begin) / (-spec.findKeysRangeLimit)
+			}
+			keyStep := spec.findKeysRangeKeyStep
+			for inx := begin; inx <= lastKeyInx && limitCount > 0; inx += keyStep {
+				keys = append(keys, argv[inx])
+				keysIndexes = append(keysIndexes, inx+1)
+				limitCount -= 1
+			}
+		case "keynum":
+			keynumIdx := begin + spec.findKeysKeynumIndex
+			if keynumIdx < 0 || keynumIdx > argc {
+				log.Panicf("keynumInx wrong. argv=%v, keynumIdx=[%d]", argv, keynumIdx)
+			}
+			keyCount, err := strconv.Atoi(argv[keynumIdx])
+			if err != nil {
+				log.Panicf("%v", err)
+			}
+			firstKey := spec.findKeysKeynumFirstKey
+			step := spec.findKeysKeynumKeyStep
+			for inx := begin + firstKey; keyCount > 0; inx += step {
+				keys = append(keys, argv[inx])
+				keysIndexes = append(keysIndexes, inx+1)
+				keyCount -= 1
+			}
+		default:
+			log.Panicf("wrong type: %s", spec.findKeysType)
+		}
+	}
+	return
+}
+
+func CalcSlots(keys []string) []int {
+	slots := make([]int, len(keys))
+	for inx, key := range keys {
+		slots[inx] = int(keyHash(key))
+	}
+	return slots
+}
+
+func keyHash(key string) uint16 {
+	hashtag := ""
+findHashTag:
+	for i, s := range key {
+		if s == '{' {
+			for k := i; k < len(key); k++ {
+				if key[k] == '}' {
+					hashtag = key[i+1 : k]
+					break findHashTag
+				}
+			}
+		}
+	}
+	if len(hashtag) > 0 {
+		key = hashtag
+	}
+	return utils.Crc16(key) & 0x3FFF
+}

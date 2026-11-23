@@ -1,0 +1,396 @@
+package reader
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"math/bits"
+	"regexp"
+	"strconv"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/CodisLabs/codis/pkg/shake/client"
+	"github.com/CodisLabs/codis/pkg/shake/client/proto"
+	"github.com/CodisLabs/codis/pkg/shake/config"
+	"github.com/CodisLabs/codis/pkg/shake/entry"
+	"github.com/CodisLabs/codis/pkg/shake/log"
+	"github.com/CodisLabs/codis/pkg/shake/rdb/types"
+	"github.com/CodisLabs/codis/pkg/shake/utils"
+)
+
+type ScanReaderOptions struct {
+	Cluster         bool             `mapstructure:"cluster" default:"false"`
+	Address         string           `mapstructure:"address" default:""`
+	Username        string           `mapstructure:"username" default:""`
+	Password        string           `mapstructure:"password" default:""`
+	Tls             bool             `mapstructure:"tls" default:"false"`
+	TlsConfig       client.TlsConfig `mapstructure:"tls_config" default:"{}"`
+	Scan            bool             `mapstructure:"scan" default:"true"`
+	KSN             bool             `mapstructure:"ksn" default:"false"`
+	DBS             []int            `mapstructure:"dbs"`
+	PreferReplica   bool             `mapstructure:"prefer_replica" default:"false"`
+	Count           int              `mapstructure:"count" default:"1"`
+	SkipUnknownType []string         `mapstructure:"skip_unknown_type" default:"[]"`
+}
+
+type dbKey struct {
+	db  int
+	key string
+}
+
+// dumpPing in needDumpQueue asks dump() to ping its connection.
+type dumpPing struct{}
+
+type needRestoreItem struct {
+	dbId int
+	key  string
+	ping bool // the reply to read is PONG, not DUMP of a key
+}
+
+type scanStandaloneReader struct {
+	ctx             context.Context
+	dbs             []int
+	opts            *ScanReaderOptions
+	ch              chan *entry.Entry
+	needDumpQueue   *utils.UniqueQueue
+	needRestoreChan chan *needRestoreItem
+	dumpClient      *client.Redis
+	subWG           sync.WaitGroup
+	scanWG          sync.WaitGroup
+	isValkey        bool
+
+	stat struct {
+		Name              string `json:"name"`
+		ScanFinished      bool   `json:"scan_finished"`
+		ScanDbId          int    `json:"scan_dbId"`
+		ScanCursor        uint64 `json:"scan_cursor"`
+		ScanPercentByDbId string `json:"scan_percent"`
+		NeedUpdateCount   int64  `json:"need_update_count"`
+	}
+}
+
+func NewScanStandaloneReader(ctx context.Context, opts *ScanReaderOptions) Reader {
+	r := new(scanStandaloneReader)
+	r.dbs = opts.DBS
+	r.opts = opts
+	r.ch = make(chan *entry.Entry, 1024)
+	r.stat.Name = "reader_" + strings.Replace(opts.Address, ":", "_", -1)
+	r.needDumpQueue = utils.NewUniqueQueue(100000000)     // cache 100000000 keys
+	r.needRestoreChan = make(chan *needRestoreItem, 1024) // inflight 1024 keys
+	log.Infof("[%s] scanStandaloneReader init finished. dbs=[%v]", r.stat.Name, r.dbs)
+	return r
+}
+
+func (r *scanStandaloneReader) StartRead(ctx context.Context) []chan *entry.Entry {
+	r.ctx = ctx
+	if r.opts.Scan {
+		r.scanWG.Add(1)
+	}
+	if r.opts.KSN {
+		r.subWG.Add(1)
+		go r.subscribe()
+		r.subWG.Wait()
+	}
+	if r.opts.Scan {
+		go r.scan()
+	}
+	go r.dump()
+	go r.restore()
+	return []chan *entry.Entry{r.ch}
+}
+
+func (r *scanStandaloneReader) subscribe() {
+	c := client.NewRedisClient(r.ctx, r.opts.Address, r.opts.Username, r.opts.Password, r.opts.Tls, r.opts.TlsConfig, r.opts.PreferReplica)
+	log.Infof("[%s] scanStandaloneReader subscribe started. dbs=[%v]", r.stat.Name, r.dbs)
+	if len(r.dbs) == 0 {
+		c.Send("psubscribe", "__keyevent@*__:*")
+		_, err := c.Receive()
+		if err != nil {
+			log.Panicf("%v", err)
+		}
+	} else {
+		args := []interface{}{"psubscribe"}
+		for _, db := range r.dbs {
+			args = append(args, fmt.Sprintf("__keyevent@%v__:*", db))
+		}
+		c.Send(args...)
+		for range r.dbs {
+			_, err := c.Receive()
+			if err != nil {
+				log.Panicf("%v", err)
+			}
+		}
+	}
+
+	// wait
+	r.subWG.Done()
+
+	// PING keeps the subscription alive through gateways and proxies that drop silent flows.
+	// Each PONG also makes dump() ping its connection, which idles while no keys change.
+	go func() {
+		ticker := time.NewTicker(10 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-r.ctx.Done():
+				c.Close() // unblocks Receive below
+				return
+			case <-ticker.C:
+				c.Send("PING")
+			}
+		}
+	}()
+
+	regex := regexp.MustCompile(`\d+`)
+	for {
+		select {
+		case <-r.ctx.Done():
+			log.Infof("[%s] scanStandaloneReader subscribe finished.", r.stat.Name)
+			r.scanWG.Wait() // scan keeps putting keys until it sees ctx.Done
+			r.needDumpQueue.Close()
+			return
+		default:
+			resp, err := c.Receive()
+			if err != nil {
+				if r.ctx.Err() != nil {
+					continue // the connection was closed above on shutdown
+				}
+				log.Panicf("%v", err)
+			}
+			respSlice := resp.([]interface{})
+			if len(respSlice) == 2 { // reply to PING: ["pong", ""]
+				r.needDumpQueue.Put(dumpPing{})
+				continue
+			}
+			key := respSlice[3].(string)
+			dbId := regex.FindString(respSlice[2].(string))
+			dbIdInt, err := strconv.Atoi(dbId)
+			if err != nil {
+				log.Panicf("%v", err)
+			}
+			// handle del action
+			eventSlice := strings.Split(respSlice[2].(string), ":")
+			if eventSlice[1] == "del" {
+				e := entry.NewEntry()
+				e.DbId = dbIdInt
+				e.Argv = []string{"DEL", key}
+				r.ch <- e
+				continue
+			}
+			r.needDumpQueue.Put(dbKey{db: dbIdInt, key: key})
+		}
+	}
+}
+
+func (r *scanStandaloneReader) scan() {
+	defer r.scanWG.Done()
+	c := client.NewRedisClient(r.ctx, r.opts.Address, r.opts.Username, r.opts.Password, r.opts.Tls, r.opts.TlsConfig, r.opts.PreferReplica)
+	defer c.Close()
+	dbs := r.dbs
+	if len(r.dbs) == 0 {
+		c.Send("info", "keyspace")
+		info, err := c.Receive()
+		if err != nil {
+			log.Panicf("%v", err)
+		}
+		dbs = utils.ParseDBs(info.(string))
+	}
+	for _, dbId := range dbs {
+		c.Send("SELECT", strconv.Itoa(dbId))
+		reply, err := c.Receive()
+		// Redis Cluster and some databases do not support SELECT.
+		if dbId != 0 && (err != nil || reply != "OK") {
+			log.Panicf("scanStandaloneReader select db failed. db=[%d], err=[%v], reply=[%v]", dbId, err, reply)
+		}
+
+		var cursor uint64 = 0
+		count := r.opts.Count
+		for {
+			select {
+			case <-r.ctx.Done():
+				log.Infof("[%s] scanStandaloneReader scan finished.", r.stat.Name)
+				if !r.opts.KSN {
+					r.needDumpQueue.Close()
+				}
+				return
+			default:
+			}
+
+			var keys []string
+			cursor, keys = c.Scan(cursor, count)
+			for _, key := range keys {
+				r.needDumpQueue.Put(dbKey{dbId, key}) // pass value not pointer
+			}
+
+			// stat
+			r.stat.ScanCursor = cursor
+			r.stat.ScanDbId = dbId
+			r.stat.ScanPercentByDbId = fmt.Sprintf("%.2f%%", float64(bits.Reverse64(cursor))/float64(^uint(0))*100)
+
+			if cursor == 0 {
+				break
+			}
+		}
+	}
+	r.stat.ScanFinished = true
+	if !r.opts.KSN {
+		r.needDumpQueue.Close()
+	}
+}
+
+func (r *scanStandaloneReader) dump() {
+	nowDbId := 0
+	r.dumpClient = client.NewRedisClient(r.ctx, r.opts.Address, r.opts.Username, r.opts.Password, r.opts.Tls, r.opts.TlsConfig, r.opts.PreferReplica)
+	r.isValkey = r.dumpClient.IsValkey()
+	log.Infof("[%s] detected server type: %s", r.stat.Name, map[bool]string{true: "Valkey", false: "Redis"}[r.isValkey])
+	// Support prefer_replica=true in both Cluster and Standalone mode
+	if r.opts.PreferReplica {
+		r.dumpClient.Do("READONLY")
+		log.Infof("running dump() in read-only mode")
+	}
+
+	for item := range r.needDumpQueue.Ch {
+		if _, ok := item.(dumpPing); ok {
+			r.dumpClient.Send("PING")
+			r.needRestoreChan <- &needRestoreItem{ping: true}
+			continue
+		}
+		r.stat.NeedUpdateCount = int64(r.needDumpQueue.Len())
+		dbId := item.(dbKey).db
+		key := item.(dbKey).key
+		if nowDbId != dbId {
+			r.dumpClient.Send("SELECT", strconv.Itoa(dbId))
+			nowDbId = dbId
+		}
+		// dump
+		r.dumpClient.Send("DUMP", key)
+		r.dumpClient.Send("PTTL", key)
+		if len(r.opts.SkipUnknownType) > 0 {
+			r.dumpClient.Send("TYPE", key)
+		}
+		r.needRestoreChan <- &needRestoreItem{dbId: dbId, key: key}
+	}
+	close(r.needRestoreChan)
+	log.Infof("[%s] scanStandaloneReader dump finished.", r.stat.Name)
+}
+
+// restore sends RESTORE commands to the target Redis.
+// Note: rdb_restore_command_behavior configuration only applies when RESTORE command is used.
+// For large values exceeding target_redis_proto_max_bulk_len, individual commands (SET, HSET, etc.)
+// are used instead, which may not respect the rdb_restore_command_behavior setting.
+func (r *scanStandaloneReader) restore() {
+	nowDbId := 0
+	for item := range r.needRestoreChan {
+		if item.ping {
+			reply, err := r.dumpClient.Receive()
+			if err != nil || reply != "PONG" {
+				log.Panicf("scanStandaloneReader ping failed. reply=[%v], err=[%v]", reply, err)
+			}
+			continue
+		}
+		dbId := item.dbId
+		key := item.key
+		if nowDbId != dbId {
+			reply, err := r.dumpClient.Receive()
+			if err != nil || reply != "OK" {
+				log.Panicf("scanStandaloneReader select db failed. db=[%d]", dbId)
+			}
+			nowDbId = dbId
+		}
+		iDump, err1 := r.dumpClient.Receive()
+		iPttl, err2 := r.dumpClient.Receive()
+		if len(r.opts.SkipUnknownType) > 0 {
+			iType, err3 := r.dumpClient.Receive()
+			if err3 != nil {
+				log.Panicf("%v", err3)
+			}
+			typeStr := iType.(string)
+			// type in SkipUnknownType
+			skip := false
+			for _, skipType := range r.opts.SkipUnknownType {
+				if strings.EqualFold(typeStr, skipType) {
+					skip = true
+				}
+			}
+			if skip {
+				log.Infof("skip restore key=[%s] type=[%s]", key, typeStr)
+				continue
+			}
+		}
+		if errors.Is(err1, proto.Nil) {
+			continue // key not exist
+		} else if err1 != nil {
+			log.Panicf("%v", err1)
+		} else if err2 != nil {
+			log.Panicf("%v", err2)
+		}
+		dump := iDump.(string)
+		pttl := 0
+		switch v := iPttl.(type) {
+		case int64:
+			pttl = int(v)
+			if pttl == 0 {
+				pttl = 1
+			}
+		case string:
+			log.Panicf("iPttl is string, this should not happen. key=[%s], pttl=[%s]", key, v)
+		default:
+			log.Panicf("unexpected type for pttl: %T", iPttl)
+		}
+
+		if pttl == -2 {
+			continue // key not exist
+		}
+		if pttl == -1 {
+			pttl = 0 // -1 means no expire
+		}
+		if uint64(len(dump)) > config.Opt.Advanced.TargetRedisProtoMaxBulkLen {
+			log.Warnf("key=[%s] dump len=[%d] exceeds target_redis_proto_max_bulk_len, falling back to individual commands. "+
+				"rdb_restore_command_behavior setting may not work correctly for this key.", key, len(dump))
+			typeByte := dump[0]
+			anotherReader := strings.NewReader(dump[1 : len(dump)-10])
+			o := types.ParseObject(anotherReader, typeByte, key, r.isValkey)
+			cmdC := o.Rewrite()
+			for cmd := range cmdC {
+				e := entry.NewEntry()
+				e.DbId = dbId
+				e.Argv = cmd
+				r.ch <- e
+			}
+			if pttl != 0 {
+				e := entry.NewEntry()
+				e.DbId = dbId
+				e.Argv = []string{"PEXPIRE", key, strconv.Itoa(pttl)}
+				r.ch <- e
+			}
+		} else {
+			argv := []string{"RESTORE", key, strconv.Itoa(pttl), dump}
+			if config.Opt.Advanced.RDBRestoreCommandBehavior == "rewrite" {
+				argv = append(argv, "replace")
+			}
+			r.ch <- &entry.Entry{
+				DbId: dbId,
+				Argv: argv,
+			}
+		}
+	}
+	log.Infof("[%s] scanStandaloneReader restore finished.", r.stat.Name)
+	close(r.ch)
+}
+
+func (r *scanStandaloneReader) Status() interface{} {
+	return r.stat
+}
+
+func (r *scanStandaloneReader) StatusString() string {
+	if r.stat.ScanFinished {
+		return fmt.Sprintf("need_update_count=[%d]", r.stat.NeedUpdateCount)
+	}
+	return fmt.Sprintf("scan_dbid=[%d], scan_percent=[%s], need_update_count=[%d]", r.stat.ScanDbId, r.stat.ScanPercentByDbId, r.stat.NeedUpdateCount)
+}
+
+func (r *scanStandaloneReader) StatusConsistent() bool {
+	return r.stat.ScanFinished && r.stat.NeedUpdateCount == 0
+}
