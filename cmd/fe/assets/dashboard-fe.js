@@ -146,6 +146,7 @@ dashboard.factory('Router', ['$window', '$rootScope', '$timeout', function ($win
         security: true,
         analysis: true,
         recovery: true,
+        migration: true,
         'proxy-detail': true,
         'group-detail': true,
         'sentinel-detail': true

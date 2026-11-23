@@ -56,7 +56,7 @@ http://127.0.0.1:8765/?mock=1#/codis-demo/overview
 | `partial` | 部分指标缺失 |
 | `submit-error` | 写入请求失败；表单保留输入，Rebalance 预览仍可用 |
 
-Mock 包含 `codis-demo`、`codis-order`、`codis-cache` 三个产品，以及 Proxy、Group、Sentinel、Slots、ACL、QPS Limit、RDB Analysis 和 PITR 页面。新增、编辑、确认和任务轮询均产生可观察结果；Mock 变更只保存在当前页面运行态，刷新浏览器后重置。
+Mock 包含 `codis-demo`、`codis-order`、`codis-cache` 三个产品，以及 Proxy、Group、Sentinel、Slots、ACL、QPS Limit、RDB Analysis、PITR 与数据迁移页面。新增、编辑、确认和任务轮询均产生可观察结果；数据迁移页额外覆盖 Codis 拓扑预览、停止/删除终态任务与按 `offset` / `max_bytes` 分页的增量日志；Mock 变更只保存在当前页面运行态，刷新浏览器后重置。
 
 ## 状态与监控数据
 
@@ -71,5 +71,5 @@ Mock 包含 `codis-demo`、`codis-order`、`codis-cache` 三个产品，以及 P
 - `shell.js`：顶部导航、可折叠侧栏与工作区。
 - `ui.js`：指标卡、状态标签、筛选、表格、图表、抽屉、确认、Toast 和空状态。
 - `css/main.css`：集中设计变量、组件外观、响应式和减少动效适配。
-- `overview.js`、`resources.js`、`resource-detail.js`、`slots.js`、`acl.js`、`qps-limit.js`、`rdb-analysis.js`、`pitr.js`：业务页面。
+- `overview.js`、`resources.js`、`resource-detail.js`、`slots.js`、`acl.js`、`qps-limit.js`、`rdb-analysis.js`、`pitr.js`、`data-migration.js`：业务页面。
 - `mock-api.js`：可替换的 Mock 数据层。

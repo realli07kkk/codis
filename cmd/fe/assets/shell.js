@@ -101,6 +101,7 @@ dashboard.component('appShell', {
                     <security-page ng-switch-when="security" product="$ctrl.route.product"></security-page>
                     <analysis-page ng-switch-when="analysis" product="$ctrl.route.product"></analysis-page>
                     <recovery-page ng-switch-when="recovery" product="$ctrl.route.product"></recovery-page>
+                    <migration-page ng-switch-when="migration" product="$ctrl.route.product"></migration-page>
                     <proxy-detail-page ng-switch-when="proxy-detail" product="$ctrl.route.product" resource-id="$ctrl.route.id"></proxy-detail-page>
                     <group-detail-page ng-switch-when="group-detail" product="$ctrl.route.product" resource-id="$ctrl.route.id"></group-detail-page>
                     <sentinel-detail-page ng-switch-when="sentinel-detail" product="$ctrl.route.product" resource-id="$ctrl.route.id"></sentinel-detail-page>
@@ -130,7 +131,8 @@ dashboard.component('appShell', {
             ctrl.topNavigation = [
                 {label: '集群总览', page: 'overview', icon: 'grid', match: ['overview']},
                 {label: '资源管理', page: 'proxies', icon: 'server', match: ['proxies', 'groups', 'slots', 'sentinels', 'proxy-detail', 'group-detail', 'sentinel-detail']},
-                {label: '运维中心', page: 'analysis', icon: 'activity', match: ['analysis', 'recovery', 'security']}
+                {label: '运维中心', page: 'analysis', icon: 'activity', match: ['analysis', 'recovery', 'security']},
+                {label: '数据集成', page: 'migration', icon: 'link', match: ['migration']}
             ];
             ctrl.menu = [
                 {label: '工作台', items: [{label: '集群总览', page: 'overview', icon: 'grid'}]},
@@ -144,6 +146,9 @@ dashboard.component('appShell', {
                     {label: '安全与限流', page: 'security', icon: 'lock'},
                     {label: 'RDB 数据分析', page: 'analysis', icon: 'analysis'},
                     {label: 'PITR 数据闪回', page: 'recovery', icon: 'history'}
+                ]},
+                {label: '数据集成', items: [
+                    {label: '数据迁移', page: 'migration', icon: 'link'}
                 ]}
             ];
 

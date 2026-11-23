@@ -72,6 +72,14 @@ dashboard.service('MockApi', ['$q', '$timeout', '$window', function ($q, $timeou
         return String(value) === '1';
     }
 
+    function queryInt(query, name, fallback) {
+        var raw = query ? query.get(name) : null;
+        if (raw === null || raw === undefined || raw === '') {
+            return fallback;
+        }
+        return integer(raw, name);
+    }
+
     function decode(value) {
         try {
             return decodeURIComponent(value || '');
@@ -170,6 +178,8 @@ dashboard.service('MockApi', ['$q', '$timeout', '$window', function ($q, $timeou
             acl: {revision: 0, enabled: false, sync_status: 'not_configured', users: []},
             qps: {revision: 0, limit: 0, enabled: false, sync_status: 'not_configured'},
             pitrJobs: [],
+            migrationJobs: [],
+            migrationSequence: 0,
             rdbJobs: {}
         };
         if (scenario === 'empty') {
@@ -257,6 +267,8 @@ dashboard.service('MockApi', ['$q', '$timeout', '$window', function ($q, $timeou
             seedPitrJob(state, 'pitr-' + (productIndex + 1) + '-002', state.groups[1], true)
         ];
         state.pitrSequence = 2;
+        state.migrationJobs = seedMigrationJobs(state);
+        state.migrationSequence = state.migrationJobs.length;
         return state;
     }
 
@@ -875,6 +887,729 @@ dashboard.service('MockApi', ['$q', '$timeout', '$window', function ($q, $timeou
         return {};
     }
 
+    function terminalMigration(job) {
+        return job.state === 'succeeded' || job.state === 'failed' || job.state === 'stopped';
+    }
+
+    function migrationFilter() {
+        return {
+            allow_key_prefix: [],
+            block_key_prefix: [],
+            allow_db: [],
+            block_db: [],
+            allow_command: [],
+            block_command: ['FLUSHALL', 'FLUSHDB']
+        };
+    }
+
+    function migrationSlotRanges() {
+        return [[0, 340], [341, 682], [683, 1023]];
+    }
+
+    function migrationStaticEndpoint(state) {
+        var shards = migrationSlotRanges().map(function (range, index) {
+            var group = state.groups[index];
+            var master = group && group.servers.length ? group.servers[0].server : '';
+            return {address: master, slots: [{start: range[0], end: range[1]}]};
+        });
+        return {
+            kind: 'static',
+            address: '',
+            username: '',
+            has_password: false,
+            tls: false,
+            shards: shards
+        };
+    }
+
+    function migrationEndpoint(kind, address) {
+        return {
+            kind: kind,
+            address: address,
+            username: '',
+            has_password: false,
+            tls: false,
+            shards: []
+        };
+    }
+
+    function migrationStats(overrides) {
+        return angular.extend({
+            read_count: 0,
+            write_count: 0,
+            read_ops: 0,
+            write_ops: 0,
+            consistent: false,
+            rdb_received_bytes: 0,
+            rdb_total_bytes: 0,
+            aof_lag_bytes: 0,
+            shards: 3,
+            consistent_shards: 0,
+            phase: ''
+        }, overrides || {});
+    }
+
+    // Mock 的 worker 日志按任务缓存并只追加，保证 offset / next_offset 分页与真实文件一致。
+    function migrationLogText(job) {
+        if (!job._log) {
+            job._log = renderMigrationLog(job);
+        }
+        return job._log;
+    }
+
+    // 真实 worker 在启动后片刻才创建 shake.log，Manager.Logs 在此之前回退读取 console.log。
+    // 新建任务的前两次日志请求按 console.log 返回，之后才切换到 shake.log。
+    var migrationConsoleLogPolls = 2;
+
+    function migrationConsoleLog(job) {
+        if (!job._consoleLog) {
+            job._consoleLog = [
+                '2026-11-23 19:00:00.010 INFO  codis-shake worker started, job_id=' + job.id,
+                '2026-11-23 19:00:00.015 INFO  config loaded from ' + (job.dir || '') + '/spec.json',
+                '2026-11-23 19:00:00.210 INFO  redis-shake v3.1.0 starting, stdout/stderr captured to console.log',
+                '2026-11-23 19:00:00.480 WARN  shake.log not created yet, waiting for the worker'
+            ].join('\n') + '\n';
+        }
+        return job._consoleLog;
+    }
+
+    function renderMigrationLog(job) {
+        var source = job.source && job.source.shards && job.source.shards.length ?
+            (job.source.shards.length + ' shards') : (job.source && job.source.address ? job.source.address : 'unknown');
+        var target = job.target && job.target.shards && job.target.shards.length ?
+            (job.target.shards.length + ' shards') : (job.target && job.target.address ? job.target.address : 'unknown');
+        var lines = [
+            '2026-11-23 19:00:01.120 INFO  redis-shake v3.1.0 starting',
+            '2026-11-23 19:00:01.140 INFO  job_id=' + job.id + ' mode=' + job.mode + ' name=' + job.name,
+            '2026-11-23 19:00:01.980 INFO  [reader] connect ' + source,
+            '2026-11-23 19:00:02.120 INFO  [writer] connect ' + target,
+            '2026-11-23 19:00:02.480 INFO  [reader] bgsave triggered, waiting rdb snapshot',
+            '2026-11-23 19:02:41.660 INFO  [writer] restore pipeline flushed, entries=1180000',
+            '2026-11-23 19:02:42.030 INFO  [coordinator] phase=' + (job.phase || '—') + ', consistent_shards=' +
+                (job.stats ? job.stats.consistent_shards : 0) + '/' + (job.stats ? job.stats.shards : 0)
+        ];
+        if (job.state === 'failed') {
+            lines.push('2026-11-23 19:12:44.918 ERROR [writer] receive reply failed. cmd=[RESTORE ...], error=[BUSYKEY Target key name already exists.]');
+        }
+        return lines.join('\n') + '\n';
+    }
+
+    function seedMigrationJobs(state) {
+        var prefix = 'dm-' + (state.productIndex + 1) + '-';
+        var now = Date.now();
+        var created = function (minutes) {
+            return new Date(now - minutes * 60000).toISOString();
+        };
+        var staticEndpoint = migrationStaticEndpoint(state);
+        var jobs = [];
+
+        jobs.push({
+            id: prefix + '001',
+            name: '订单 Redis → Codis 集群',
+            mode: 'sync',
+            source: migrationEndpoint('standalone', '10.0.20.1:6379'),
+            target: staticEndpoint,
+            filter: migrationFilter(),
+            restore_behavior: 'rewrite',
+            empty_db_before_sync: false,
+            state: 'running',
+            phase: 'receiving rdb',
+            stats: migrationStats({
+                read_count: 1250000,
+                write_count: 1180000,
+                read_ops: 41230.5,
+                write_ops: 39880.2,
+                rdb_received_bytes: 2147483648,
+                rdb_total_bytes: 4294967296,
+                aof_lag_bytes: 73400320,
+                consistent_shards: 1,
+                phase: 'receiving rdb'
+            }),
+            reader: {
+                name: 'redis-shake',
+                role: 'reader',
+                status: 'running',
+                address: '10.0.20.1:6379',
+                mode: 'sync',
+                progress: {rdb_received: 2147483648, rdb_total: 4294967296}
+            },
+            writer: {
+                name: 'redis-shake',
+                role: 'writer',
+                status: 'running',
+                target: '3 shards',
+                qps: 39880.2,
+                pipeline_count_limit: 1024,
+                target_redis_max_qps: 300000
+            },
+            pid: 51234,
+            created_at: created(20),
+            started_at: created(19),
+            finished_at: '',
+            updated_at: created(0),
+            error: '',
+            exit_code: 0,
+            dir: '/tmp/codis-data-migration/jobs/' + prefix + '001',
+            log_file: '/tmp/codis-data-migration/jobs/' + prefix + '001/shake.log',
+            console_tail: '',
+            _phase: 0
+        });
+
+        jobs.push({
+            id: prefix + '002',
+            name: '用户集群 SCAN 迁出',
+            mode: 'scan',
+            source: staticEndpoint,
+            target: migrationEndpoint('standalone', '10.0.30.9:6380'),
+            filter: migrationFilter(),
+            restore_behavior: 'skip',
+            empty_db_before_sync: false,
+            state: 'succeeded',
+            phase: 'draining',
+            stats: migrationStats({
+                read_count: 1284506,
+                write_count: 1284506,
+                read_ops: 0,
+                write_ops: 0,
+                consistent: true,
+                shards: 3,
+                consistent_shards: 3,
+                phase: 'draining'
+            }),
+            reader: {
+                name: 'redis-shake',
+                role: 'reader',
+                status: 'done',
+                mode: 'scan',
+                scanned: 1284506,
+                shards: 3
+            },
+            writer: {
+                name: 'redis-shake',
+                role: 'writer',
+                status: 'done',
+                address: '10.0.30.9:6380',
+                restored: 1284506
+            },
+            pid: 51288,
+            created_at: created(65),
+            started_at: created(64),
+            finished_at: created(30),
+            updated_at: created(30),
+            error: '',
+            exit_code: 0,
+            dir: '/tmp/codis-data-migration/jobs/' + prefix + '002',
+            log_file: '/tmp/codis-data-migration/jobs/' + prefix + '002/shake.log',
+            console_tail: '',
+            _phase: 0
+        });
+
+        jobs.push({
+            id: prefix + '003',
+            name: '缓存集群 → Codis',
+            mode: 'sync',
+            source: migrationEndpoint('cluster', '10.0.40.0:6379'),
+            target: staticEndpoint,
+            filter: migrationFilter(),
+            restore_behavior: 'rewrite',
+            empty_db_before_sync: true,
+            state: 'failed',
+            phase: 'syncing aof',
+            stats: migrationStats({
+                read_count: 842100,
+                write_count: 839640,
+                read_ops: 42160.7,
+                write_ops: 41980.4,
+                shards: 3,
+                consistent_shards: 2,
+                phase: 'syncing aof'
+            }),
+            reader: {
+                name: 'redis-shake',
+                role: 'reader',
+                status: 'running',
+                address: '10.0.40.0:6379',
+                mode: 'sync'
+            },
+            writer: {
+                name: 'redis-shake',
+                role: 'writer',
+                status: 'failed',
+                target: '3 shards',
+                last_error: 'BUSYKEY Target key name already exists.'
+            },
+            pid: 51342,
+            created_at: created(180),
+            started_at: created(179),
+            finished_at: created(120),
+            updated_at: created(120),
+            error: 'receive reply failed. cmd=[RESTORE ...], error=[BUSYKEY Target key name already exists.]',
+            exit_code: 1,
+            dir: '/tmp/codis-data-migration/jobs/' + prefix + '003',
+            log_file: '/tmp/codis-data-migration/jobs/' + prefix + '003/shake.log',
+            console_tail: '2026-11-23 19:12:44.918 ERROR [writer] receive reply failed. cmd=[RESTORE "order:864210:state" 0 "..."] error=[BUSYKEY Target key name already exists.]\n' +
+                'panic: restore pipeline aborted\n\n' +
+                'goroutine 1 [running]:\n' +
+                'main.runShake()\n' +
+                '\t/opt/redis-shake/cmd/redis-shake/main.go:118 +0x2f4\n',
+            _phase: 0
+        });
+
+        jobs.push({
+            id: prefix + '004',
+            name: '历史同步任务',
+            mode: 'sync',
+            source: migrationEndpoint('standalone', '10.0.20.11:6379'),
+            target: staticEndpoint,
+            filter: migrationFilter(),
+            restore_behavior: 'rewrite',
+            empty_db_before_sync: false,
+            state: 'stopped',
+            phase: 'draining',
+            stats: migrationStats({
+                read_count: 402180,
+                write_count: 402180,
+                read_ops: 0,
+                write_ops: 0,
+                consistent: true,
+                shards: 3,
+                consistent_shards: 3,
+                phase: 'draining'
+            }),
+            reader: {
+                name: 'redis-shake',
+                role: 'reader',
+                status: 'stopped',
+                address: '10.0.20.11:6379',
+                mode: 'sync'
+            },
+            writer: {
+                name: 'redis-shake',
+                role: 'writer',
+                status: 'stopped',
+                target: '3 shards'
+            },
+            pid: 51002,
+            created_at: created(480),
+            started_at: created(479),
+            finished_at: created(360),
+            updated_at: created(360),
+            error: '',
+            exit_code: 0,
+            dir: '/tmp/codis-data-migration/jobs/' + prefix + '004',
+            log_file: '/tmp/codis-data-migration/jobs/' + prefix + '004/shake.log',
+            console_tail: '',
+            _phase: 0
+        });
+
+        return jobs;
+    }
+
+    function publicMigrationJob(job, withConsoleTail) {
+        var stats = angular.extend({}, job.stats || {});
+        // 后端对 scan / rdb（one-shot）不返回 aof_lag_bytes。
+        if (job.mode === 'scan' || job.mode === 'rdb') {
+            delete stats.aof_lag_bytes;
+        }
+        var view = {
+            id: job.id,
+            name: job.name,
+            mode: job.mode,
+            source: job.source,
+            target: job.target,
+            filter: job.filter,
+            restore_behavior: job.restore_behavior,
+            empty_db_before_sync: !!job.empty_db_before_sync,
+            target_redis_max_qps: job.target_redis_max_qps === undefined ? 300000 : job.target_redis_max_qps,
+            pipeline_count_limit: job.pipeline_count_limit === undefined ? 1024 : job.pipeline_count_limit,
+            state: job.state,
+            phase: job.phase,
+            stats: stats,
+            reader: job.reader || {},
+            writer: job.writer || {},
+            pid: job.pid,
+            created_at: job.created_at,
+            started_at: job.started_at || '',
+            finished_at: job.finished_at || '',
+            updated_at: job.updated_at,
+            error: job.error || '',
+            exit_code: job.exit_code || 0,
+            dir: job.dir || '',
+            log_file: job.log_file || '',
+            console_file: job.console_file || (job.dir ? job.dir + '/console.log' : '')
+        };
+        if (withConsoleTail) {
+            view.console_tail = job.console_tail || '';
+        }
+        return view;
+    }
+
+    function advanceMigration(job) {
+        if (terminalMigration(job)) {
+            return;
+        }
+        if (job.state === 'pending' || job.state === 'starting') {
+            job.state = 'running';
+            job.started_at = job.started_at || timestamp();
+        }
+        if (job.state !== 'running') {
+            return;
+        }
+        if (job._phase < 0) {
+            // 新建任务先展示一次 hand shaking，再进入全量阶段。
+            job._phase = 0;
+            job.updated_at = timestamp();
+            return;
+        }
+        var phases = ['receiving rdb', 'syncing rdb', 'syncing aof'];
+        job.phase = phases[job._phase % phases.length];
+        job._phase++;
+        job.stats = job.stats || migrationStats({});
+        job.stats.phase = job.phase;
+        job.stats.read_count = (Number(job.stats.read_count) || 0) + 96000 + job._phase * 2400;
+        job.stats.write_count = (Number(job.stats.write_count) || 0) + 92000 + job._phase * 2100;
+        job.stats.read_ops = (Number(job.stats.read_ops) || 38000) + 480 + (job._phase % 4) * 90;
+        job.stats.write_ops = (Number(job.stats.write_ops) || 36000) + 460 + (job._phase % 3) * 85;
+        job.stats.rdb_received_bytes = Math.min(
+            Number(job.stats.rdb_total_bytes) || 0,
+            (Number(job.stats.rdb_received_bytes) || 0) + 268435456
+        );
+        job.stats.aof_lag_bytes = Math.max(0, (Number(job.stats.aof_lag_bytes) || 0) - 12582912);
+        job.stats.consistent = job.stats.aof_lag_bytes === 0;
+        job.stats.consistent_shards = job.stats.consistent ?
+            (Number(job.stats.shards) || 3) :
+            Math.min((Number(job.stats.shards) || 3) - 1, (Number(job.stats.consistent_shards) || 0) + 1);
+        job._log = migrationLogText(job) + timestamp() + ' INFO  [coordinator] phase=' + job.phase +
+            ', read_count=' + job.stats.read_count + ', write_count=' + job.stats.write_count + '\n';
+        job.updated_at = timestamp();
+    }
+
+    function requireMigration(state, id) {
+        for (var i = 0; i < state.migrationJobs.length; i++) {
+            if (state.migrationJobs[i].id === id) {
+                return state.migrationJobs[i];
+            }
+        }
+        fail(800, '数据迁移任务 ' + id + ' 不存在');
+    }
+
+    function isHostPort(value) {
+        return /^(\[[^\]]+\]|[^:\s]+):\d+$/.test(String(value === undefined || value === null ? '' : value).trim());
+    }
+
+    // 与 pkg/migration.ValidateSlotCoverage 一致：范围合法、不重叠、完整覆盖 0-1023。
+    function migrationSlotCoverageError(shards) {
+        var owner = [];
+        for (var sid = 0; sid < 1024; sid++) {
+            owner.push(-1);
+        }
+        for (var i = 0; i < shards.length; i++) {
+            if (!shards[i].slots.length) {
+                return 'shard ' + shards[i].address + ' has no slot range';
+            }
+            for (var r = 0; r < shards[i].slots.length; r++) {
+                var range = shards[i].slots[r];
+                for (var slot = range.start; slot <= range.end; slot++) {
+                    if (owner[slot] !== -1) {
+                        return 'slot ' + slot + ' is owned by both ' + shards[owner[slot]].address +
+                            ' and ' + shards[i].address;
+                    }
+                    owner[slot] = i;
+                }
+            }
+        }
+        for (var missing = 0; missing < owner.length; missing++) {
+            if (owner[missing] === -1) {
+                return 'slot ' + missing + ' is not covered by any shard';
+            }
+        }
+        return '';
+    }
+
+    function validateMigrationSide(endpoint, label, isTarget) {
+        if (!endpoint || typeof endpoint !== 'object') {
+            fail(800, label + '配置不能为空');
+        }
+        if (endpoint.kind === 'codis') {
+            var scope = endpoint.codis_scope || 'current';
+            if (scope === 'current') {
+                return;
+            }
+            if (scope !== 'manual') {
+                fail(800, label + '的 codis_scope 必须是 current 或 manual');
+            }
+            if (!Array.isArray(endpoint.shards) || !endpoint.shards.length) {
+                fail(800, label + '需要填写至少一个 Codis 分片');
+            }
+            var seen = {};
+            var shards = endpoint.shards.map(function (shard, index) {
+                var address = String(shard && shard.address || '').trim();
+                if (!address) {
+                    fail(800, label + '分片缺少地址');
+                }
+                if (!isHostPort(address)) {
+                    fail(800, label + '分片 ' + index + ': ' + address + ' 不是 host:port');
+                }
+                if (seen[address]) {
+                    fail(800, label + ': 分片地址重复 ' + address);
+                }
+                seen[address] = true;
+                if (!isTarget) {
+                    return {address: address, slots: []};
+                }
+                if (shard.slot_start === undefined || shard.slot_start === null ||
+                    shard.slot_end === undefined || shard.slot_end === null) {
+                    fail(800, label + '分片需要 slot_start 与 slot_end');
+                }
+                var start = integer(shard.slot_start, 'slot_start', 0, 1023);
+                var end = integer(shard.slot_end, 'slot_end', 0, 1023);
+                if (start > end) {
+                    fail(800, label + '分片的 slot_start 不能大于 slot_end');
+                }
+                return {address: address, slots: [{start: start, end: end}]};
+            });
+            if (isTarget) {
+                var coverage = migrationSlotCoverageError(shards);
+                if (coverage) {
+                    fail(800, label + ': ' + coverage);
+                }
+            }
+            return;
+        }
+        if (endpoint.kind !== 'standalone' && endpoint.kind !== 'cluster') {
+            fail(800, label + '类型必须是 standalone、cluster 或 codis');
+        }
+        if (!String(endpoint.address || '').trim()) {
+            fail(800, label + '地址不能为空');
+        }
+        if (!isHostPort(endpoint.address)) {
+            fail(800, label + '地址 ' + endpoint.address + ' 不是 host:port');
+        }
+    }
+
+    function migrationJobEndpoint(state, endpoint) {
+        if (endpoint.kind === 'codis') {
+            var scope = endpoint.codis_scope || 'current';
+            if (scope === 'current') {
+                return migrationStaticEndpoint(state);
+            }
+            return {
+                kind: 'static',
+                address: '',
+                username: endpoint.username || '',
+                has_password: !!endpoint.password,
+                tls: !!endpoint.tls,
+                shards: (endpoint.shards || []).map(function (shard) {
+                    var view = {address: String(shard.address || '')};
+                    // 与后端一致：源端 manual 分片只有 address；目标端才带 slot 范围。
+                    if (shard.slot_start !== undefined && shard.slot_start !== null &&
+                        shard.slot_end !== undefined && shard.slot_end !== null) {
+                        view.slots = [{start: Number(shard.slot_start), end: Number(shard.slot_end)}];
+                    }
+                    return view;
+                })
+            };
+        }
+        return {
+            kind: endpoint.kind,
+            address: String(endpoint.address || ''),
+            username: endpoint.username || '',
+            has_password: !!endpoint.password,
+            tls: !!endpoint.tls,
+            shards: []
+        };
+    }
+
+    function createMigration(state, data) {
+        if (!data || typeof data !== 'object') {
+            fail(800, '请求内容不能为空');
+        }
+        var name = String(data.name === undefined || data.name === null ? '' : data.name).trim();
+        if (!name) {
+            fail(800, '任务名称不能为空');
+        }
+        if (name.length > 64) {
+            fail(800, '任务名称不能超过 64 个字符');
+        }
+        var mode = String(data.mode === undefined || data.mode === null ? '' : data.mode).trim().toLowerCase() || 'sync';
+        if (['sync', 'scan', 'rdb'].indexOf(mode) < 0) {
+            fail(800, '迁移模式必须是 sync、scan 或 rdb');
+        }
+        var restore = String(data.restore_behavior || 'rewrite').trim().toLowerCase() || 'rewrite';
+        if (['rewrite', 'skip', 'panic'].indexOf(restore) < 0) {
+            fail(800, 'restore_behavior 必须是 rewrite、skip 或 panic');
+        }
+        validateMigrationSide(data.source, '源端', false);
+        validateMigrationSide(data.target, '目标端', true);
+        if (data.source.kind !== 'codis' && data.target.kind !== 'codis' &&
+            String(data.source.address || '').trim().toLowerCase() ===
+            String(data.target.address || '').trim().toLowerCase()) {
+            fail(800, '源端与目标端地址相同，无法迁移');
+        }
+        var sequence = ++state.migrationSequence;
+        var id = 'dm-' + (state.productIndex + 1) + '-' + String(sequence).padStart(3, '0');
+        var source = migrationJobEndpoint(state, data.source);
+        var target = migrationJobEndpoint(state, data.target);
+        var now = timestamp();
+        var qps = Number(data.target_redis_max_qps) || 0;
+        var pipeline = Number(data.pipeline_count_limit) || 0;
+        var job = {
+            id: id,
+            name: name,
+            mode: mode,
+            source: source,
+            target: target,
+            filter: data.filter || migrationFilter(),
+            restore_behavior: restore,
+            empty_db_before_sync: !!data.empty_db_before_sync,
+            target_redis_max_qps: qps,
+            pipeline_count_limit: pipeline,
+            state: 'running',
+            phase: 'hand shaking',
+            stats: migrationStats({
+                rdb_total_bytes: 4294967296,
+                shards: Math.max(1, target.shards.length || 1),
+                phase: 'hand shaking'
+            }),
+            reader: {
+                name: 'redis-shake',
+                role: 'reader',
+                status: 'starting',
+                source: source.address || (source.shards.length + ' shards')
+            },
+            writer: {
+                name: 'redis-shake',
+                role: 'writer',
+                status: 'starting',
+                target: target.address || (target.shards.length + ' shards'),
+                target_redis_max_qps: qps || 300000,
+                pipeline_count_limit: pipeline || 1024
+            },
+            pid: 52000 + sequence,
+            created_at: now,
+            started_at: now,
+            finished_at: '',
+            updated_at: now,
+            error: '',
+            exit_code: 0,
+            dir: '/tmp/codis-data-migration/jobs/' + id,
+            log_file: '/tmp/codis-data-migration/jobs/' + id + '/shake.log',
+            console_file: '/tmp/codis-data-migration/jobs/' + id + '/console.log',
+            console_tail: '',
+            _phase: -1,
+            // 新建任务模拟 shake.log 尚未落盘，前几次日志请求由 console.log 兜底。
+            _logPolls: 0
+        };
+        if (mode !== 'sync') {
+            delete job.stats.aof_lag_bytes;
+        }
+        state.migrationJobs.unshift(job);
+        return {id: id};
+    }
+
+    function stopMigration(state, id) {
+        var job = requireMigration(state, id);
+        if (!terminalMigration(job)) {
+            job.state = 'stopped';
+            job.phase = 'draining';
+            job.stats = job.stats || migrationStats({});
+            job.stats.phase = 'draining';
+            job._log = migrationLogText(job) + timestamp() + ' WARN  [coordinator] stop requested, draining pipeline\n';
+            job.pid = 0;
+            job.exit_code = 0;
+            job.finished_at = timestamp();
+            job.updated_at = timestamp();
+        }
+        return 'OK';
+    }
+
+    function removeMigration(state, id) {
+        var job = requireMigration(state, id);
+        if (!terminalMigration(job)) {
+            fail(800, '只能删除已结束（succeeded / failed / stopped）的迁移任务');
+        }
+        state.migrationJobs = state.migrationJobs.filter(function (item) { return item.id !== id; });
+        return 'OK';
+    }
+
+    function migrationLog(state, id, query) {
+        var job = requireMigration(state, id);
+        // 与真实 Manager.Logs 一致：shake.log 已存在则优先读它，否则回退 console.log，
+        // 新建任务的前 migrationConsoleLogPolls 次请求命中 console.log。
+        var consoleVisible = typeof job._logPolls === 'number' &&
+            job._logPolls < migrationConsoleLogPolls;
+        if (typeof job._logPolls === 'number') {
+            job._logPolls++;
+        }
+        var file = consoleVisible ? 'console.log' : 'shake.log';
+        var text = consoleVisible ? migrationConsoleLog(job) : migrationLogText(job);
+        var size = text.length;
+        var maxBytes = queryInt(query, 'max_bytes', 0);
+        if (maxBytes <= 0) {
+            maxBytes = 65536;
+        }
+        maxBytes = Math.min(maxBytes, 1048576);
+        var offset = queryInt(query, 'offset', 0);
+        if (offset < 0 || offset > size) {
+            // 与 Dashboard 一致：offset 越界时从头重放，并把 offset 归零返回。
+            offset = 0;
+        }
+        var end = Math.min(size, offset + maxBytes);
+        return {
+            file: file,
+            text: text.slice(offset, end),
+            offset: offset,
+            next_offset: end,
+            size: size,
+            truncated: end < size
+        };
+    }
+
+    function migrationTopology(state) {
+        var groups = state.groups.map(function (group) {
+            var slots = [];
+            var start = null;
+            var previous = null;
+            state.slots.forEach(function (slot) {
+                if (slot.group_id !== group.id) {
+                    return;
+                }
+                if (start === null) {
+                    start = slot.id;
+                } else if (slot.id !== previous + 1) {
+                    slots.push({start: start, end: previous});
+                    start = slot.id;
+                }
+                previous = slot.id;
+            });
+            if (start !== null) {
+                slots.push({start: start, end: previous});
+            }
+            return {
+                group_id: group.id,
+                master: group.servers.length ? group.servers[0].server : '',
+                slot_count: slots.reduce(function (total, range) {
+                    return total + range.end - range.start + 1;
+                }, 0),
+                slots: slots
+            };
+        });
+        var known = {};
+        state.groups.forEach(function (group) { known[group.id] = true; });
+        var unassigned = state.slots.filter(function (slot) { return !known[slot.group_id]; }).length;
+        var partial = scenario === 'partial';
+        var missingMaster = groups.filter(function (group) {
+            return !String(group.master || '').trim();
+        }).length;
+        return {
+            groups: groups,
+            unassigned_slots: unassigned,
+            slot_actions: partial ? 8 : 0,
+            complete: !partial && unassigned === 0 && groups.length > 0 && missingMaster === 0,
+            online: true
+        };
+    }
+
     function rdbOptions(options) {
         options = options || {};
         return {
@@ -1063,7 +1798,7 @@ dashboard.service('MockApi', ['$q', '$timeout', '$window', function ($q, $timeou
         return {};
     }
 
-    function dispatch(method, product, path, data) {
+    function dispatch(method, product, path, data, query) {
         if (method === 'GET' && path === '/list') {
             return products.slice();
         }
@@ -1162,6 +1897,21 @@ dashboard.service('MockApi', ['$q', '$timeout', '$window', function ($q, $timeou
                 return publicPitrJob(job);
             }],
 
+            ['GET', '/api/topom/data-migration/jobs/{xauth}', function () {
+                state.migrationJobs.forEach(advanceMigration);
+                return state.migrationJobs.map(function (job) { return publicMigrationJob(job, false); });
+            }],
+            ['PUT', '/api/topom/data-migration/create/{xauth}', function (p, body) { return createMigration(state, body); }],
+            ['GET', '/api/topom/data-migration/get/{xauth}/:id', function (p) {
+                return publicMigrationJob(requireMigration(state, p.id), true);
+            }],
+            ['PUT', '/api/topom/data-migration/stop/{xauth}/:id', function (p) { return stopMigration(state, p.id); }],
+            ['PUT', '/api/topom/data-migration/remove/{xauth}/:id', function (p) { return removeMigration(state, p.id); }],
+            ['GET', '/api/topom/data-migration/log/{xauth}/:id', function (p, body, query) {
+                return migrationLog(state, p.id, query);
+            }],
+            ['GET', '/api/topom/data-migration/topology/codis/{xauth}', function () { return migrationTopology(state); }],
+
             ['PUT', '/api/topom/rdb-analysis/start/{xauth}', function (p, body) {
                 if (!body || !body.path) { fail(800, 'missing RDB analysis path'); }
                 return startRDB(state, 'workspace:' + body.path, body.options, 268435456);
@@ -1188,7 +1938,7 @@ dashboard.service('MockApi', ['$q', '$timeout', '$window', function ($q, $timeou
             }
             var values = match(path, routes[i][1]);
             if (values) {
-                return routes[i][2](values, data);
+                return routes[i][2](values, data, query);
             }
         }
         fail(404, 'unsupported Mock API route: ' + method + ' ' + path);
@@ -1229,10 +1979,11 @@ dashboard.service('MockApi', ['$q', '$timeout', '$window', function ($q, $timeou
     this.request = function (method, product, path, data, config) {
         var normalizedMethod = String(method || 'GET').toUpperCase();
         var normalizedPath = canonicalPath(path);
+        var query = new URLSearchParams(String(path || '').split('#')[0].split('?')[1] || '');
         var delay = normalizedMethod === 'GET' ? (normalizedPath === '/topom' || normalizedPath === '/list' ? 500 : 250) : 900;
         return delayed(function () {
             guard(normalizedMethod, normalizedPath);
-            return dispatch(normalizedMethod, product, normalizedPath, data);
+            return dispatch(normalizedMethod, product, normalizedPath, data, query);
         }, delay);
     };
 }]);
