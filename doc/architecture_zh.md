@@ -19,6 +19,7 @@ Codis 是 Redis 的代理式分片集群：客户端只连接 Codis Proxy，prox
 | RDB Analysis / Remote RDB fetch | dashboard 进程内的离线 RDB 文件分析，输出 DB/type/prefix 聚合、big keys、hot keys 与 flamegraph；输入来自上传、受控 workspace 路径，或 dashboard 从当前 product 内 Redis 8 Codis Server 的 RDB HTTP export 受控拉取。不在 proxy 请求路径中执行 | `pkg/topom/topom_rdb_analysis.go`、`pkg/topom/topom_rdb_analysis_remote_fetch.go` |
 | RDB HTTP export | Redis 8 Codis Server 上默认关闭的本机 RDB 导出入口：复用 Redis 监听端口，只接受 `GET /codis/rdb/latest` 与 `X-Codis-RDB-Auth` header，不调用 `SAVE`/`BGSAVE` | `extern/redis-8.6.3/src/codis_rdb_export.c` |
 | PITR / 数据闪回 | 默认关闭的 dashboard 进程内单 Redis 8 Codis Server AOF 时间点截断恢复编排，复用原生 `aof-timestamp-enabled` 与 `redis-check-aof --truncate-to-timestamp`，不修改 Redis C 源码 | `pkg/topom/topom_pitr.go`、`pkg/topom/topom_pitr_run.go` |
+| 数据集成 / 数据迁移 | dashboard 的数据迁移控制台：每个任务由 dashboard 拉起一个 `codis-shake` 子进程执行内嵌 RedisShake v4.8.0 内核，支持 standalone / Redis Cluster / Codis 静态拓扑之间的 `sync` / `scan` / `rdb` 迁移；任务记录只落 dashboard 本地 workspace，不写 coordinator | `pkg/topom/topom_data_migration.go`、`pkg/migration`、`pkg/shake`、`cmd/shake` |
 
 ## 系统定位
 
@@ -61,7 +62,8 @@ flowchart LR
 - `topom.New` 载入 store 与 cache，`Topom.Start` 启动周期任务：刷新 Redis/proxy stats、处理 slot action、观察 sentinel；启动时通过 `Store.Acquire` 抢占 `/codis3/{product}/topom` 拓扑锁，同一集群同时只能有一个 active dashboard。
 - 下发：`ReinitProxy` 向 proxy 填充 slot、启动 proxy 并设置 sentinel；局部 slot 变更由 `resyncSlotMappings` 并发调用所有 proxy 的 `FillSlots`。
 - 迁移：`SlotCreateAction*` 在 slot mapping 上写 action，`ProcessSlotAction` 与 `newSlotActionExecutor` 把状态从 pending 推进到 preparing/prepared/migrating/finished，实际搬迁调用 Redis 侧 `SLOTSMGRT*`。
-- 管理 API：`newApiServer` 注册 proxy、group、slot action、rebalance、sentinel、ACL、QPS limit、hot key cache invalidation、RDB Analysis、PITR 路由；除 overview/model/stats/slots 等只读路由外均要求 `xauth`。`RDBAnalysisManager` 与 `PitrManager` 的 job 都不写 coordinator，dashboard 重启后任务消失。
+- 管理 API：`newApiServer` 注册 proxy、group、slot action、rebalance、sentinel、ACL、QPS limit、hot key cache invalidation、RDB Analysis、PITR、数据迁移路由；除 overview/model/stats/slots 等只读路由外均要求 `xauth`。`RDBAnalysisManager` 与 `PitrManager` 的 job 都不写 coordinator，dashboard 重启后任务消失；`DataMigrationManager` 把脱敏任务快照写入 workspace 的 `jobs.json`，dashboard 重启后运行中的任务标记为 `failed`。
+- 数据迁移控制台：`DataMigrationManager` 为每个任务在 `data_migration_workspace/jobs/<id>/` 写 `spec.json`，拉起 `codis-shake --spec <job>/spec.json` 子进程（工作目录为任务目录），轮询 spec 指定的 loopback `status_port` 上的 RedisShake 原生状态 JSON（直接 `GET /`），读取 `shake.log`/`console.log`，用 SIGTERM → 15s → SIGKILL 停止；dashboard 关闭时对非终态任务并行停止，所有 worker 共用一个 5s 宽限（超时 SIGKILL 后再最多等 5s），关闭耗时与任务数无关。worker 每 5 秒检查 `parent_pid`，父进程消失后自行停止，避免孤儿进程。`/api/topom/data-migration/*` 提供 create/list/get/stop/remove/log 与 Codis 拓扑预览。
 
 ### Codis Server（内嵌 Redis 8）
 
@@ -73,13 +75,13 @@ flowchart LR
 
 ### 运维入口：codis-fe / codis-admin / codis-ha
 
-- `codis-fe`：`StaticLoader`/`DynamicLoader` 提供 dashboard 列表，`ReverseProxy` 按名字转发；ACL、Proxy QPS Limit、RDB Analysis、PITR 区域全部只调用 dashboard API，不直连 proxy admin API 或 Redis Server。`codis-ha` 的 `HealthyChecker.Maintains` 周期读取 dashboard stats，按 `maxdown` 阈值清理或 promote。
+- `codis-fe`：`StaticLoader`/`DynamicLoader` 提供 dashboard 列表，`ReverseProxy` 按名字转发；ACL、Proxy QPS Limit、RDB Analysis、PITR、数据迁移区域全部只调用 dashboard API，不直连 proxy admin API 或 Redis Server。`codis-ha` 的 `HealthyChecker.Maintains` 周期读取 dashboard stats，按 `maxdown` 阈值清理或 promote。
 - `codis-admin`：按参数分发到 proxy 或 dashboard 操作；`--acl`/`--acl-set FILE` 读取与提交 ACL view（dry-run 输出 redact `new_password`）；`--rdb-analysis-remote-fetch --server=ADDR` 只打印 job id、不接收 Redis export auth；`--pitr-*` 创建、查询、取消、删除 PITR job。三者最终都落在 dashboard API 或 proxy admin API 上，没有绕过 dashboard 直接改 coordinator 的路径。
 
 ### 构建与发布层
 
 - `go.mod` 声明 `go 1.26.1`，`vendor/`、`Godeps/` 已退休；默认 cmd/pkg 构建与测试、`cgo_jemalloc` proxy 构建、`make gotest` 都在 module mode 下工作，`cgo_jemalloc` 通过 `replace github.com/spinlock/jemalloc-go => ./third_party/jemalloc-go` 指向仓库内受控本地模块。
-- `Makefile` 产出 `codis-dashboard`、`codis-proxy`、`codis-admin`、`codis-ha`、`codis-fe` 和嵌入式 `codis-server`，并刷新 tracked 的 `config/dashboard.toml`、`config/proxy.toml`、`config/redis.conf`、`config/sentinel.conf`；默认 `make`/`make codis-server` 从 `extern/redis-8.6.3` 构建正式 Redis 8 Codis Server，复制为 `bin/codis-server`、`bin/redis-cli`、`bin/redis-benchmark`、`bin/redis-sentinel`。
+- `Makefile` 产出 `codis-dashboard`、`codis-proxy`、`codis-admin`、`codis-ha`、`codis-fe`、`codis-shake` 和嵌入式 `codis-server`，并刷新 tracked 的 `config/dashboard.toml`、`config/proxy.toml`、`config/redis.conf`、`config/sentinel.conf`；默认 `make`/`make codis-server` 从 `extern/redis-8.6.3` 构建正式 Redis 8 Codis Server，复制为 `bin/codis-server`、`bin/redis-cli`、`bin/redis-benchmark`、`bin/redis-sentinel`。
 - 显式平台矩阵：`make build-platforms` / `make release-platforms`，默认 `TARGET_PLATFORMS` 为 `darwin/arm64 linux/amd64 linux/arm64`，产物落在 `bin/<os>-<arch>/`；`build-platform-artifact` 先做 target allowlist、unsafe label 校验与 C/cgo cross toolchain guard，非 host full build 缺少 `ALLOW_CROSS_FULL_BUILD=1` 与对应 `PLATFORM_CC_<os>_<arch>` 时 fail-fast。`build-no-redis-platform` 只产出 `bin/<os>-<arch>-no-redis/` 下的 Go 入口、FE assets 和配置副本，不构建 Redis Server 与 helper，也不承诺纯 Go（非 jemalloc allocator 路径仍使用 cgo）。
 - 版本元数据由 `pkg/utils/version.go` 提供 clean checkout 兜底，`version` 脚本生成 `bin/version` 与 `bin/version.ldflags`，Makefile 通过 `-ldflags -X` 注入；发布包装入口为 `Dockerfile`、`scripts/docker.sh`、`example/server.py`、`kubernetes/codis-server.yaml`。
 
@@ -102,7 +104,7 @@ flowchart LR
 
 ### dashboard/topom 进程内状态
 
-`Topom` 分 model、store、cache、action、stats、ha、aclSync、rdbAnalysis 几块：cache 保存 slots/group/proxy/sentinel/ACL/QPS limit 快照；action 保存迁移执行状态；stats 保存 Redis 与 proxy 统计；ha 保存 sentinel 观察到的 masters；aclSync 保存最近一次 ACL 下发的 per-proxy 失败结果与 `sync_status`；rdbAnalysis 保存 job registry、analysis 并发限制、remote fetch 计数、上传 workspace、临时文件路径和结果快照。
+`Topom` 分 model、store、cache、action、stats、ha、aclSync、rdbAnalysis、dataMigration 几块：cache 保存 slots/group/proxy/sentinel/ACL/QPS limit 快照；action 保存迁移执行状态；stats 保存 Redis 与 proxy 统计；ha 保存 sentinel 观察到的 masters；aclSync 保存最近一次 ACL 下发的 per-proxy 失败结果与 `sync_status`；rdbAnalysis 保存 job registry、analysis 并发限制、remote fetch 计数、上传 workspace、临时文件路径和结果快照；dataMigration 保存数据迁移 job registry、并发上限、worker 进程句柄与状态轮询结果，任务目录与脱敏快照由 `data_migration_workspace` 承载。
 
 ### proxy 进程内状态
 
@@ -122,6 +124,7 @@ flowchart LR
 | hot key cache 条目 | 单个 proxy | TTL 收敛，或经 dashboard 广播删除 |
 | QPS token bucket、accepted/rejected、brute-force 计数 | 单个 proxy | 仅通过 proxy stats 上报 revision/limit；重启清空计数与锁定 |
 | RDB analysis job、PITR job 与 per-server lock | dashboard | 进程内，重启丢失；PITR lock 持续到显式 Remove |
+| 数据迁移 job | dashboard 本地 workspace | `jobs/<id>/` 保存 `spec.json`（明文凭据，0600）、`shake.log`、`console.log`；`jobs.json` 只存脱敏快照；dashboard 重启后运行中的任务标记 `failed`，不写 coordinator |
 
 ## 代码地图
 
@@ -131,7 +134,8 @@ flowchart LR
 |---|---|
 | `cmd/proxy/main.go`、`cmd/dashboard/main.go` | `main`：proxy 解析参数与配置并按 dashboard、coordinator、`--fillslots` 三种方式上线；dashboard 创建 coordinator client、`topom.New` 并在启动时抢占拓扑锁 |
 | `cmd/admin/main.go`、`cmd/admin/proxy.go`、`cmd/admin/dashboard.go`、`cmd/admin/pitr.go`、`cmd/admin/rdb_analysis_remote_fetch.go` | CLI 参数分发、proxy/dashboard 操作、ACL view 读取与提交（dry-run redaction）、`--pitr-*`、`--rdb-analysis-remote-fetch` |
-| `cmd/fe/main.go`、`cmd/fe/assets/{index.html,acl.js,qps-limit.js,rdb-analysis.js,pitr.js}`、`cmd/ha/main.go`、`cmd/internal/coordinator/args.go` | `StaticLoader`/`DynamicLoader`/`ReverseProxy` 与 FE 各配置区域；`main`、`HealthyChecker.Maintains` 巡检；`Parse`/`MustParse` 共用 coordinator CLI 参数解析 |
+| `cmd/fe/main.go`、`cmd/fe/assets/{index.html,acl.js,qps-limit.js,rdb-analysis.js,pitr.js,data-migration.js}`、`cmd/ha/main.go`、`cmd/internal/coordinator/args.go` | `StaticLoader`/`DynamicLoader`/`ReverseProxy` 与 FE 各配置区域；`main`、`HealthyChecker.Maintains` 巡检；`Parse`/`MustParse` 共用 coordinator CLI 参数解析 |
+| `cmd/shake/main.go`、`cmd/shake/args.go` | `codis-shake` 二进制：`--spec=FILE`、`--version`；第一次 SIGINT/SIGTERM 取消 context 等待 writer 排空，第二次 SIGINT 强制退出 |
 
 ### pkg/proxy
 
@@ -154,6 +158,14 @@ flowchart LR
 | `pkg/topom/topom_group.go`、`topom_proxy.go`、`topom_sentinel.go` | group/server 增删与主从 promotion；`CreateProxy`、`OnlineProxy`、`ReinitProxy`、`resyncSlotMappings`；sentinel 配置同步与 master 切换 |
 | `pkg/topom/topom_acl.go`、`topom_acl_api.go`、`topom_qps_limit.go`、`topom_hot_key_cache.go` | `ACLView`、`ACLUpdateRequest`、Redis `ACL SETUSER` 同步与 proxy snapshot fan-out；`ProxyQPSLimitView`、revision 写入、proxy fan-out 与 `sync_status`；hot key cache 失效 fan-out |
 | `pkg/topom/topom_rdb_analysis.go`、`topom_rdb_analysis_api.go`、`topom_rdb_analysis_remote_fetch.go`、`topom_pitr.go`、`topom_pitr_run.go`、`topom_pitr_api.go`、`topom_pitr_disk.go` | `RDBAnalysisManager`、`RDBAnalysisJob`、`RDBAnalysisOptions`、`rdbAnalysisSnapshot`、`rdbAnalysisFlameBuilder`；`RDBAnalysisUpload`/`Start`/`RemoteFetch`/`Get`/`Cancel`/`Remove`、`startRDBAnalysisRemoteFetch`、`fetchRemoteRDB`；`PitrManager`、`PitrJob`、`PitrStep`、`pitrServerLock`、9 步状态机（validate/prereq/feasibility/shutdown/snapshot/truncate/restart/wait-load/resync）、`PitrCreate` 等 handler、bin preflight 与 free disk 辅助 |
+| `pkg/topom/topom_data_migration.go`、`topom_data_migration_api.go`、`config.go` | `DataMigrationManager`、进程内 job registry、并发上限、worker 生命周期监管、状态轮询与日志读取、`jobs.json` 持久化；data-migration HTTP handler 与 `ApiClient` 方法；`data_migration_*` 配置项 |
+
+### pkg/migration 与 pkg/shake
+
+| 路径 | 符号 / 关键内容 |
+|---|---|
+| `pkg/migration/spec.go`、`topology.go`、`worker.go` | `Spec`、`Endpoint`、`Mode`、`Validate`、`ValidateSlotCoverage`、`SlotRouter`、`ShakeOptions()`；`StaticClusterReader`、`StaticClusterWriter`、`CodisSlot`；`Run`、`LoadSpec`、`watchParent`（`spec.json` → reader → filter → lua function → writer 流水线） |
+| `pkg/shake` | RedisShake v4.8.0 `internal/` 的逐文件拷贝（import path 改写为 `github.com/CodisLabs/codis/pkg/shake/...`）；与上游的差异见 `pkg/shake/README.md` |
 
 ### pkg/models 与 pkg/utils
 
@@ -213,6 +225,9 @@ flowchart LR
 - Redis 8 同步迁移的安全边界是「目标端确认写入成功后才删除源端 key」：connect/write/read、AUTH、SELECT 或 `SLOTSRESTORE` 任一失败都会关闭对应 socket 缓存并返回错误，不删除源端数据；成功路径只传播 `DEL`，不传播原始 `SLOTSMGRT*` 命令。
 - 异步迁移同样遵守「所有 ACK 成功后才删除源端 key」：connect/write/read、AUTH、SELECT、restore async ACK、timeout、cancel 或 client close 任一失败都保留源端数据；同一 DB 同时只允许一个 async migration，`SLOTSMGRT-ASYNC-STATUS`/`FENCE`/`CANCEL` 按当前 DB 隔离。
 - 迁移只保证 Redis 8 ↔ Redis 8；不承诺跨大版本 fragment 或持久化 RDB/AOF 兼容。
+- 数据迁移控制台（`pkg/migration` + `pkg/shake` + `codis-shake`）不在 proxy 请求路径中，也不经过 coordinator：Codis 源端/目标端都直连 codis-server，因为 proxy 不允许 `RESTORE`、`SCAN`、`PSYNC`，且 proxy 默认不提供 `CLUSTER NODES`（只有启用 `cluster_nodes_compat` 时才返回伪节点清单）。
+- Codis 端拓扑是创建任务时的静态快照（Group Master + 1024 slot 归属），之后不会被跟随；迁移期间不要做 slot 迁移/重平衡或 failover，拓扑变化会导致迁移到错误分片或任务失败。
+- 数据迁移任务不支持断点续传：dashboard 重启后运行中的任务被标记 `failed`，需要重新创建；任务记录只保存在 dashboard 本地 workspace，不写 coordinator。
 - 默认 `make`/`make codis-server` 构建内嵌 Redis 8 Codis Server，`config/redis.conf` 显式 `codis-enabled yes`，但仍不启用 Redis Cluster 协议；`make codis-server-redis8` 只是默认 Redis 8 产物的 suffixed alias。
 - 本地 Mac validation gate 不产出性能、fork/RDB、复制或网络栈的正式结论；所有 throughput/latency、RDB/fork、replication、Docker 包装和生产 cutover 判断以 Linux 验证为准（见 [redis8_validation_zh.md](redis8_validation_zh.md)）。
 
@@ -248,6 +263,7 @@ Consul 后端位于 `pkg/models/consul`，只接入 HashiCorp Go API 模块 `git
 - [redis8_codis_server_zh.md](redis8_codis_server_zh.md)：Redis 8 Codis Server 的 Codis mode、slot keyspace 与迁移实现。
 - [codis_acl_zh.md](codis_acl_zh.md)：Codis-managed Redis ACL、多账号认证与 db 绑定。
 - [pitr_flashback_zh.md](pitr_flashback_zh.md)：PITR / 数据闪回的状态机与安全边界。
+- [data_migration_zh.md](data_migration_zh.md)：数据集成控制台 / 数据迁移的进程模型、API、状态机与边界。
 - [proxy_protocol_extensions_zh.md](proxy_protocol_extensions_zh.md)：proxy 的本地命令与协议扩展。
 - [proxy_hot_key_cache_zh.md](proxy_hot_key_cache_zh.md)：热 key 缓存配置、一致性模型与 stats。
 - [proxy_qps_rate_limit_zh.md](proxy_qps_rate_limit_zh.md)：Proxy QPS limit 配置、动态管理与拒绝语义。

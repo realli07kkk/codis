@@ -32,7 +32,7 @@ Avoid editing generated build output in `bin/` or vendored code unless the task 
 
 ## Project Knowledge Base
 
-Long-form knowledge lives in `doc/` (see `doc/README.md` for the full index). Read `doc/architecture_zh.md` (system map, module boundaries, code anchors) before architecture-sensitive changes, bug root-cause analysis, or module onboarding. Build, test, and release constraints are in `doc/build_and_release_zh.md`; per-capability docs cover ACL (`doc/codis_acl_zh.md`), PITR (`doc/pitr_flashback_zh.md`), Redis 8 codis-server extensions (`doc/redis8_codis_server_zh.md`), and proxy protocol behavior (`doc/proxy_protocol_extensions_zh.md`).
+Long-form knowledge lives in `doc/` (see `doc/README.md` for the full index). Read `doc/architecture_zh.md` (system map, module boundaries, code anchors) before architecture-sensitive changes, bug root-cause analysis, or module onboarding. Build, test, and release constraints are in `doc/build_and_release_zh.md`; per-capability docs cover ACL (`doc/codis_acl_zh.md`), PITR (`doc/pitr_flashback_zh.md`), Redis 8 codis-server extensions (`doc/redis8_codis_server_zh.md`), data migration (`doc/data_migration_zh.md`), and proxy protocol behavior (`doc/proxy_protocol_extensions_zh.md`).
 
 Hard constraints worth repeating here:
 

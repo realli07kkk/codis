@@ -33,6 +33,7 @@ Codis 是基于代理的高性能 Redis 集群方案。本目录是项目的全�
 
 - [codis_acl_zh.md](codis_acl_zh.md)：Codis 统一 ACL 管理（配置、revision 同步、用户绑定 db、运维恢复手顺）
 - [pitr_flashback_zh.md](pitr_flashback_zh.md)：PITR 数据闪回（AOF 时间点恢复、9 步状态机、切换手顺与运维须知）
+- [data_migration_zh.md](data_migration_zh.md)：数据集成控制台 / 数据迁移（内嵌 RedisShake 内核、三种源/目标、任务状态与安全边界）
 
 ## 构建与验证
 
