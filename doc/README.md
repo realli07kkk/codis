@@ -42,6 +42,10 @@ Codis 是基于代理的高性能 Redis 集群方案。本目录是项目的全�
 - [redis8_validation_zh.md](redis8_validation_zh.md)：Redis 8 迁移验证与切换（验证 gate、Linux 正式验证、切换手顺、Go 组件兼容矩阵）
 - [zookeeper_sdk_migration_zh.md](zookeeper_sdk_migration_zh.md)：ZooKeeper Go SDK 迁移说明
 
+## 真机验证
+
+- [validation/README.md](validation/README.md)：真机验证进度索引（各能力在 Linux 真机上的验证状态、环境记录与遗留项；每个能力的详细验证记录在 `validation/` 下单独开文档）
+
 ## 性能
 
 - [benchmark.md](benchmark.md)：基准测试结果（图表源文件在 [bench1/](bench1/)、[bench2/](bench2/)）
