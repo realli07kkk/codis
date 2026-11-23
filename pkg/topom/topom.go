@@ -83,6 +83,9 @@ type Topom struct {
 
 	rdbAnalysis *RDBAnalysisManager
 	pitr        *PitrManager
+	// dataMigration supervises the codis-shake worker processes of the data
+	// integration console; like the other managers it is process-local.
+	dataMigration *DataMigrationManager
 
 	ha struct {
 		redisp *redis.Pool
@@ -128,6 +131,7 @@ func New(client models.Client, config *Config) (*Topom, error) {
 	s.stats.proxies = make(map[string]*ProxyStats)
 	s.rdbAnalysis = NewRDBAnalysisManager(config)
 	s.pitr = NewPitrManager(config)
+	s.dataMigration = newDataMigrationManager(config, s)
 
 	if err := s.setup(config); err != nil {
 		s.Close()
@@ -187,6 +191,9 @@ func (s *Topom) Close() error {
 	}
 	if s.pitr != nil {
 		s.pitr.Close()
+	}
+	if s.dataMigration != nil {
+		s.dataMigration.Close()
 	}
 	s.mu.Unlock()
 

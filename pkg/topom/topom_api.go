@@ -64,6 +64,14 @@ func newApiServer(t *Topom) http.Handler {
 	r.Put("/api/topom/pitr/cancel/{xauth}/{id}", api.PitrCancel)
 	r.Put("/api/topom/pitr/remove/{xauth}/{id}", api.PitrRemove)
 
+	r.Get("/api/topom/data-migration/jobs/{xauth}", api.DataMigrationJobs)
+	r.Put("/api/topom/data-migration/create/{xauth}", api.DataMigrationCreate)
+	r.Get("/api/topom/data-migration/get/{xauth}/{id}", api.DataMigrationGet)
+	r.Put("/api/topom/data-migration/stop/{xauth}/{id}", api.DataMigrationStop)
+	r.Put("/api/topom/data-migration/remove/{xauth}/{id}", api.DataMigrationRemove)
+	r.Get("/api/topom/data-migration/log/{xauth}/{id}", api.DataMigrationLog)
+	r.Get("/api/topom/data-migration/topology/codis/{xauth}", api.DataMigrationTopologyPreview)
+
 	r.Get("/api/topom/acl/{xauth}", api.GetACL)
 	r.Put("/api/topom/acl/{xauth}", api.SetACL)
 	r.Put("/api/topom/acl/sync/{xauth}", api.SyncACL)

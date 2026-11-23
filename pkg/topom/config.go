@@ -65,6 +65,17 @@ pitr_max_concurrent_jobs = 1
 pitr_job_timeout = "30m"
 pitr_restart_command = ""
 
+# Set configs for the data integration console (data migration driven by the
+# embedded RedisShake kernel). Each task runs as one codis-shake worker process
+# started by this dashboard; the binary must be executable on the dashboard host
+# and must be able to reach the source and target Redis servers directly.
+# data_migration_workspace holds spec.json, shake.log and console.log per task.
+data_migration_enabled = true
+data_migration_workspace = "/tmp/codis-data-migration"
+data_migration_shake_bin = "bin/codis-shake"
+data_migration_max_concurrent_jobs = 2
+data_migration_max_jobs_retained = 50
+
 # Set arguments for data migration (only accept 'sync' & 'semi-async').
 migration_method = "semi-async"
 migration_parallel_slots = 100
@@ -113,6 +124,12 @@ type Config struct {
 	PitrMaxConcurrentJobs int               `toml:"pitr_max_concurrent_jobs" json:"pitr_max_concurrent_jobs"`
 	PitrJobTimeout        timesize.Duration `toml:"pitr_job_timeout" json:"pitr_job_timeout"`
 	PitrRestartCommand    string            `toml:"pitr_restart_command" json:"pitr_restart_command"`
+
+	DataMigrationEnabled           bool   `toml:"data_migration_enabled" json:"data_migration_enabled"`
+	DataMigrationWorkspace         string `toml:"data_migration_workspace" json:"data_migration_workspace"`
+	DataMigrationShakeBin          string `toml:"data_migration_shake_bin" json:"data_migration_shake_bin"`
+	DataMigrationMaxConcurrentJobs int    `toml:"data_migration_max_concurrent_jobs" json:"data_migration_max_concurrent_jobs"`
+	DataMigrationMaxJobsRetained   int    `toml:"data_migration_max_jobs_retained" json:"data_migration_max_jobs_retained"`
 
 	MigrationMethod        string            `toml:"migration_method" json:"migration_method"`
 	MigrationParallelSlots int               `toml:"migration_parallel_slots" json:"migration_parallel_slots"`
@@ -240,6 +257,12 @@ func (c *Config) Validate() error {
 	}
 	if c.PitrJobTimeout < 0 {
 		return errors.New("invalid pitr_job_timeout")
+	}
+	if c.DataMigrationMaxConcurrentJobs < 0 {
+		return errors.New("invalid data_migration_max_concurrent_jobs")
+	}
+	if c.DataMigrationMaxJobsRetained < 0 {
+		return errors.New("invalid data_migration_max_jobs_retained")
 	}
 	if _, ok := models.ParseForwardMethod(c.MigrationMethod); !ok {
 		return errors.New("invalid migration_method")

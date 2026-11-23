@@ -47,6 +47,17 @@ pitr_max_concurrent_jobs = 1
 pitr_job_timeout = "30m"
 pitr_restart_command = ""
 
+# Set configs for the data integration console (data migration driven by the
+# embedded RedisShake kernel). Each task runs as one codis-shake worker process
+# started by this dashboard; the binary must be executable on the dashboard host
+# and must be able to reach the source and target Redis servers directly.
+# data_migration_workspace holds spec.json, shake.log and console.log per task.
+data_migration_enabled = true
+data_migration_workspace = "/tmp/codis-data-migration"
+data_migration_shake_bin = "bin/codis-shake"
+data_migration_max_concurrent_jobs = 2
+data_migration_max_jobs_retained = 50
+
 # Set arguments for data migration (only accept 'sync' & 'semi-async').
 migration_method = "semi-async"
 migration_parallel_slots = 100
