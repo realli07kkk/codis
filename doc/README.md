@@ -2,6 +2,8 @@
 
 Codis 是基于代理的高性能 Redis 集群方案。本目录是项目的全部文档，按主题分组如下。
 
+用法：按任务在下面找主题，打开对应文档，再沿文档内的链接到达相关文档或代码锚点。不要在仓库里模糊搜索关键字来定位文档。新增或移动文档时，同步更新本索引或对应子索引。
+
 ## 入门与使用
 
 - [tutorial_zh.md](tutorial_zh.md) / [tutorial_en.md](tutorial_en.md)：使用文档（编译、快速启动、各组件参数、Jodis 与 HA、Docker、从 2.x 升级）
@@ -49,3 +51,12 @@ Codis 是基于代理的高性能 Redis 集群方案。本目录是项目的全�
 ## 性能
 
 - [benchmark.md](benchmark.md)：基准测试结果（图表源文件在 [bench1/](bench1/)、[bench2/](bench2/)）
+
+## 仓库内的其他 README
+
+不在 `doc/` 下但承载专项知识的文档：
+
+- [../pkg/shake/README.md](../pkg/shake/README.md)：内嵌 RedisShake 内核的来源版本、与上游的差异、为什么每个迁移任务一个进程、升级上游的流程
+- [../third_party/rdb/README.md](../third_party/rdb/README.md)：RDB 解析器 fork 相对上游 v1.3.2 的改动（RDB v13、stream/IDMP、KEY_META/SLOT_INFO 跳过）
+- [../cmd/fe/assets/README.md](../cmd/fe/assets/README.md)：codis-fe 前端的结构、部署到真实集群、内置 Mock 预览、状态与监控数据
+- [../kubernetes/README.md](../kubernetes/README.md)：k8s 上 buildup / cleanup / 扩容 proxy 与 server 的脚本用法

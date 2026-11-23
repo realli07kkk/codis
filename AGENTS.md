@@ -32,7 +32,14 @@ Avoid editing generated build output in `bin/` or vendored code unless the task 
 
 ## Project Knowledge Base
 
-Long-form knowledge lives in `doc/` (see `doc/README.md` for the full index). Read `doc/architecture_zh.md` (system map, module boundaries, code anchors) before architecture-sensitive changes, bug root-cause analysis, or module onboarding. Build, test, and release constraints are in `doc/build_and_release_zh.md`; per-capability docs cover ACL (`doc/codis_acl_zh.md`), PITR (`doc/pitr_flashback_zh.md`), Redis 8 codis-server extensions (`doc/redis8_codis_server_zh.md`), data migration (`doc/data_migration_zh.md`), and proxy protocol behavior (`doc/proxy_protocol_extensions_zh.md`).
+Documentation is layered so you load only what the task needs: **this file → `doc/README.md` (the index, one line per document) → the specific document → the code anchors that document names.** Start every non-trivial task by reading `doc/README.md` and choosing documents by their one-line descriptions. Do not locate documentation by fuzzy-searching the repository for topic keywords; grep code only after reading the relevant document, and search for the file paths or identifiers it names. When you add or move a document, update `doc/README.md` (or the sub-index it lives under) in the same change so the chain stays intact.
+
+Four documents have standing relevance beyond their topic:
+
+- `doc/architecture_zh.md`: read before architecture-sensitive changes, bug root-cause analysis, or module onboarding. Its 代码地图 section is the entry point into the code.
+- `doc/capability_boundaries_zh.md`: check what each capability supports and explicitly does not before changing behavior or making promises about it.
+- `doc/build_and_release_zh.md`: build, test, and release constraints.
+- `doc/validation/README.md`: real-machine (Linux) validation status per capability. Consult it before claiming a capability is validated; local macOS tests do not count, and new real-machine runs must be recorded there.
 
 Hard constraints worth repeating here:
 
