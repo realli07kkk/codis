@@ -32,11 +32,11 @@ TARGET_REDIS_MAKE_ARGS := $($(TARGET_REDIS_MAKE_ARGS_VAR))
 GO_BUILD_ENV = GOOS=$(TARGET_OS) GOARCH=$(TARGET_ARCH) CGO_ENABLED=$(TARGET_CGO_ENABLED) $(if $(TARGET_CC),CC="$(TARGET_CC)")
 REDIS_BUILD_ENV = $(if $(TARGET_CC),CC="$(TARGET_CC)") $(if $(TARGET_CXX),CXX="$(TARGET_CXX)") $(TARGET_REDIS_MAKE_ARGS)
 
-.PHONY: build-all host-build-all build-host codis-deps jemalloc-config validate-target-platform check-target-platforms check-target-platform default-configs build-platforms release-platforms build-platform build-platform-artifact build-no-redis-platform codis-dashboard codis-proxy codis-admin codis-ha codis-fe codis-server codis-server-redis8 clean-gotest clean distclean gotest gobench lint docker demo
+.PHONY: build-all host-build-all build-host codis-deps jemalloc-config validate-target-platform check-target-platforms check-target-platform default-configs build-platforms release-platforms build-platform build-platform-artifact build-no-redis-platform codis-dashboard codis-proxy codis-admin codis-ha codis-fe codis-shake codis-server codis-server-redis8 clean-gotest clean distclean gotest gobench lint docker demo
 
 build-all: host-build-all
 
-host-build-all: codis-server codis-dashboard codis-proxy codis-admin codis-ha codis-fe clean-gotest
+host-build-all: codis-server codis-dashboard codis-proxy codis-admin codis-ha codis-fe codis-shake clean-gotest
 
 build-host: host-build-all
 
@@ -125,6 +125,7 @@ build-platform-artifact: codis-deps
 	$(GO_BUILD_ENV) go build $(VERSION_LDFLAGS) -o $(TARGET_DIR)/codis-admin ./cmd/admin
 	$(GO_BUILD_ENV) go build $(VERSION_LDFLAGS) -o $(TARGET_DIR)/codis-ha ./cmd/ha
 	$(GO_BUILD_ENV) go build $(VERSION_LDFLAGS) -o $(TARGET_DIR)/codis-fe ./cmd/fe
+	$(GO_BUILD_ENV) go build $(VERSION_LDFLAGS) -o $(TARGET_DIR)/codis-shake ./cmd/shake
 	@rm -rf $(TARGET_DIR)/assets; cp -rf cmd/fe/assets $(TARGET_DIR)/
 	@$(MAKE) --no-print-directory --quiet -C $(REDIS8_DIR) TARGET_OS= TARGET_ARCH= clean
 	$(REDIS_BUILD_ENV) $(MAKE) -j4 -C $(REDIS8_DIR)/ TARGET_OS= TARGET_ARCH=
@@ -140,6 +141,7 @@ build-platform-artifact: codis-deps
 	@test -x $(TARGET_DIR)/codis-admin
 	@test -x $(TARGET_DIR)/codis-ha
 	@test -x $(TARGET_DIR)/codis-fe
+	@test -x $(TARGET_DIR)/codis-shake
 	@test -x $(TARGET_DIR)/codis-server
 	@set -e; \
 	case "$(TARGET_OS)/$(TARGET_ARCH)" in \
@@ -168,6 +170,7 @@ build-no-redis-platform: codis-deps
 	$(GO_BUILD_ENV) go build $(VERSION_LDFLAGS) -o $(NO_REDIS_DIR)/codis-admin ./cmd/admin
 	$(GO_BUILD_ENV) go build $(VERSION_LDFLAGS) -o $(NO_REDIS_DIR)/codis-ha ./cmd/ha
 	$(GO_BUILD_ENV) go build $(VERSION_LDFLAGS) -o $(NO_REDIS_DIR)/codis-fe ./cmd/fe
+	$(GO_BUILD_ENV) go build $(VERSION_LDFLAGS) -o $(NO_REDIS_DIR)/codis-shake ./cmd/shake
 	@if [ "$(PROXY_JEMALLOC)" = "1" ]; then \
 			$(GO_BUILD_ENV) go build -tags "cgo_jemalloc" $(VERSION_LDFLAGS) -o $(NO_REDIS_DIR)/codis-proxy ./cmd/proxy; \
 		else \
@@ -193,6 +196,11 @@ codis-ha: codis-deps
 codis-fe: codis-deps
 	go build $(VERSION_LDFLAGS) -o bin/codis-fe ./cmd/fe
 	@rm -rf bin/assets; cp -rf cmd/fe/assets bin/
+
+# codis-shake embeds the RedisShake v4.8.0 kernel (pkg/shake) and runs one data
+# migration task per process on behalf of codis-dashboard.
+codis-shake: codis-deps
+	go build $(VERSION_LDFLAGS) -o bin/codis-shake ./cmd/shake
 
 codis-server:
 	@mkdir -p bin config
