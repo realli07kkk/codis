@@ -1,0 +1,17 @@
+{
+  "name": "codis-browser-validation",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Playwright browser validation for the Codis dashboard FE",
+  "scripts": {
+    "test": "playwright test",
+    "test:smoke": "playwright test tests/fe-smoke.spec.js",
+    "test:acl": "playwright test tests/acl.spec.js",
+    "test:qps": "playwright test tests/qps-limit.spec.js",
+    "test:pitr": "playwright test tests/pitr.spec.js",
+    "test:rdb": "playwright test tests/rdb-analysis.spec.js"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.65.1"
+  }
+}

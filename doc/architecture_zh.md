@@ -206,7 +206,7 @@ flowchart LR
 | `Makefile`、`extern/redis-8.6.3/Makefile`、`extern/redis-8.6.3/src/Makefile` | `build-all`、`build-platforms`、`release-platforms`、`build-platform-artifact`、`build-no-redis-platform`；Redis 8 源码接入点（`codis_rdb_export.o` 在同一 Makefile 中登记） |
 | `config/redis.conf`、`config/sentinel.conf` | Redis 8 Codis Server tracked 默认模板，`redis.conf` 显式包含 `codis-enabled yes` |
 | `go.mod`、`go.sum` | module 依赖、`replace` 指令与校验锁定 |
-| `Dockerfile`、`scripts/docker.sh`、`example/server.py`、`kubernetes/codis-server.yaml`、`scripts/redis8_local_validation.py` | 发布包装与本地示例入口；本地 Mac 非性能 validation gate（临时 filesystem coordinator/dashboard/proxy/Redis 8 group，不是生产入口） |
+| `Dockerfile`、`scripts/docker.sh`、`example/server.py`、`kubernetes/codis-server.yaml`、`scripts/redis8_local_validation.py`、`scripts/validation/` | 发布包装与本地示例入口；本地 Mac 非性能 validation gate（临时 filesystem coordinator/dashboard/proxy/Redis 8 group，不是生产入口）；真机验证脚本（环境搭建、能力场景、Playwright） |
 
 ## 已知约束与边界
 

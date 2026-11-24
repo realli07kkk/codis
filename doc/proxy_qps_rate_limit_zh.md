@@ -90,3 +90,12 @@ PUT /api/proxy/qps-limit/:xauth
 ```
 
 其中 `accepted` 和 `rejected` 是当前 proxy 进程内累计计数。`rejected` 只表示 QPS limiter 拒绝的请求数量，不等同于后端 Redis error 数。
+
+## 真机验证脚本
+
+- API 级：[`../scripts/validation/qps/run_qps_limit.py`](../scripts/validation/qps/run_qps_limit.py)，11 个 case：`limit=5` 下 burst 5/15、token refill、负数拒绝、`limit=0` 关闭、proxy 重启后重放、`AUTH` / `QUIT` 豁免、`limit=1` 下 1/9、清理。
+- 浏览器：[`../scripts/validation/browser/tests/qps-limit.spec.js`](../scripts/validation/browser/tests/qps-limit.spec.js)，覆盖 0 -> 3 -> 0 的 FE 编辑与回读。
+- 证据：`run_qps_limit-<run-id>.json`（默认 `.runtime/realmachine/`），退出码 0 = passed、1 = failed、2 = 仅 blocked / skipped。
+- 实测差异：`PUT /api/topom/proxy/qps-limit/{xauth}` 成功时一律返回 `sync_status="ready"`，`proxy_sync_failed:<token>` 只能通过随后的 GET 观测；proxy stats 无 xauth 路径是 `GET /proxy/stats`（带 xauth 为 `/api/proxy/stats/{xauth}`）。
+- 实测差异：`AUTH` / `QUIT` 不限流，但 `PING`、`ACL WHOAMI`、`INFO`、`SELECT`、`CLIENT LIST` 等本地命令会被限流（上文只提了前者）。
+- 脚本总索引见 [`../scripts/validation/README.md`](../scripts/validation/README.md)。

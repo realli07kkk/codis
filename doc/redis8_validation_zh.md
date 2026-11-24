@@ -152,6 +152,15 @@ Docker daemon 不可用时只能记为 blocked，不能写成已验证。
 
 真实 Redis 8 Codis Server 的 smoke 没有暴露必须新增生产 adapter 的不兼容点：`SLAVEOF` alias 可用，`INFO` 字段名仍可被 Go parser 消费，`SLOTSINFO` 与同步/异步迁移返回格式符合严格 parser 预期，`CONFIG REWRITE` 未丢 `codis-enabled`。
 
+## 真机验证脚本
+
+- 环境：`../scripts/validation/env/collect_env.py` 按上文"必须记录的环境字段"输出 8 类字段（`env-<run-id>.json`）；`setup_cluster.py` / `teardown_cluster.py` 拉起与回收单机验证集群（dashboard、fe、N proxy、N 组 master+replica，filesystem coordinator）。
+- 功能 gate：`../scripts/validation/redis8/run_functional_gate.py` 覆盖上文"必跑命令"中除性能 gate 外的全部：`make build-all`、`make gotest`、5 组 Redis 8 Codis Tcl（含 `codis_rdb_export`）、`scripts/redis8_local_validation.py` e2e；`--docker` 可选执行部署包装 gate，daemon 不可用时记 blocked。
+- 安全回归：`../scripts/validation/security/run_dependency_audit.py` 覆盖 govulncheck、`go build` / `go test`、`npm audit`、Redis 3 移除断言与 `codis-server` 版本。
+- 证据：`redis8-gate-<run-id>.json`、`env-<run-id>.json`、`security-audit-<run-id>.json`，默认在 `.runtime/realmachine/`；退出码 0 / 1 / 2 分别对应 passed / failed / blocked|skipped。
+- 性能 gate 按要求暂未脚本化：`redis-benchmark` 的参数与执行未入脚本，性能结论仍按上文手工执行并记录。
+- 脚本总索引见 [`../scripts/validation/README.md`](../scripts/validation/README.md)。
+
 ## 相关文档
 
 - [build_and_release_zh.md](build_and_release_zh.md)：构建目标、平台矩阵与发布产物。

@@ -6,7 +6,7 @@
 
 - **真机**指 Linux 真实部署环境（云 ECS 或等价的物理机/虚拟机），不是 macOS 本机。macOS 上的单测、`make gotest`、`scripts/redis8_local_validation.py` e2e、Playwright headless 都只算本地回归，不计入真机验证。
 - 真机结论只对**执行时的 HEAD** 负责。之后新增的提交不继承旧结论：改动到已通过能力的代码时，状态回到"待确认"，或在备注里注明"基于 HEAD xxx 验证"。
-- 真机报告、日志和截图保存在本地 `.runtime/`（`.gitignore` 忽略，不入库）；入库的只有本目录的文档。引用 `.runtime/` 路径时注明是本地证据。
+- 真机报告、日志和截图保存在本地 `.runtime/`（`.gitignore` 忽略，不入库）；入库的只有本目录的文档。引用 `.runtime/` 路径时注明是本地证据。脚本默认把工作目录与 evidence JSON 放在 `.runtime/realmachine/` 下：集群工作目录是 `<run-id>/`，evidence 是 `<脚本名>-<run-id>.json`（gate 类为 `redis8-gate-` / `security-audit-`）。
 - 环境销毁后不可复现，所以每次真机验证都必须在详细文档里写清环境字段（参见 `../redis8_validation_zh.md` 的"必须记录的环境字段"）。
 
 ## 状态定义
@@ -66,15 +66,32 @@
 | 性能基线 | 未验证 | ENV-01 明确 SKIPPED | — |
 | Docker 部署包装 | 未验证 | ENV-01 NOT RUN | — |
 
+## 脚本索引
+
+各能力的真机验证脚本已入库到 `scripts/validation/`，脚本总索引（目录说明、快速开始、能力↔文档↔脚本总表、证据约定、实测与文档差异、限制）见 [scripts/validation/README.md](../../scripts/validation/README.md)。浏览器用例路径相对 `scripts/validation/`。
+
+| 能力 | 脚本 | 浏览器用例 | 对应文档 |
+| --- | --- | --- | --- |
+| 环境搭建 · 采集 · 清理 | `scripts/validation/env/collect_env.py`、`scripts/validation/env/setup_cluster.py`、`scripts/validation/env/teardown_cluster.py` | — | [redis8_validation_zh.md](../redis8_validation_zh.md)（必须记录的环境字段）、本文件（ENV 登记） |
+| Redis 8 功能 gate | `scripts/validation/redis8/run_functional_gate.py` | — | [redis8_validation_zh.md](../redis8_validation_zh.md) |
+| 依赖安全扫描 | `scripts/validation/security/run_dependency_audit.py` | — | [redis8_validation_zh.md](../redis8_validation_zh.md)、[build_and_release_zh.md](../build_and_release_zh.md) |
+| Codis ACL | `scripts/validation/acl/run_acl.py` | `browser/tests/acl.spec.js` | [codis_acl_zh.md](../codis_acl_zh.md) |
+| Proxy QPS 限流 | `scripts/validation/qps/run_qps_limit.py` | `browser/tests/qps-limit.spec.js` | [proxy_qps_rate_limit_zh.md](../proxy_qps_rate_limit_zh.md) |
+| PITR | `scripts/validation/pitr/run_pitr.py` | `browser/tests/pitr.spec.js` | [pitr_flashback_zh.md](../pitr_flashback_zh.md) |
+| RDB Analysis | `scripts/validation/rdb/run_rdb_analysis.py` | `browser/tests/rdb-analysis.spec.js` | [rdb_analysis_zh.md](../rdb_analysis_zh.md) |
+| FE 浏览器冒烟 | —（环境由 `scripts/validation/env/setup_cluster.py --fe` 提供） | `browser/tests/fe-smoke.spec.js` | [../../cmd/fe/assets/README.md](../../cmd/fe/assets/README.md) |
+| 尚无脚本：性能基线（暂不固化）、数据迁移控制台、codis-ha、Consul/ZooKeeper coordinator、Docker（仅 gate `--docker` 可选）、多平台发布 | — | — | [data_migration_zh.md](../data_migration_zh.md)、[benchmark.md](../benchmark.md)、[architecture_zh.md](../architecture_zh.md) |
+
 ## 详细文档约定
 
 - 放在本目录，命名 `<topic>_zh.md`，例如 `data_migration_zh.md`、`go_modernization_zh.md`；一个能力一份，多次验证在同一份里按日期追加章节。
 - 至少包含：环境字段（机器规格、OS、Go / Redis 版本、coordinator 类型、部署布局）、执行时 HEAD、场景与命令、结果、证据路径、遗留项。
+- 必须列出本次使用的脚本路径（相对仓库根，例如 `scripts/validation/acl/run_acl.py`）与 evidence JSON 路径；脚本实测行为与文档描述不一致时，在详细文档写明实测值。
 - 结论要区分"通过 / 可观测失败 / 未执行"；未执行就是未验证，不能用本地结果补位。
 - 开好后在上面总表对应行填上链接。
 
 ## 维护流程
 
-1. 开新一轮真机验证前，先在"真机环境记录"登记 ENV-xx（日期、环境、HEAD）。
-2. 验证过程中按能力更新总表的状态、结果摘要和遗留项，细节写进详细文档。
-3. 环境销毁后更新 ENV 状态，并确认 `.runtime/` 里保留的报告和日志可被详细文档引用。
+1. 用 `python3 scripts/validation/env/collect_env.py` 采集环境字段、用 `python3 scripts/validation/env/setup_cluster.py` 拉起验证集群；登记 ENV-xx 时引用 `env-<run-id>.json`（必要时同时引用 `cluster.json`）。
+2. 逐能力运行 `scripts/validation/<能力>/run_*.py`（需要 FE 交互时另跑 `scripts/validation/browser/` 用例），把 evidence 路径与 case 状态写进详细文档，并更新总表的状态、结果摘要和遗留项。
+3. 用 `python3 scripts/validation/env/teardown_cluster.py --cluster <cluster.json>` 产出 `cleanup.json` 后更新 ENV 状态，并确认 `.runtime/` 里保留的报告和日志可被详细文档引用。

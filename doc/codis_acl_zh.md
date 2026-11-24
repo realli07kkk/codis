@@ -178,3 +178,12 @@ Forced DB 是 proxy 的路由属性，不会渲染进 Redis `ACL SETUSER`；迁�
 - **`SELECT` 的 OK 不代表切换生效**：绑定 db 的用户收到 `SELECT` 一律返回 `OK`，但实际仍路由到绑定 db；客户端不能靠 `SELECT` 的返回值判断当前 db。
 - **`sync_status` 不覆盖 Redis 侧漂移**：它只表示当前 topom 进程记录的 proxy 下发结果；Redis Server 上的人工 `ACL SETUSER` / `ACL DELUSER` 不会被该字段发现，topom 重启后失败缓存也会清空并先显示 `ready`，需要结合 `--acl-sync` 返回和实际 `ACL LIST` 判断。
 - **其它未纳入的能力**：`ACL DRYRUN` 热路径优化、user pool 容量与 idle 淘汰、`sync_status` 漂移观测细化、FE 的 ACL 规则 DSL 编辑器均未实现；FE 只提供结构化字段和 raw rule token 输入。
+
+## 真机验证脚本
+
+- API 级：[`../scripts/validation/acl/run_acl.py`](../scripts/validation/acl/run_acl.py)，18 个 case：启用、后端 Redis 同步、`NOAUTH` / 权限拒绝、`db` 绑定、改密、`db=99` fail-closed、`--acl-sync`、master 重启后重同步、清理（`acl-cleanup` 在 `finally` 中执行）。
+- 浏览器：[`../scripts/validation/browser/tests/acl.spec.js`](../scripts/validation/browser/tests/acl.spec.js)，覆盖新增 / 删除用户的 FE 交互，并与 `GET /api/topom/acl/<xauth>` 交叉核对。
+- 证据：`run_acl-<run-id>.json`（默认 `.runtime/realmachine/`），退出码 0 = passed、1 = failed、2 = 仅 blocked / skipped。
+- 实测差异：明文密码规则被拒的实际文案是 `acl user <name>: plain password token is not allowed`，不是 `plaintext ...`。
+- 实测差异：Redis master 重启后 runtime ACL 丢失，proxy 上以该用户 `AUTH` 仍成功，但后续命令实际返回 `ERR handle response, backend conn failure, EOF`（proxy 为 ACL 用户单独建后端连接并以该用户认证，连 Redis 的 AUTH 就失败），并非上文所述 `NOPERM`；`codis-admin --acl-sync` 后恢复。
+- 脚本总索引见 [`../scripts/validation/README.md`](../scripts/validation/README.md)。

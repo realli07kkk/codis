@@ -122,6 +122,7 @@ make build-no-redis-platform TARGET_OS=darwin TARGET_ARCH=arm64
 - 需要模拟 Redis 协议时优先复用 `pkg/proxy/redis/redistest` 的共享 fake server：它负责 TCP 监听、RESP 编解码、命令 deep copy 与 `CountCommand`，默认返回 `OK`；`redistest.Array` / `Bulk` / `Int` / `String` / `Error` / `OK` 统一构造测试响应。
 - 共享 helper 的职责停在 transport 层。业务语义留在各测试包自己的 handler 里，例如 `INFO` 返回哪些字段、`SLOTSMGRT-EXEC-WRAPPER` 返回哪个 code。两个以上包都需要同一套协议模拟时抽共享 helper，而不是复制一份"稍微改名"的 fake server；helper 要保持小而稳定，不把单个场景的状态塞进通用 struct。历史测试里包内 fake server 可以保留 handler 覆盖模式，不必为了统一强行迁走。
 - 测试优先用 fake 替代外部服务：需要 Redis 协议时用 fake server，需要 coordinator 时用 fake store，避免单测依赖本机正在运行的 Redis 或 coordinator 实例。
+- 真机 / 本地端到端验证走 [scripts/validation/README.md](../scripts/validation/README.md) 里的脚本（环境搭建、各能力场景、Playwright 浏览器用例）；结论口径见[真机验证索引](validation/README.md)。
 
 ## 目录与路径约定
 

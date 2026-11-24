@@ -132,3 +132,13 @@ cancel 只是停止后续步骤并终止 `redis-check-aof` 子进程的信号，
 - **job 不持久化**。dashboard 重启会丢失 job 历史、步骤记录、per-server lock 和轮询状态；已停服的 server 不会因此自动恢复。高危操作期间不要重启 dashboard。
 - **snapshot 清理是 best-effort**。Remove 删除 snapshot 目录失败时只记录 warning，需要人工清理残留目录。
 - **单 server、秒级、依赖外部进程管理**。不做跨 group 全局恢复、指定 key 恢复、跨机文件操作、自动 AOF 开启、AOF 轮转/备份管理或 proxy 只读切换；恢复窗口内该 group 的写入失败不会被自动兜底。
+
+## 真机验证脚本
+
+- API 级：[`../scripts/validation/pitr/run_pitr.py`](../scripts/validation/pitr/run_pitr.py)，12 个 case：happy path 9 步、非 master、AOF 关闭、ts 非法（0 / 越界）、不存在的 server、cancel-before、锁直到 remove、xauth、清理；`pitr-cancel-in-truncate` 固定 skipped（S17 的取消语义未定稿，脚本不把 truncate 中 cancel 的 `failed` 当稳定契约）。
+- 浏览器：[`../scripts/validation/browser/tests/pitr.spec.js`](../scripts/validation/browser/tests/pitr.spec.js)，覆盖 ts=0 拒绝、成功任务 9 步、不存在 server、删除。
+- 证据：`run_pitr-<run-id>.json`（默认 `.runtime/realmachine/`），退出码 0 = passed、1 = failed、2 = 仅 blocked / skipped。
+- 实测差异：`pitr_enabled=false` 时 `/api/topom/pitr/*` 返回 HTTP 800 + `{"Cause":"pitr is disabled"}`，不是 503。
+- 实测差异：非 master / 不存在的 server 不是 create 阶段 800，而是 create 返回 200 + job_id，随后在 `validate` 步失败、`state=failed`；同步拒绝只有 `truncate_ts<=0`、锁冲突、并发上限、`redis-check-aof` 缺失。
+- 实测差异：`#TS:` 注解只在该秒有写入时产生，`truncate_ts=int(time.time())` 在空闲 ≥ 1s 后会落在最后 segment 区间之外；脚本用 before → marker → ts → after → marker 构造，或取区间 max。
+- 脚本总索引见 [`../scripts/validation/README.md`](../scripts/validation/README.md)。

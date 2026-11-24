@@ -46,7 +46,7 @@ Codis 是基于代理的高性能 Redis 集群方案。本目录是项目的全�
 
 ## 真机验证
 
-- [validation/README.md](validation/README.md)：真机验证进度索引（各能力在 Linux 真机上的验证状态、环境记录与遗留项；每个能力的详细验证记录在 `validation/` 下单独开文档）
+- [validation/README.md](validation/README.md)：真机验证进度索引（各能力在 Linux 真机上的验证状态、环境记录与遗留项；每个能力的详细验证记录在 `validation/` 下单独开文档）。真机验证脚本索引见 [scripts/validation/README.md](../scripts/validation/README.md)。
 
 ## 性能
 
@@ -60,3 +60,4 @@ Codis 是基于代理的高性能 Redis 集群方案。本目录是项目的全�
 - [../third_party/rdb/README.md](../third_party/rdb/README.md)：RDB 解析器 fork 相对上游 v1.3.2 的改动（RDB v13、stream/IDMP、KEY_META/SLOT_INFO 跳过）
 - [../cmd/fe/assets/README.md](../cmd/fe/assets/README.md)：codis-fe 前端的结构、部署到真实集群、内置 Mock 预览、状态与监控数据
 - [../kubernetes/README.md](../kubernetes/README.md)：k8s 上 buildup / cleanup / 扩容 proxy 与 server 的脚本用法
+- [../scripts/validation/README.md](../scripts/validation/README.md)：真机验证脚本总索引（环境搭建 / 采集 / 清理、各能力场景脚本、Playwright 浏览器用例、证据约定）
