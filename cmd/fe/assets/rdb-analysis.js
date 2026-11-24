@@ -974,6 +974,12 @@ dashboard.component('analysisPage', {
                 return !destroyed && ctrl.product === product && activeJobId === id && mutationSequence === sequence;
             }
 
+            // Releasing the pending flag must not depend on activeJobId: a successful
+            // remove clears it, and the user may switch jobs while the request runs.
+            function mutationOwnsSequence(product, sequence) {
+                return !destroyed && ctrl.product === product && mutationSequence === sequence;
+            }
+
             function runJobAction(kind, product, id) {
                 if (ctrl.actionPending || ctrl.submitting || destroyed) { return; }
                 var sequence = ++mutationSequence;
@@ -1014,7 +1020,7 @@ dashboard.component('analysisPage', {
                     Activity.add(product, kind === 'cancel' ? '取消 RDB 分析' : '清除 RDB 分析', id, 'error');
                     Toast.error(message);
                 }).finally(function () {
-                    if (!mutationIsCurrent(product, id, sequence)) { return; }
+                    if (!mutationOwnsSequence(product, sequence)) { return; }
                     ctrl.actionPending = false;
                 });
             }

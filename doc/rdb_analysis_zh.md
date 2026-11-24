@@ -79,5 +79,4 @@ rdb_analysis_remote_fetch_max_concurrent = 1
 - 浏览器：[`../scripts/validation/browser/tests/rdb-analysis.spec.js`](../scripts/validation/browser/tests/rdb-analysis.spec.js)，覆盖 upload 与 remote fetch 两条 FE 入口。
 - 证据：`run_rdb_analysis-<run-id>.json`（默认 `.runtime/realmachine/`），退出码 0 = passed、1 = failed、2 = 仅 blocked / skipped。
 - 实测差异：非法 regex 不是 create 阶段 800，而是 job `status=error`、`error="illegal regex expression: ..."`；导出端在首次 `SAVE` 之前返回 404。
-- 实测差异（产品缺陷，未修复）：`cmd/fe/assets/rdb-analysis.js` 的 `runJobAction()` remove 分支先清 `activeJobId`（约 L993），`.finally` 中的 `mutationIsCurrent()` 不再匹配（约 L1016-1018），`actionPending` 卡在 true，"清除任务"后「新建分析」按钮持续 disabled，需刷新页面；浏览器用例通过每个用例新开页面规避。
 - 脚本总索引见 [`../scripts/validation/README.md`](../scripts/validation/README.md)。

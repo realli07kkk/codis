@@ -206,6 +206,9 @@ workspace 偏好跨用例泄漏）：
 * `afterAll` 通过
   `PUT /api/topom/rdb-analysis/remove/<xauth>/<id>` 兜底移除所有跟踪中的
   job（也覆盖 running 状态）。
+* 两个用例在 `清除任务` 成功后都**不刷新页面**，继续断言「新建分析」按钮在
+  默认 `expect` 超时内恢复 enabled，并能再次打开「新建 RDB 分析」抽屉
+  （回归 `actionPending` 未释放导致按钮卡 disabled 的缺陷）。
 
 ## 与 Python 验证脚本的关系
 
@@ -230,12 +233,13 @@ workspace 偏好跨用例泄漏）：
 
 ## 已知限制 / 产品观察
 
-* **RDB 清除后同一页面里的「新建分析」保持 disabled。** `清除任务` 成功后，
-  `cmd/fe/assets/rdb-analysis.js` 的 `actionPending` 没有复位：`runJobAction()`
-  在自己的 `finally` 块匹配 `mutationIsCurrent()` 之前就清了 `activeJobId`
-  （约 L993 清 `activeJobId`，约 L1016-1018 的 `.finally` 因此不再匹配）。
-  页面会渲染空状态，但头部按钮一直 disabled 到刷新。spec 为每个 RDB 用例
-  新开页面，清除后也不再依赖该按钮；这里记为产品观察，不用假通过绕过。
+* **RDB 清除后同一页面里的「新建分析」保持可用（该缺陷已修复）。**
+  `清除任务` 成功后 `runJobAction()` 的 `.finally` 曾用含 `activeJobId` 的
+  `mutationIsCurrent()` 作守卫，而 remove 分支已先清空 `activeJobId`，
+  `actionPending` 卡在 true，头部按钮一直 disabled 到刷新页面。现在
+  `.finally` 只校验本次 mutation 仍是最新一次（`mutationOwnsSequence()`）；
+  回归由 `rdb-analysis.spec.js` 覆盖：清除后不刷新页面，断言「新建分析」
+  按钮恢复 enabled 并能再次打开抽屉。
 * **PITR 天生具有破坏性。** 它发送 `SHUTDOWN NOSAVE`、截断 AOF，并依赖外部
   重启钩子。只能用于一次性集群。成功用例要求 `setup_cluster.py` 的默认
   配置（`--aof`、生成的 `pitr_restart_command`）。

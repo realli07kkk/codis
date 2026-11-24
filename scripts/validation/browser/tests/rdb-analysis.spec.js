@@ -135,6 +135,20 @@ async function clearJobThroughUi(page) {
   return true;
 }
 
+// A successful 清除任务 must release ctrl.actionPending on its own: otherwise
+// the page renders the empty state while the header button stays disabled
+// until a full reload.
+async function expectNewAnalysisUsable(page) {
+  const newAnalysis = page.locator('.analysis-page .page-header-actions')
+    .getByRole('button', { name: '新建分析' });
+  await expect(newAnalysis).toBeEnabled({ timeout: 15 * 1000 });
+  await newAnalysis.click();
+  const editor = await waitForDrawer(page, '新建 RDB 分析');
+  await expect(editor.locator('#rdb-source-panel-upload')).toBeVisible();
+  await editor.locator('.drawer-close').click();
+  await expect(page.locator('.resource-drawer')).toHaveCount(0);
+}
+
 test.beforeAll(async () => {
   ctx = loadContext();
 });
@@ -199,6 +213,7 @@ test('RDB analysis: uploads an RDB file, reports objects/file size > 0 and clear
   const cleared = await clearJobThroughUi(page);
   expect(cleared, 'the analysis page should expose a 清除任务 button').toBe(true);
   await expect(page.locator('.analysis-page')).toContainText('还没有 RDB 分析任务');
+  await expectNewAnalysisUsable(page);
   await expect.poll(async () => {
     const result = await api(request, 'GET', analysisJobPath(jobId));
     return result.status;
@@ -271,6 +286,7 @@ test('RDB analysis: remote fetch from a cluster master, reports objects/file siz
     });
   } else {
     await expect(page.locator('.analysis-page')).toContainText('还没有 RDB 分析任务');
+    await expectNewAnalysisUsable(page);
     await expect.poll(async () => {
       const result = await api(request, 'GET', analysisJobPath(jobId));
       return result.status;

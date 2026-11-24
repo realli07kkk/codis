@@ -157,7 +157,6 @@ CODIS_CLUSTER=<cluster.json> npx playwright test
 | 6 | PITR | 文档未写 create 的返回码 | 非 master / 不存在的 server 不是 create 阶段 800：create 返回 200 + job_id，随后在 `validate` 步失败、`state=failed`。同步拒绝只有 `truncate_ts<=0`、锁冲突、并发上限、`redis-check-aof` 缺失 | `pitr/run_pitr.py` 的 `pitr-reject-non-master`、`pitr-reject-unknown-server` |
 | 7 | PITR | 文档只要求 `truncate_ts` 落在最后一个 segment 的 `#TS:` 范围内 | `#TS:` 注解只在该秒有写入时才产生，`truncate_ts=int(time.time())` 在空闲 ≥ 1s 后会落在区间之外；脚本用 before → marker → ts → after → marker 构造合法点，或取扫描区间的 max | `pitr/run_pitr.py` 的 `pitr-happy-path` |
 | 8 | RDB | 文档未说明非法 regex 的报错阶段 | 不是 create 阶段 800，而是 job `status=error`、`error="illegal regex expression: ..."`；导出端在首次 `SAVE` 之前返回 404 | `rdb/run_rdb_analysis.py` 的 `rdb-rejects`、`rdb-export-direct` |
-| 9 | FE | 文档未记录（产品缺陷未修复） | `cmd/fe/assets/rdb-analysis.js` 的 `runJobAction()` remove 分支先清 `activeJobId`（约 L993），`.finally` 中的 `mutationIsCurrent()` 不再匹配（约 L1016-1018），`actionPending` 卡在 true："清除任务"后「新建分析」按钮持续 disabled，需刷新页面。浏览器用例通过每个用例新开页面规避 | `browser/tests/rdb-analysis.spec.js` |
 
 ## 限制
 
