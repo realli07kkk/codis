@@ -1,21 +1,19 @@
-####What is Codis?
-Codis is a distributed redis service developed by wandoujia infrasstructure team, codis can be viewed as an redis server with infinite memory, have the ability of dynamically elastic scaling,  it's more fit for storage business, if you need SUBPUB-like command, Codis is not supported, always remember Codis is a distributed storage system.
+# Codis FAQ
 
-###Which external storage backends does Codis support?
+### What is Codis?
 
-ZooKeeper, Consul and filesystem; select one with `coordinator_name`. Please read the tutorial for details.
+Codis uses proxies to route Redis requests across backend groups. The Dashboard manages topology and slot migration. Backend Redis instances provide persistence and replication.
 
+### Which coordinator backends does Codis support?
 
-####Can I use Codis directly in my existing services?
+ZooKeeper, Consul, and the filesystem. Choose a backend with `coordinator_name`. The generated Dashboard config uses the filesystem by default. See the [tutorial](tutorial_en.md).
 
-That depends.  
-Two cases:  
-1) Twemproxy users:  
-Yes, codis fully support twemproxy commands, further more, using redis-port tool, you can synchronization the data on twemproxy onto your Codis cluster.
+### Can I move an existing Redis or Twemproxy workload to Codis?
 
-2) Raw redis users:  
-That depends, if you use the following commands:  
+Check the application's Redis commands, multi-key operations, and authentication against the [proxy compatibility list](unsupported_cmds.md). For example, `CLIENT LIST` and `SLOTSINFO <backend-addr>` are available, while transactions and Pub/Sub subscription commands are restricted.
 
-BGREWRITEAOF, BGSAVE, BITOP, BLPOP, BRPOP, BRPOPLPUSH, CLIENT, CONFIG, DBSIZE, DEBUG, DISCARD, EXEC, FLUSHALL, FLUSHDB, KEYS, LASTSAVE, MIGRATE, MONITOR, MOVE, MSETNX, MULTI, OBJECT, PSUBSCRIBE, PUBLISH, PUNSUBSCRIBE, RANDOMKEY, RENAME, RENAMENX, RESTORE, SAVE, SCAN, SCRIPT, SHUTDOWN, SLAVEOF, SLOTSCHECK, SLOTSDEL, SLOTSINFO, SLOTSMGRTONE, SLOTSMGRTSLOT, SLOTSMGRTTAGONE, SLOTSMGRTTAGSLOT, SLOWLOG, SUBSCRIBE, SYNC, TIME, UNSUBSCRIBE, UNWATCH, WATCH
+Use the FE Data Integration page or Dashboard API to create a [data migration task](data_migration_zh.md). The Dashboard launches a `codis-shake` worker that connects directly to the source and target. Check the task exit status and verify target data before switching clients.
 
-you should modify your code, because Codis does not support these commands.
+### Where are the performance and validation results?
+
+The [historical benchmark](benchmark.md) describes early Codis versions. The [Linux validation index](validation/README.md) tracks the current Redis 8 validation and performance baseline.

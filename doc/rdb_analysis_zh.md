@@ -38,9 +38,9 @@ rdb_analysis_remote_fetch_timeout = "30m"
 rdb_analysis_remote_fetch_max_concurrent = 1
 ```
 
-- `rdb_analysis_remote_fetch_enabled`：默认关闭；关闭时只有 `Upload` 和 `Workspace` 两个入口。
+- `rdb_analysis_remote_fetch_enabled`：默认关闭。FE 仍显示 `Remote Server` 选项，dashboard 会拒绝远程拉取请求；`Upload` 和 `Workspace` 可继续使用。
 - `rdb_analysis_remote_fetch_auth`：dashboard 持久化的 Redis export 密钥，用于生成发往 Redis 的 `X-Codis-RDB-Auth` header。开启远程拉取时必须非空，否则 dashboard 配置校验失败；该字段不出现在 dashboard 配置的 JSON 输出中。
-- `rdb_analysis_remote_fetch_timeout`：单次拉取 response body 的最长时间。
+- `rdb_analysis_remote_fetch_timeout`：整个 HTTP 请求的超时，包含建连、等待响应和读取响应 body。
 - `rdb_analysis_remote_fetch_max_concurrent`：并发拉取上限，与 `rdb_analysis_max_concurrent_jobs` 控制的解析并发相互独立。
 - 文件大小上限复用 `rdb_analysis_max_upload_size`。
 

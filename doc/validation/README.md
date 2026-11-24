@@ -35,18 +35,20 @@
 | Redis 8 现代化（Go 现代化改造） | `../go_modernization_zh.md` 所述改造，提交 `1b0bd208`…`2a173931`（2026-11-17 ~ 11-22） | **未验证** | macOS 本机回归全过（该文 §5）。ENV-01 的构建、单测、e2e 冒烟覆盖到 `c99592b1`，含 11-17 批次，但未针对性验证 | `aadcf284`…`2a173931`（slog、flag、ServeMux、proxy 运行时、etcd 移除）未上过真机；Linux 发布验证；新 CLI/HTTP 入口在真机的启动与契约；coordinator 三选一；真实流量下的 proxy 生命周期与 RESP decoder 改动 | 待开：`go_modernization_zh.md` |
 | 数据迁移控制台 | `2298133d`…`c739fb38`（2026-11-23）：`pkg/shake`、`pkg/migration`、topom 任务管理与 HTTP API、FE 数据迁移页 | **未验证** | macOS 真实 redis-server 8.x 本地 e2e（`../data_migration_zh.md` §端到端验证） | 真机上 standalone / cluster / codis 三种源目标 × sync / scan / rdb；dashboard 拉起 `codis-shake` 子进程、状态端口轮询、孤儿保护、停止语义；FE 数据迁移页 | 待开：`data_migration_zh.md` |
 
-### 已在真机验证（ENV-01）
+### ENV-01 历史结果（`c99592b1`）
+
+表中状态来自 ENV-01。后续 Go 现代化提交改动了 CLI、管理 HTTP 和 proxy 运行时，当前主线的这些入口仍待 Linux 复验。
 
 | 能力 | 状态 | 结果摘要 | 遗留 / 未覆盖 | 详细文档 |
 | --- | --- | --- | --- | --- |
 | Redis 8 内核接入（codis 模式、slot、同步/异步迁移、slotsrestore） | 已通过（功能） | `make gotest`、4 组 Tcl、e2e semi-async / sync、跨版本 Redis 3→8 成功 / 8→3 可观测失败（源 key 保留）、fork/RDB、复制断连恢复均 PASS；干净 Linux 树 `make build-all`（cgo）PASS，cgo proxy 实际运行 | 性能基线 SKIPPED；Docker 部署 NOT RUN；跨版本只有单向成功 | gate 见 `../redis8_validation_zh.md`；真机记录待开 |
-| Redis 8 RDB HTTP 导出 + 限速 | 已通过 | Tcl `codis_rdb_export` 13 项 PASS；dashboard remote fetch PASS | — | — |
-| RDB Analysis（本地 / 远程拉取 / upload / codis-admin） | 已通过 | 发现 RDB v13 无法解析，fork `third_party/rdb` 修复后 PASS；stream / IDMP 元素计数正确 | — | — |
-| Codis ACL | 已通过 | API + 两 proxy 实测：多账号、db 绑定、管理命令拒绝、revision 切换、`--acl-sync`；Playwright 新增/删除用户 | 浏览器只覆盖部分交互 | — |
-| Proxy QPS 限流 | 已通过 | 两 proxy 各 5/20 accepted、reinit 重放、负值拒绝；Playwright 0→3→0 | 未测被拒请求的后端 commandstats delta | — |
-| PITR 数据闪回 | 部分通过 | happy path、并发锁、cancel-before、systemd `Restart=on-failure` 均 PASS；Playwright 成功 / 非法 ts / 副本失败 / 详情 / 删除 | `stepResync` 未等待同步完成；truncate 中 cancel 的终态为 `failed` 而非 `cancelled`（S17 未闭环） | — |
+| Redis 8 RDB HTTP 导出 + 限速 | 已通过 | Tcl `codis_rdb_export` 13 项 PASS；dashboard remote fetch PASS | 当前 dashboard HTTP 拉取入口待复验 | — |
+| RDB Analysis（本地 / 远程拉取 / upload / codis-admin） | 已通过 | fork `third_party/rdb` 修复 RDB v13 解析后 PASS；stream / IDMP 元素计数正确 | 当前 CLI、管理 HTTP 和任务生命周期待复验 | — |
+| Codis ACL | 已通过 | API + 两 proxy 实测：多账号、db 绑定、管理命令拒绝、revision 切换、`--acl-sync`；Playwright 新增/删除用户 | 浏览器只覆盖部分交互；当前 CLI、管理 HTTP 和 proxy 认证路径待复验 | — |
+| Proxy QPS 限流 | 已通过 | 两 proxy 各 5/20 accepted、reinit 重放、负值拒绝；Playwright 0→3→0 | 未测被拒请求的后端 commandstats delta；当前管理 HTTP 与 proxy 运行时路径待复验 | — |
+| PITR 数据闪回 | 部分通过 | happy path、并发锁、cancel-before、systemd `Restart=on-failure` 均 PASS；Playwright 成功 / 非法 ts / 副本失败 / 详情 / 删除 | `stepResync` 尚需核对复制结果；truncate 中 cancel 的终态为 `failed`（S17 未闭环）；当前 CLI 和管理 HTTP 待复验 | — |
 | Redis 3 移除 + 依赖安全扫描回归 | 已通过 | govulncheck 无漏洞；go build / test PASS；npm audit 2→1 | AngularJS 1.8.3 high 为已知残留 | — |
-| FE 控制台重设计（浏览器冒烟） | 已通过 | Playwright headless：总览 / 安全与限流 / RDB / PITR 四页加载无 console error；HTML 错误页渲染问题已修复 | 数据迁移页为后加，未覆盖 | — |
+| FE 控制台重设计（浏览器冒烟） | 已通过 | Playwright headless：总览 / 安全与限流 / RDB / PITR 四页加载无 console error；HTML 错误页渲染问题已修复 | 当前 FE 反向代理待复验；数据迁移页为后加，未覆盖 | — |
 
 ### 无真机记录
 

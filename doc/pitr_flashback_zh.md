@@ -34,7 +34,7 @@ aof-timestamp-enabled yes
 
 | 条件 | 要求 | 不满足时 |
 | --- | --- | --- |
-| 目标 server | 必须是当前 product 中某个 group 的 master（`Servers[0]`），且已存在于 topom model。 | create 拒绝，不向目标发送任何 Redis 命令。 |
+| 目标 server | 必须是当前 product 中某个 group 的 master（`Servers[0]`），且已存在于 topom model。 | job 在异步 `validating` 阶段进入 `failed`，此时尚未向目标发送 Redis 命令。 |
 | AOF | `appendonly yes`。 | prereq 失败，server 未被触碰。 |
 | 时间戳 | `aof-timestamp-enabled yes`，AOF 中存在 `#TS:` 注释。 | prereq 失败，server 未被触碰。 |
 | 时间范围 | `truncate_ts` 落在最后一个 AOF segment 的 `#TS:` 范围内。 | feasibility 失败，server 仍在线。 |
@@ -61,7 +61,7 @@ PITR job 只存在于 dashboard 进程内存：UUID v7 id、目标 server、`tru
 
 | 步骤（state） | 动作 | 关键检查 / 失败后果 |
 | --- | --- | --- |
-| validate（`validating`） | 校验 `xauth`、`pitr_enabled`、server 属于当前 product 且是 master；检查同 server 锁、并发上限、`redis-check-aof` 可执行。 | 失败即 `failed`，server 未被触碰。 |
+| validate（`validating`） | 对已创建的 job 检查目标是否属于当前 product 且为 master。 | 失败即 `failed`，此时尚未向目标发送 Redis 命令。 |
 | prereq（`checking_prereq`） | `CONFIG GET appendonly / aof-timestamp-enabled / dir / appendfilename / appenddirname`。 | 两个开关必须为 `yes`；只读这 5 个键，不读 port/bind。失败时 server 未被触碰。 |
 | feasibility（`checking_feasibility`） | 读 MP-AOF manifest 定位最后一个 segment，扫描 `#TS:` 得到 `[min,max]`；best-effort 检查可用空间。 | `truncate_ts` 必须在范围内；失败时 server 仍在线，绝大多数截断错误在停服前被拦截。 |
 | shutdown（`shutting_down`） | 发送 `SHUTDOWN NOSAVE`（避免退出时写 RDB 覆盖数据），然后用全新连接 `PING` 探活。 | 只有探活确认不可达才继续；仍能 PING 通则 `failed`，绝不进入 snapshot/truncate。 |
@@ -69,9 +69,11 @@ PITR job 只存在于 dashboard 进程内存：UUID v7 id、目标 server、`tru
 | truncate（`truncating`） | 执行 `redis-check-aof --truncate-to-timestamp <ts> <manifest>`（不附加 `--fix`）；退出后重扫 AOF 目录做 pre/post stat diff。 | 非 0 退出 → `failed` 并给出从 snapshot 恢复的指引；最后一个文件以外的文件变化 → 归“不确定”类 `failed`（model drift）。 |
 | restart（`restarting`） | 可选执行 `pitr_restart_command`，随后始终轮询 `INFO`。 | 不 fork redis-server；轮询超时 → `failed`。 |
 | wait-load（`waiting_load`） | 轮询 `INFO` 中的 `loading` 字段，直到它不再为 1。 | 超时 → `failed`；此时 AOF 已被正确截断，server 可能仍在 loading 或未起来。 |
-| resync（`resyncing_replicas`） | 把 group 内其余 server 重新指向 master（`SLAVEOF`），强制全量 resync。 | 部分副本失败只记 warning，不阻断 `succeeded`。 |
+| resync（`resyncing_replicas`） | 对 group 内其余 server 发送 `SLAVEOF <host> <port>`。已指向同一地址的副本可以直接返回 `OK`。 | 副本同步方式和完成时机由 Redis 决定。单个副本命令失败记为 warning，job 仍可进入 `succeeded`。 |
 
-终态为 `succeeded`、`failed`、`cancelled`。任一 step 报错即 `failed`；step 之间的干净取消是 `cancelled`；step 真实错误优先于取消，不会被 `cancelled` 掩盖。成功路径要求目标 master 重新加载截断后的 AOF 并完成 `loading`，副本重同步是最后一步。
+创建请求先同步检查 `xauth`、功能开关、请求字段、工具路径、并发上限和同 server 锁。收到 job ID 后需继续查询状态，目标校验与恢复都在异步步骤执行。
+
+终态为 `succeeded`、`failed`、`cancelled`。步骤报错时记为 `failed`，在步骤之间取消时记为 `cancelled`。成功路径要求目标 master 重新加载截断后的 AOF，最后向副本发送重新指向 master 的命令。
 
 ## 行为边界
 
@@ -115,19 +117,18 @@ cancel 只是停止后续步骤并终止 `redis-check-aof` 子进程的信号，
 
 **监控要点**：轮询 `GET /api/topom/pitr/jobs/:xauth` 或 FE 任务列表，关注 `state`、`steps[].status`、`steps[].error`、`snapshot_dir`、`restart_kicked`。`state=failed`、`aof model drift detected`、`snapshot` 相关错误需要立即告警。dashboard 日志会记录 server、ts、bin 路径、退出码、snapshot 目录和耗时，不记录 AOF 内容或 `requirepass`。
 
-**副本一致性**：job `succeeded` 只代表 master 已完成截断和加载，不代表副本已完成全量 resync。检查副本的 `master_link_status` 为 `up`、`master_sync_in_progress` 为 `0` 和 DBSIZE 与 master 一致后，再判定恢复完成。
+**副本一致性**：job `succeeded` 表示 master 已完成截断和加载。恢复流量前，检查副本是否指向预期 master、`master_link_status` 是否为 `up`、`master_sync_in_progress` 是否为 `0`，并核对恢复点附近的业务数据。
 
 **磁盘与快照**：snapshot 目录与 AOF 目录同级、同文件系统，只占最后一个 segment 大小的额外空间。job 成功后 snapshot 会保留供审计或回退，直到 Remove；不要手工删除仍在使用的 snapshot。
 
 ## 已知限制
 
-- **S16：副本重同步未闭环**。`stepResync` 只发送 `SLAVEOF` 指向 master，没有轮询副本的 `master_sync_in_progress=0`。job `succeeded` 时副本可能仍在同步，不能仅凭 job 状态判断主从一致。
+- **S16：副本重同步未闭环**。`stepResync` 发送 `SLAVEOF` 后即进入收尾，同步进度与数据一致性需按运维手顺核对。
 - **S17：truncate 中取消的语义未定稿**。cancel 落在 truncate 期间时，当前结果是 `failed`（server down、snapshot 保留），而设计语义期望 `cancelled`；当前实现遵循“AOF 状态不确定绝不静默标 cancelled”。该语义仍需定稿。
 - **cancel 跨 step 的终态**。cancel 在 step 之间会终止为 `cancelled`；如果 cancel 落在会响应 ctx 的步骤中（如 truncate/restart/wait-load），该步骤以错误结束，job 为 `failed`；如果当前步骤正常完成，`runSteps` 会在下一步前以 `cancelled` 终止。如果 API 长时间停在某个非终态且 `steps` 中没有 failed，应按状态机未收尾处理。cancel 不是回滚。
 - **`--fix` 与 `--truncate-to-timestamp` 互斥**。Redis 8.6.3 的 `redis-check-aof` 不能同时接受这两个参数；同时传 `--fix` 会打印 usage 并退出，不会截断。实现只传 `--truncate-to-timestamp`，运维手工排障时也不要把两者合并。
 - **`SHUTDOWN` 的返回值不可靠**。从客户端视角，`SHUTDOWN` 返回的 error 既可能是 server 拒绝命令（仍在线），也可能是 server 退出导致连接断开（已停）。实现忽略 error 类型，统一用新连接 `PING` 探活；只要还能 PING 通就判定 shutdown 失败，绝不 snapshot/truncate 一个仍在写的 AOF。
 - **snapshot 模型依赖 `redis-check-aof` 的写入面**。当前只快照 manifest 和最后一个 segment，前提是工具只对最后一个文件就地 `ftruncate`、不改更早文件、不重写 manifest。该前提已在 vendored Redis 8.6.3 上核对；升级 Redis 后需要重新核对。pre/post stat diff 会在非最后文件发生变化时把 job 判为“不确定”失败并告警。
-- **CLI 布尔 flag 的解析细节**。`codis-admin` 使用 docopt-go：未出现的 boolean option 在返回 map 中是 `false`（bool），不是 `nil`。因此 `--pitr-*` 等 flag 的分派必须用 `.(bool)` 类型断言，不能用 `!= nil` 判断，否则默认的 dashboard 路径会被错误地截走。
 - **job 不持久化**。dashboard 重启会丢失 job 历史、步骤记录、per-server lock 和轮询状态；已停服的 server 不会因此自动恢复。高危操作期间不要重启 dashboard。
 - **snapshot 清理是 best-effort**。Remove 删除 snapshot 目录失败时只记录 warning，需要人工清理残留目录。
 - **单 server、秒级、依赖外部进程管理**。不做跨 group 全局恢复、指定 key 恢复、跨机文件操作、自动 AOF 开启、AOF 轮转/备份管理或 proxy 只读切换；恢复窗口内该 group 的写入失败不会被自动兜底。

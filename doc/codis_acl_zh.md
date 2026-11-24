@@ -48,7 +48,7 @@ ACL 模型：
 
 | 字段 | 含义 |
 | --- | --- |
-| `revision` | ACL 单调版本号，每次提交递增；proxy 和 Redis 只在同一 revision 同步完成后切换。 |
+| `revision` | ACL 单调版本号，每次成功写入 coordinator 时递增。Redis 逐条应用 ACL 命令，proxy 在目标 revision 写入后接收 snapshot。 |
 | `enabled` | 是否启用 ACL 认证。关闭后用户和规则仍保留，但 proxy 不再用 ACL 校验客户端。 |
 | `users[].name` / `enabled` | 用户名和启用状态；禁用用户认证统一返回 `WRONGPASS`。 |
 | `users[].password_hashes` | Redis ACL SHA-256 十六进制 hash 列表，不保存明文。 |
@@ -60,7 +60,7 @@ ACL 模型：
 2. topom 用服务身份连接当前 product 的所有 Redis Server，执行 `ACL SETUSER <name> reset on|off #<hash> <rules...>`；配置了服务身份时，服务账号由 `ensureBackendServiceUser` 每轮重设为 `+@all ~*`；被移除的用户执行 `ACL DELUSER`，被移除的 `default` 用户改为 `off nopass`。
 3. 所有 Redis Server 成功后，topom 才通过 `storeUpdateACL` 写 coordinator，再通过 `syncACLToProxies` 调用每个 online proxy 的 `PUT /api/proxy/acl/:xauth`。
 4. proxy 的 `Router.SetACL` 以 copy-on-write 方式安装新 snapshot，关闭旧 user-bound backend pool，并把旧 revision 的已认证 session 标记为 stale。
-5. 任一 Redis Server 失败时 topom 返回错误、不写 coordinator，proxy 继续使用旧 revision，不会出现半同步 ACL；proxy 下发部分失败时 revision 已写入，`sync_status` 显示 `proxy_sync_failed:<token,...>`，修复后重试即可收敛。
+5. Redis 同步遇错即停止，coordinator 和 proxy 保持旧 revision。此前已成功执行的 ACL 命令会留在 Redis 上，同一实例也可能只更新了部分用户。若 Redis 全部更新后 coordinator 写入失败，Redis 同样保留已执行的修改。若失败发生在 proxy 下发阶段，coordinator 已保存新 revision，`sync_status` 显示 `proxy_sync_failed:<token,...>`。
 6. 新增 Redis Server 时 `GroupAddServer` 会先同步当前 ACL；proxy online/reinit 时会先收到当前 ACL snapshot，再开始接受 ACL 认证。
 
 回滚语义：重新提交旧 ACL 内容作为新 revision，proxy 不做本地手工回滚。
@@ -142,7 +142,7 @@ Forced DB 是 proxy 的路由属性，不会渲染进 Redis `ACL SETUSER`；迁�
 - 普通客户端不能通过 proxy 执行 ACL 管理命令；ACL 管理只走 dashboard/topom、`codis-admin` 和 FE。
 - 不在 coordinator、日志、stats、API 响应或 FE 中保存或回显客户端明文密码，只保存 SHA-256 hash。
 - ACL 只面向 Redis 8 backend；`codis_acl_enabled=false` 时保留旧 `session_auth` 与 `product_auth` 语义。
-- 不承诺跨 dashboard 的分布式原子 rollout；多个 dashboard 同时提交时以 coordinator revision 为准，可能相互覆盖。
+- 同一 product 由持有拓扑锁的 dashboard 管理。ACL 更新依次写入 Redis、coordinator，再下发 proxy，各阶段可能分别失败。
 - 直连 Redis Server 手工执行 `ACL SETUSER` 会在下一次 topom 同步时被覆盖。proxy 管理面的下发模式与 [Codis Proxy QPS 限流](proxy_qps_rate_limit_zh.md) 类似：coordinator 保存目标状态，topom 负责 fan-out 和重放。
 
 ## 运维须知
@@ -162,7 +162,7 @@ Forced DB 是 proxy 的路由属性，不会渲染进 Redis `ACL SETUSER`；迁�
 
 **密码轮换**：提交 `new_password` 或新的 `password_hashes` 会生成新 revision，旧 session 随即 stale，客户端需要重新 `AUTH`。密码不可读取，丢失后只能设置新密码。
 
-**故障排查**：提交失败时先看 topom 返回的 Redis 地址和错误；`sync_status=proxy_sync_failed:<token>` 时检查对应 proxy 的 admin 地址和 xauth。不要手工修改 coordinator 中的 ACL JSON，重新提交或 `--acl-sync` 是唯一受支持的收敛方式。
+**故障排查**：提交失败时检查 dashboard 返回的错误和当前 revision，并核查失败前已更新的 Redis 实例。修复故障后可重新提交目标 ACL，或用 `--acl-sync` 重推已保存的 revision。后者只重推期望用户，部分失败时新增但未写入 coordinator 的用户需要在 Redis 上核查并单独清理。`sync_status=proxy_sync_failed:<token>` 时检查对应 proxy 的 admin 地址和 xauth，再执行 `--acl-sync`。
 
 **服务账号**：`backend_auth_username` 每轮同步都会被重设为 `reset on #<hash> +@all ~*`，以保证迁移和内部命令可用。不要把该账号用作业务账号，也不要把它写进 ACL 用户列表；妥善保护 dashboard/proxy 配置中的服务密码。
 

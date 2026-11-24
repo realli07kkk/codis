@@ -7,16 +7,22 @@ Codis 的目标是让业务像用单机 Redis 一样使用可扩缩容的 Redis 
 | 能力 | 支持 | 明确不支持或限制 |
 | --- | --- | --- |
 | 分片 | 固定 1024 slot，key 取第一个 `{...}` 作 hash tag 后按 CRC32 落到 slot | 不是 Redis Cluster：没有 cluster bus、gossip、`MOVED`/`ASK`、cluster failover；1024 与 16384 是两套独立 slot 空间 |
-| 拓扑变更 | 不停机增删 Codis Server、迁移 slot、重新均衡容量 | 必须经 dashboard/topom 管理，不得绕过它直接改 coordinator 中的状态 |
+| 拓扑变更 | 经 dashboard/topom 增删 Codis Server、迁移 slot、重新均衡容量 | 直接访问 coordinator 的运维入口仅用于元数据导出、导入和锁恢复等场景，见 [架构总览](architecture_zh.md) |
 | 数据归属 | proxy 按 slot 转发，不在业务路径持久化数据；元数据存于 filesystem、Zookeeper、Consul | 后端容量、持久化和资源隔离仍由 Redis 自身承担，Codis 不代为规划 |
 | Consul 后端 | 只使用 Consul 的 KV 与 Session 语义保存 `/codis3` 元数据与 `/jodis` 注册 | 不迁移存量元数据；不使用 Consul service catalog、health check 或 service mesh |
 
-## 数据迁移
+## 集群内 slot 迁移
 
 | 能力 | 支持 | 明确不支持或限制 |
 | --- | --- | --- |
 | Redis 8 ↔ Redis 8 | `SLOTSMGRTSLOT`/`SLOTSMGRTONE`/`SLOTSMGRTTAGSLOT`/`SLOTSMGRTTAGONE`、`-ASYNC` 系列，以及 `SLOTSRESTORE`/`SLOTSRESTORE-ASYNC` fragment restore | 同步与异步协议只在同一大版本内互通，不能跨版本假设可用 |
 | 跨大版本 | 不提供兼容性承诺 | 只保证 Redis 8 ↔ Redis 8；不要依赖旧版本二进制或数据文件回滚 |
+
+## 跨集群数据迁移
+
+| 能力 | 支持 | 限制 |
+| --- | --- | --- |
+| 数据迁移控制台 | FE / Dashboard API 创建迁移任务，`codis-shake` 直连 standalone、Redis Cluster 或 Codis 静态分片，支持 `sync`、`scan` 和 `rdb` | Codis 拓扑采用创建时的快照。任务中断后需重新创建，目标数据校验和客户端切换由运维完成。详见 [数据迁移控制台](data_migration_zh.md) |
 
 ## ACL 与认证
 
@@ -39,7 +45,7 @@ Codis 的目标是让业务像用单机 Redis 一样使用可扩缩容的 Redis 
 
 | 能力 | 支持 | 明确不支持或限制 |
 | --- | --- | --- |
-| session_auth guard | 默认关闭；按客户端 remote IP 统计错误 `AUTH`，达到 `session_auth_bruteforce_max_failures` 后临时锁定未认证 session，到期自动解除，已认证 session 不受影响 | 只是单 proxy、单来源 IP 维度的保护，不是分布式撞库防护 |
+| session_auth guard | 默认关闭。按来源 IP 统计单密码或 Codis ACL 的错误 `AUTH`，达到阈值后暂时拒绝该 IP 的认证请求 | 锁定在单 proxy 上生效。已有认证身份可继续使用，ACL 模式下锁定期间的重新 `AUTH` 会被拒绝 |
 | 状态 | 进程内计数 | 不持久化到 coordinator、不跨 proxy 同步；不提供 dashboard 管理页、手动解锁 API、allowlist/denylist/CIDR 或 ACL username 维度 |
 | 部署前提 | 同一 IP 下的客户端共享同一失败计数 | 不解析 Proxy Protocol 或 `X-Forwarded-For`；NAT、四层代理场景下多个真实客户端可能共用一个锁定维度 |
 

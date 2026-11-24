@@ -6,7 +6,7 @@ Codis 是基于代理的高性能 Redis 集群方案。本目录是项目的全�
 
 ## 入门与使用
 
-- [tutorial_zh.md](tutorial_zh.md) / [tutorial_en.md](tutorial_en.md)：使用文档（编译、快速启动、各组件参数、Jodis 与 HA、Docker、从 2.x 升级）
+- [tutorial_zh.md](tutorial_zh.md) / [tutorial_en.md](tutorial_en.md)：主线构建、本地快速启动、组件配置、Jodis、HA 与 Docker；中文教程附 Codis 2.x 元数据迁移历史说明
 - [FAQ_zh.md](FAQ_zh.md) / [FAQ_en.md](FAQ_en.md)：常见问题
 - [unsupported_cmds.md](unsupported_cmds.md)：Proxy 不支持与半支持的命令清单
 
@@ -50,7 +50,7 @@ Codis 是基于代理的高性能 Redis 集群方案。本目录是项目的全�
 
 ## 性能
 
-- [benchmark.md](benchmark.md)：基准测试结果（图表源文件在 [bench1/](bench1/)、[bench2/](bench2/)）
+- [benchmark.md](benchmark.md)：2015–2016 年的历史基准测试（图表源文件在 [bench1/](bench1/)、[bench2/](bench2/)）。当前 Redis 8 Linux 性能基线见[真机验证索引](validation/README.md)
 
 ## 仓库内的其他 README
 

@@ -77,7 +77,7 @@ Codis Proxy 以普通 Redis 协议面向客户端，除常规 key 路由外还�
 
 与真实 Redis Cluster 的差异，也是本能力的边界：
 
-- `0-16383` 只是面向 SDK 的逻辑 slot 标签。Codis 真实路由仍由 `pkg/models/slots.go` 的 `MaxSlotNum = 1024` 和 dashboard 下发的 slot mapping 决定，真实归属用 `SLOTSINFO` / `SLOTSMAPPING` 查询。
+- `0-16383` 是面向 SDK 的逻辑 slot 标签。Codis 真实路由由 `pkg/models/slots.go` 的 `MaxSlotNum = 1024` 和 dashboard 下发的 slot mapping 决定。用 `SLOTSMAPPING` 查询 proxy 路由，用 `SLOTSINFO <backend-addr>` 查询指定后端的 slot key 计数。
 - 不存在 16384 slot 的数据所有权、slot 迁移或 rebalance；迁移仍由 Codis slot action 完成。
 - 不实现 `MOVED` / `ASK`、cluster bus、gossip、failover 和 Redis Cluster 配置文件。
 - 不做 proxy 之间的 RPC、探活或广播；`all` 模式只读取 Jodis/coordinator 中已注册的 proxy，并按 token、addr 去重（当前 proxy 优先保留）。

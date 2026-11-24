@@ -11,7 +11,7 @@ Codis 是 Redis 的代理式分片集群：客户端只连接 Codis Proxy，prox
 | Coordinator / Store | 集群元数据的外部存储抽象：读写、列表、watch、临时节点；实现有 zookeeper、consul、filesystem | `pkg/models/client.go`、`pkg/models/store.go` |
 | Slot / Group | Slot 是路由分片单位，固定 1024 个，模型常量与 proxy 内部状态分属两层；Group 是一组后端 Redis Server，第一台按现有代码语义承担 master 位置 | `pkg/models/slots.go`、`pkg/proxy/slots.go`、`pkg/models/group.go` |
 | Hot key cache | proxy 进程内、默认关闭、按 exact key 配置的短 TTL string 读缓存；只作用于稳定 slot 上的 `GET`/`MGET` 完整 bulk value，不进入 coordinator；启用广播后 source proxy 可经 dashboard 通知其他 online proxy 删除本地条目 | `pkg/proxy/hot_key_cache.go`、`pkg/proxy/hot_key_cache_broadcast.go` |
-| Session auth brute-force guard | proxy 进程内、默认关闭的 `session_auth` `AUTH` 失败保护：按客户端 remote IP 记录失败计数与临时锁定截止时间，不影响已认证 session，不进入 coordinator | `pkg/proxy/auth_bruteforce.go` |
+| Session auth brute-force guard | 默认关闭的 proxy 客户端认证保护，覆盖单密码和 Codis ACL 模式。各 proxy 按来源 IP 记录失败次数和临时锁定截止时间 | `pkg/proxy/auth_bruteforce.go` |
 | Codis-managed Redis ACL | 默认关闭的 Redis 8 ACL 管理与 proxy 多账号认证：dashboard 是管理面，coordinator 存 `/codis3/{product}/acl` 目标 revision，topom 先同步后端 Redis 再下发 proxy snapshot；ACL 用户可绑定固定 db（DB-bound ACL user），认证后 proxy 以 Forced DB 强制该 session 路由到绑定 db，优先级高于客户端 `SELECT` | `pkg/topom/topom_acl.go`、`pkg/models/acl.go` |
 | Proxy QPS limit | 默认关闭的单 proxy 进程级普通请求 QPS 限流；目标 limit 由 dashboard 写入 coordinator 再经 proxy admin API 下发 | `pkg/proxy/qps_limiter.go`、`pkg/topom/topom_qps_limit.go` |
 | Cluster nodes compat | proxy 进程内、默认关闭的 `CLUSTER NODES` 兼容输出，仅为 cluster-mode SDK bootstrap 生成伪 Redis Cluster 节点清单，不改变 1024 slot 真实路由 | `pkg/proxy/cluster_nodes.go` |
@@ -24,7 +24,7 @@ Codis 是 Redis 的代理式分片集群：客户端只连接 Codis Proxy，prox
 ## 系统定位
 
 - 数据面由 proxy 承担：客户端只看到单点 Redis，slot 决定 key 归属，proxy 本身不持久化业务数据；coordinator 只保存拓扑与配置，限流 token、热 key 缓存、防暴破计数、RDB analysis 与 PITR job 只活在单个进程内。
-- 控制面由 dashboard/topom 独占：拓扑、迁移动作、ACL 与 QPS limit 目标配置只有它写入 coordinator；同一业务集群同一时刻最多一个 dashboard，所有集群修改都必须经由 dashboard（见 [tutorial_zh.md](tutorial_zh.md)）。
+- dashboard/topom 持有拓扑锁，负责常规拓扑变更、迁移动作、ACL 和 QPS limit 目标配置。同一 product 同一时刻只有一个 active dashboard。Admin 的锁恢复和元数据导入是直接访问 coordinator 的运维入口，见 [使用教程](tutorial_zh.md)。
 - 不是 Redis Cluster：不实现 cluster bus、gossip、`MOVED`/`ASK`，`CLUSTER NODES` 只是可选兼容输出；Redis 8 Codis Server 使用 `codis-enabled yes` 而非 `cluster-enabled`。
 
 ## 组件与交互
@@ -37,17 +37,22 @@ flowchart LR
   Dashboard -->|迁移 / ACL / 复制| Server
   Dashboard <--> Store[Coordinator: zk / consul / fs]
   FE[Codis FE] --> Dashboard
+  FE -.->|动态发现| Store
   Admin[Codis Admin] --> Dashboard
+  Admin -.->|元数据与锁操作| Store
   HA[Codis HA] --> Dashboard
   Proxy --> Jodis[Jodis 注册节点]
+  Dashboard -->|启动任务| Shake[Codis Shake]
+  Shake -->|直连| Server
 ```
 
 | 组件 | 进程入口 | 主要职责与共享状态 |
 |---|---|---|
 | codis-proxy | `cmd/proxy/main.go` | Redis 协议代理、slot 路由、本地命令、限流/缓存/ACL 运行态；读 coordinator（Jodis、`CLUSTER NODES` all 模式），被 dashboard 通过 admin API 下发 |
-| codis-dashboard | `cmd/dashboard/main.go` | 拓扑管理、slot action、配置管理面、RDB Analysis 与 PITR 编排；读写 coordinator 并持有拓扑锁 |
+| codis-dashboard | `cmd/dashboard/main.go` | 拓扑管理、slot action、配置管理面、RDB Analysis、PITR 与数据迁移任务管理。读写 coordinator 并持有拓扑锁 |
 | codis-server | `extern/redis-8.6.3` | 后端存储；Codis mode 下按 1024 slot 组织 keyspace 并支持迁移命令，不依赖 coordinator |
-| codis-fe / codis-admin / codis-ha | `cmd/fe/main.go`、`cmd/admin/main.go`、`cmd/ha/main.go` | 前端静态资源与 dashboard 反向代理；CLI 操作入口；周期巡检与 promote。三者只调 dashboard/proxy API，不直连 coordinator |
+| codis-shake | `cmd/shake/main.go` | 单个 RedisShake 迁移任务的执行进程，直连源端与目标端 |
+| codis-fe / codis-admin / codis-ha | `cmd/fe/main.go`、`cmd/admin/main.go`、`cmd/ha/main.go` | FE 反向代理和动态发现；Admin 管理 API 与 coordinator 运维入口；HA 通过 dashboard API 巡检和 promote |
 | coordinator / Jodis | `pkg/models`、`pkg/proxy/jodis.go` | 保存 `/codis3/{product}` 元数据与 `/jodis/{product}/proxy-{token}` proxy 临时注册节点 |
 
 ### Codis Proxy
@@ -62,7 +67,7 @@ flowchart LR
 - `topom.New` 载入 store 与 cache，`Topom.Start` 启动周期任务：刷新 Redis/proxy stats、处理 slot action、观察 sentinel；启动时通过 `Store.Acquire` 抢占 `/codis3/{product}/topom` 拓扑锁，同一集群同时只能有一个 active dashboard。
 - 下发：`ReinitProxy` 向 proxy 填充 slot、启动 proxy 并设置 sentinel；局部 slot 变更由 `resyncSlotMappings` 并发调用所有 proxy 的 `FillSlots`。
 - 迁移：`SlotCreateAction*` 在 slot mapping 上写 action，`ProcessSlotAction` 与 `newSlotActionExecutor` 把状态从 pending 推进到 preparing/prepared/migrating/finished，实际搬迁调用 Redis 侧 `SLOTSMGRT*`。
-- 管理 API：`newApiServer` 注册 proxy、group、slot action、rebalance、sentinel、ACL、QPS limit、hot key cache invalidation、RDB Analysis、PITR、数据迁移路由；除 overview/model/stats/slots 等只读路由外均要求 `xauth`。`RDBAnalysisManager` 与 `PitrManager` 的 job 都不写 coordinator，dashboard 重启后任务消失；`DataMigrationManager` 把脱敏任务快照写入 workspace 的 `jobs.json`，dashboard 重启后运行中的任务标记为 `failed`。
+- `newApiServer` 注册拓扑、ACL、QPS limit、热 key 缓存失效、RDB Analysis、PITR 和数据迁移路由。stats 和 slots 分别有带 `xauth` 的 API 和直接读取路由，具体路由见 [topom_api.go](../pkg/topom/topom_api.go)。RDB Analysis 和 PITR job 保存在进程内。数据迁移尽力将脱敏快照写入本地 `jobs.json`，重启时把已落盘的非终态任务标记为 `failed`。
 - 数据迁移控制台：`DataMigrationManager` 为每个任务在 `data_migration_workspace/jobs/<id>/` 写 `spec.json`，拉起 `codis-shake --spec <job>/spec.json` 子进程（工作目录为任务目录），轮询 spec 指定的 loopback `status_port` 上的 RedisShake 原生状态 JSON（直接 `GET /`），读取 `shake.log`/`console.log`，用 SIGTERM → 15s → SIGKILL 停止；dashboard 关闭时对非终态任务并行停止，所有 worker 共用一个 5s 宽限（超时 SIGKILL 后再最多等 5s），关闭耗时与任务数无关。worker 每 5 秒检查 `parent_pid`，父进程消失后自行停止，避免孤儿进程。`/api/topom/data-migration/*` 提供 create/list/get/stop/remove/log 与 Codis 拓扑预览。
 
 ### Codis Server（内嵌 Redis 8）
@@ -75,12 +80,13 @@ flowchart LR
 
 ### 运维入口：codis-fe / codis-admin / codis-ha
 
-- `codis-fe`：`StaticLoader`/`DynamicLoader` 提供 dashboard 列表，`ReverseProxy` 按名字转发；ACL、Proxy QPS Limit、RDB Analysis、PITR、数据迁移区域全部只调用 dashboard API，不直连 proxy admin API 或 Redis Server。`codis-ha` 的 `HealthyChecker.Maintains` 周期读取 dashboard stats，按 `maxdown` 阈值清理或 promote。
-- `codis-admin`：按参数分发到 proxy 或 dashboard 操作；`--acl`/`--acl-set FILE` 读取与提交 ACL view（dry-run 输出 redact `new_password`）；`--rdb-analysis-remote-fetch --server=ADDR` 只打印 job id、不接收 Redis export auth；`--pitr-*` 创建、查询、取消、删除 PITR job。三者最终都落在 dashboard API 或 proxy admin API 上，没有绕过 dashboard 直接改 coordinator 的路径。
+- `codis-fe` 的 `StaticLoader` 读取 dashboard 列表文件，`DynamicLoader` 通过 coordinator 发现 dashboard。`ReverseProxy` 按 product 转发管理请求，包括 ACL、QPS Limit、RDB Analysis、PITR 和数据迁移。
+- `codis-admin` 的常规管理命令通过 proxy 或 dashboard API 执行。带 coordinator 参数的 `--dashboard-list`、`--config-dump` 直接读取元数据，`--remove-lock` 和带 `--confirm` 的 `--config-restore` 直接操作 Store。
+- `codis-ha` 的 `HealthyChecker.Maintains` 周期读取 dashboard stats，按 `maxdown` 阈值清理或 promote。
 
 ### 构建与发布层
 
-- `go.mod` 声明 `go 1.26.1`，`vendor/`、`Godeps/` 已退休；默认 cmd/pkg 构建与测试、`cgo_jemalloc` proxy 构建、`make gotest` 都在 module mode 下工作，`cgo_jemalloc` 通过 `replace github.com/spinlock/jemalloc-go => ./third_party/jemalloc-go` 指向仓库内受控本地模块。
+- `go.mod` 声明 `go 1.26.1` 和 `toolchain go1.27.4`。Go 组件的构建与测试都使用 Go modules，`cgo_jemalloc` 依赖通过 `replace github.com/spinlock/jemalloc-go => ./third_party/jemalloc-go` 指向仓库内的模块。
 - `Makefile` 产出 `codis-dashboard`、`codis-proxy`、`codis-admin`、`codis-ha`、`codis-fe`、`codis-shake` 和嵌入式 `codis-server`，并刷新 tracked 的 `config/dashboard.toml`、`config/proxy.toml`、`config/redis.conf`、`config/sentinel.conf`；默认 `make`/`make codis-server` 从 `extern/redis-8.6.3` 构建正式 Redis 8 Codis Server，复制为 `bin/codis-server`、`bin/redis-cli`、`bin/redis-benchmark`、`bin/redis-sentinel`。
 - 显式平台矩阵：`make build-platforms` / `make release-platforms`，默认 `TARGET_PLATFORMS` 为 `darwin/arm64 linux/amd64 linux/arm64`，产物落在 `bin/<os>-<arch>/`；`build-platform-artifact` 先做 target allowlist、unsafe label 校验与 C/cgo cross toolchain guard，非 host full build 缺少 `ALLOW_CROSS_FULL_BUILD=1` 与对应 `PLATFORM_CC_<os>_<arch>` 时 fail-fast。`build-no-redis-platform` 只产出 `bin/<os>-<arch>-no-redis/` 下的 Go 入口、FE assets 和配置副本，不构建 Redis Server 与 helper，也不承诺纯 Go（非 jemalloc allocator 路径仍使用 cgo）。
 - 版本元数据由 `pkg/utils/version.go` 提供 clean checkout 兜底，`version` 脚本生成 `bin/version` 与 `bin/version.ldflags`，Makefile 通过 `-ldflags -X` 注入；发布包装入口为 `Dockerfile`、`scripts/docker.sh`、`example/server.py`、`kubernetes/codis-server.yaml`。
@@ -119,12 +125,13 @@ flowchart LR
 | 状态 | 归属 | 传播 / 收敛方式 |
 |---|---|---|
 | slot 映射、group、proxy、sentinel | coordinator | dashboard 写，proxy 通过 admin API 接收下发 |
-| ACL revision、QPS limit 目标值 | coordinator | dashboard 写，再 fan-out 到后端 Redis 与 online proxy |
+| ACL revision | coordinator | dashboard 先应用后端 Redis ACL，再保存目标 revision 并下发 online proxy |
+| QPS limit 目标值 | coordinator | dashboard 保存目标值后下发 online proxy |
 | 业务数据 | 后端 Redis | 不进入 coordinator |
 | hot key cache 条目 | 单个 proxy | TTL 收敛，或经 dashboard 广播删除 |
 | QPS token bucket、accepted/rejected、brute-force 计数 | 单个 proxy | 仅通过 proxy stats 上报 revision/limit；重启清空计数与锁定 |
 | RDB analysis job、PITR job 与 per-server lock | dashboard | 进程内，重启丢失；PITR lock 持续到显式 Remove |
-| 数据迁移 job | dashboard 本地 workspace | `jobs/<id>/` 保存 `spec.json`（明文凭据，0600）、`shake.log`、`console.log`；`jobs.json` 只存脱敏快照；dashboard 重启后运行中的任务标记 `failed`，不写 coordinator |
+| 数据迁移 job | dashboard 内存和本地 workspace | `jobs/<id>/` 保存 `spec.json`（明文凭据，0600）和日志。dashboard 尽力保存脱敏的 `jobs.json`，重启时将已落盘的非终态任务标记为 `failed` |
 
 ## 代码地图
 
@@ -216,7 +223,7 @@ flowchart LR
 - `CLUSTER` 命令族默认不可用。只有 `cluster_nodes_compat = "self"` 或 `"all"` 时 `CLUSTER NODES` 才返回伪节点清单；`0-16383` 是 Redis Cluster 逻辑 slot 输出，不代表 Codis 真实路由（真实 `MaxSlotNum` 仍为 1024）。不实现其他 `CLUSTER` 子命令、`MOVED`/`ASK`、cluster bus、gossip、failover 和 cluster 配置文件；`all` 模式只轮询 Jodis/coordinator 注册信息，不做 proxy 间 RPC、探活或广播，也不读取 Consul service catalog、health check 或 service mesh API。
 - Redis Stream support 是 Redis 8 backend 的 proxy 路由子集，不是完整 Stream 支持声明。`XGROUP HELP`、`XINFO HELP`、未知 Stream subcommand、带 `BLOCK` 的 `XREAD`/`XREADGROUP` 和跨 hash tag multi-stream 会被 proxy 直接拒绝；后端必须是 Redis 8 Codis Server，proxy 不伪造成功响应。该能力不新增 Vector Set、Hash field expiration、模块数据类型、配置开关、dashboard/FE 页面、coordinator schema 或 proxy admin API。
 - Hot key cache 是 opt-in bounded-stale 能力：默认关闭，只缓存 allowlist 中 exact key 的 `GET`/`MGET` string bulk value，写命令不做写穿填充。广播链路 best-effort，失败、队列满、proxy 离线或 dashboard 不可达都不改变客户端写响应，未收到通知的 proxy 靠 TTL 收敛；不做自动热点探测、dashboard 管理页、coordinator 元数据、proxy-to-proxy 通信，也不缓存派生读或非 string value；slot 迁移或锁定状态不从 cache 返回。
-- session auth brute-force guard 默认关闭，只保护 proxy 客户端 `AUTH <password>` 的 `session_auth` 校验。不改变 `product_auth`、dashboard `xauth`、coordinator/Jodis auth 或后端 Redis auth，不实现 ACL username 维度、手动解锁 API、allowlist/denylist/CIDR 或跨 proxy 全局计数；锁定状态只在单 proxy 进程内，重启清空；NAT、四层代理或负载均衡会让多个真实客户端在 proxy 视角共享同一来源 IP；已认证 session 不因后续同 IP 锁定被关闭或降级。
+- AUTH 防暴力破解默认关闭，覆盖 proxy 客户端的单密码和 Codis ACL 认证。计数和锁定按单 proxy 看到的来源 IP 维护。NAT、四层代理或负载均衡后的多个客户端可能共享计数。已有认证身份仍可使用，ACL 模式下 IP 锁定期间会拒绝重新 `AUTH`。详见 [AUTH 防暴力破解](proxy_session_auth_bruteforce_zh.md)。
 
 ### 数据面与迁移
 

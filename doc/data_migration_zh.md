@@ -32,12 +32,12 @@ flowchart LR
 
 - dashboard 侧：`DataMigrationManager` 维护进程内 job registry、并发上限、worker 生命周期监管、状态轮询和日志读取；任务目录与 `jobs.json` 落在 `data_migration_workspace`。dashboard 关闭时停止所有 worker（见“停止语义”）。
 - worker 侧：`codis-shake --spec <job>/spec.json`，工作目录为任务目录；spec 里携带 `status_port` 和 dashboard 的 `parent_pid`。worker 通过 loopback `status_port` 暴露 RedisShake 原生状态 JSON，dashboard 直接 `GET http://127.0.0.1:<status_port>/`（没有 `/api` 前缀，接口无鉴权，仅本机可访问）。
-- 创建流程：校验 feature 开关与 `codis-shake` 可执行 → 校验并发上限 → 解析请求（Codis `current` 在这里解析当前拓扑）→ 生成 UUID v7 id → 在 `127.0.0.1` 上挑一个空闲端口 → `spec.Validate()`（含目标端 slot 覆盖）→ 创建 `jobs/<id>/`（0700）、写 `spec.json`（0600）并打开 `console.log`（0600） → `exec.Command` 启动 worker（stdout/stderr 重定向到 `console.log`）→ 落盘 `jobs.json` → 每秒轮询状态端口，成功后把状态从 `starting` 推进到 `running`。任何一步失败都返回错误且不留下 job 记录：写 `spec.json`、打开 `console.log` 或启动 worker 失败时都会删除刚建的任务目录，不会残留半成品 job。
+- 创建流程：校验功能开关、worker、并发上限和请求，解析拓扑并选择状态端口，再在任务目录写入 `spec.json`、打开 `console.log` 并启动 worker。写 spec、打开日志或启动进程出错时返回错误，并尝试清理任务目录。worker 启动后任务进入 `starting`，dashboard 尝试保存 `jobs.json`，随后每秒轮询状态端口，首次成功后进入 `running`。
 - 停止语义：
   - API `stop`：向 worker 发 SIGTERM，worker 取消 context、停止 reader、等待 writer 把已入队条目写完；最多等 15 秒，超时发 SIGKILL，再等最多 5 秒返回。对终态任务 `stop` 是 no-op。
   - dashboard 关闭（`Topom.Close` → `DataMigrationManager.Close`）：对非终态任务打 shutdown 标记后**并行**向所有 worker 发 SIGTERM，宽限只有 5 秒，超时 SIGKILL 后再等最多 5 秒；所有 worker 同时停止，因此总耗时最多约 10 秒，与任务数无关（不是“任务数 × 5 秒”），终态记为 `failed`（见“终态判定”）。
   - API stop 路径下，超过宽限期被 SIGKILL 的任务仍记为 `stopped`，`error` 写明 `worker stopped with exit code -1`。
-- 孤儿保护：worker 每 5 秒检查一次 `parent_pid` 是否仍存活，dashboard 消失后 worker 自行优雅退出，不会留下孤儿进程。
+- 孤儿保护：worker 每 5 秒检查一次 `parent_pid`。检测到 dashboard 退出后，worker 发起取消并按优雅停止流程排空已入队写入。
 - 为什么不在 dashboard 进程内直接调用 RedisShake：RedisShake 是“一个进程一个任务”的模型，全局 `config.Opt` / status 状态、任何致命错误 `log.Panicf → os.Exit(1)`、`ChdirAndAcquireFileLock` 切换工作目录并用 `pid.lockfile` 加锁、scan_reader 预分配 1 亿 key 的队列，都不适合共享 dashboard 进程。
 
 任务目录布局：
@@ -49,6 +49,7 @@ flowchart LR
 | `jobs/<id>/console.log` | worker 进程 stdout/stderr（含 `log.Panicf` 的栈） | 0600 |
 | `jobs/<id>/shake.log` | RedisShake 的结构化运行日志（固定文件名，无轮转）；由 worker 以 0666（受 umask 影响，通常 0644）创建，日志中可能出现 key 名 | 0666 & ~umask |
 | `jobs/<id>/pid.lockfile` | worker 的单实例文件锁 | 0600 |
+| `jobs/<id>/status.json` | worker 在正常收尾时尝试保存的最终状态。短任务可能在首次轮询前结束，dashboard 可用该文件补齐最终统计。 | 0644 & ~umask |
 | `jobs.json` | 脱敏任务快照（源/目标只保留 `has_password` 标记，不含明文密码），供 dashboard 重启后恢复历史 | 0600 |
 
 `jobs/<id>/`、`jobs/` 与 workspace 根目录都按 0700 创建，整个 workspace 目录树只有 dashboard 运行账户能进入；因此即使 `shake.log` 以 0666 & ~umask 创建、其他用户能看到它的权限位，也读不到目录里的任何内容。已存在的目录不会被重新 chmod，需要时自行收紧。
@@ -75,7 +76,7 @@ flowchart LR
 
 - `standalone` 源端可以有多 db，worker 按 `SELECT` 逐库搬运。目标端能否承接非 0 库取决于目标：standalone 与 Codis 静态分片（底层同样是 standalone writer）支持按 db 写入；Redis Cluster 目标会因服务端拒绝 `SELECT` 而 `log.Panicf`（worker 退出 1）。业务数据通常只在 db 0，跨库迁移需自行确认目标读取路径。
 - `cluster` 源端的拓扑由 `CLUSTER NODES` 自动发现；`cluster` 目标由 RedisShake 的 cluster writer 写入（按 16384 个 Redis Cluster slot 路由）。
-- `codis` 目标要求 1024 个 slot 全部分配到 Group 且没有进行中的 slot action，否则创建被拒绝；`codis` 源端只取有 slot 的 Group 的 Master，未分配 slot 上的数据不会被迁移。
+- `codis` 目标要求静态分片覆盖全部 1024 个 slot。使用 `current` 时，当前拓扑有进行中的 slot action 会拒绝创建任务。使用 `current` 的源端按 slot 归属选取 Group Master，选中实例上的读入范围由 PSYNC / SCAN 和任务过滤器决定。
 - `codis` 端会忽略请求里的 `address` 字段（只使用 `shards` 或当前拓扑），`prefer_replica` 对 `codis` 端无效（只对 standalone / cluster 生效）。
 - `rdb` 在实现上复用 sync reader，只是把 AOF 同步关掉，因此仍然需要源端支持 PSYNC。
 - 写入路径按 RedisShake 的命令表识别 key。表里未登记的命令（以及模块命令）会被当成“无 key”命令**广播到所有分片**，可能重复写入；多 key 命令的 key 落在不同分片时按上游 CROSSSLOT 语义 `log.Panicf`。
@@ -103,7 +104,7 @@ data_migration_max_jobs_retained = 50
 部署要求：
 
 - `codis-shake` 必须能从 dashboard 主机直连源端和目标端 Redis / Codis Server 的地址；不经过 Codis Proxy。
-- `spec.json` 含明文用户名/密码（权限 0600），在任务生命周期内一直保留，直到任务被删除或按保留条数淘汰；`jobs/<id>/` 与 workspace 目录按 0700 创建（只有 dashboard 运行账户可进入），`shake.log` 由 worker 以 0666 & ~umask 创建（通常 0644，日志里可能出现 key 名），靠目录权限挡住其他用户。
+- `spec.json` 含明文用户名和密码（权限 0600），随任务目录保留。Remove 或保留策略淘汰时，dashboard 尝试删除目录。若文件系统清理失败，文件会残留。`jobs/<id>/` 与 workspace 目录按 0700 创建，保护其中可能含 key 名的日志。
 - 状态端口由 dashboard 在 `127.0.0.1` 上挑选空闲端口，worker 只绑定 loopback，不对外暴露。
 - 修改 `data_migration_*` 配置后需要重启 dashboard 生效（manager 在 `topom.New` 时读取配置）。
 
@@ -117,7 +118,7 @@ data_migration_max_jobs_retained = 50
 | PUT | `/api/topom/data-migration/create/{xauth}` | 创建并立即启动任务，返回 `{"id": "<uuid-v7>"}` |
 | GET | `/api/topom/data-migration/get/{xauth}/{id}` | 任务详情，额外带 `console_tail`（`console.log` 最后 4KB） |
 | PUT | `/api/topom/data-migration/stop/{xauth}/{id}` | 停止任务（SIGTERM → 15s → SIGKILL），返回 `"OK"`；终态任务 no-op |
-| PUT | `/api/topom/data-migration/remove/{xauth}/{id}` | 删除终态任务及其任务目录，返回 `"OK"`；非终态返回 `... is not terminal (state=running); stop it first` |
+| PUT | `/api/topom/data-migration/remove/{xauth}/{id}` | 移除终态任务并尝试清理快照和任务目录，返回 `"OK"`。非终态返回 `... is not terminal (state=running); stop it first` |
 | GET | `/api/topom/data-migration/log/{xauth}/{id}?offset=&max_bytes=` | 增量读取 `shake.log`，文件不存在时回退 `console.log` |
 | GET | `/api/topom/data-migration/topology/codis/{xauth}` | 当前集群 Group Master + slot 范围预览 |
 
@@ -132,7 +133,9 @@ data_migration_max_jobs_retained = 50
 {
   "groups": [
     {"group_id": 1, "master": "10.0.0.1:6379", "slot_count": 512,
-     "slots": [{"start": 0, "end": 511}]}
+     "slots": [{"start": 0, "end": 511}]},
+    {"group_id": 2, "master": "10.0.0.2:6379", "slot_count": 512,
+     "slots": [{"start": 512, "end": 1023}]}
   ],
   "unassigned_slots": 0,
   "slot_actions": 0,
@@ -200,7 +203,7 @@ data_migration_max_jobs_retained = 50
 ```
 
 - 列表与详情返回源/目标摘要（`kind`、`address`、`username`、`has_password`、`tls`、`shards`），不回显明文密码。
-- `remove` 只接受终态任务；运行中的任务必须先 `stop`。删除会移除该任务目录与 `jobs.json` 中的记录。
+- `remove` 只接受终态任务，运行中的任务需先停止。它先从内存移除任务，再尝试更新 `jobs.json` 和删除目录。落盘或目录清理失败时可在 dashboard 日志中排查，接口仍可能返回 `"OK"`。
 
 ## 任务状态、终态与阶段
 
@@ -232,7 +235,7 @@ pending → starting → running → succeeded | failed | stopped
 补充说明：
 
 - 一次性任务也可以手动 `stop`，此时终态是 `stopped` 而不是 `succeeded`。
-- dashboard 被强杀（SIGKILL）时 worker 靠 `parent_pid` 看门狗在 5 秒内自行退出；dashboard 重启后从 `jobs.json` 恢复，凡是持久化的非终态任务一律改成 `failed`、`exit_code = -1`。
+- dashboard 被强杀（SIGKILL）后，worker 在周期检查发现父进程退出时发起取消，实际退出时间取决于剩余写入。dashboard 重启后从 `jobs.json` 恢复，已持久化的非终态任务改为 `failed`、`exit_code = -1`。
 
 阶段 `phase` 由 RedisShake 的 reader 状态归一化得到（`status` 字段优先，其次 `scan_finished` / `name`）：
 
@@ -280,14 +283,14 @@ pending → starting → running → succeeded | failed | stopped
 | `dir` / `log_file` / `console_file` | 任务目录与两个日志文件的绝对路径 |
 | `console_tail` | 只有 `GET get` 填充：`console.log` 最后 4KB |
 
-任务记录只保存在 dashboard 本地 workspace：dashboard 重启后，运行中的任务被标记为 `failed`；终态任务历史保留（受 `data_migration_max_jobs_retained` 限制）。RedisShake 4.x 不支持断点续传，被打断的任务必须重新创建。
+任务记录存在 dashboard 内存中，脱敏快照尽力写到本地 workspace。重启只恢复已落盘的记录，已落盘的非终态任务会标记为 `failed`。写入快照失败会记日志，创建接口仍可能成功。被打断的任务需要重新创建。
 
 ## Codis 拓扑规则
 
 - 拓扑快照在**创建任务时**从 topom 生成：遍历 1024 个 slot，`Action.State != ActionNothing` 计入 slot action，`GroupId == 0` 计入未分配 slot；每个拥有 slot 的 Group 按 group id 排序，Master 取 `servers[0]`，slot 列表合并成连续区间。
-- 源端 Codis：取所有拥有至少一个 slot 的 Group 的 Master，每个 Group 一个 PSYNC / SCAN reader；没有 slot 的 Group 不参与迁移，未分配 slot 上的数据不会被迁移。
+- 源端 Codis（`current`）：每个拥有至少一个 slot 的 Group 的 Master 各建一个 PSYNC / SCAN reader。slot 归属仅用于选择实例，reader 会读取选中实例的 keyspace，再应用任务过滤器。若这些实例留有未分配 slot 的残留 key，也可能被读入。
 - 目标端 Codis：要求 1024 个 slot 全部分配到 Group。
-- 两端都拒绝的情况：存在进行中的 slot action（`N slot migration action(s) in progress; ...`）、存在没有 server 的 Group（`group [ids] has no server`）、当前 product 没有任何 Group 拥有 slot（`no group owns any slot in the current product`）。
+- 两端使用 `current` 时都会检查进行中的 slot action、已分配 slot 的 Group 是否有 master，以及当前 product 是否有 Group 拥有 slot。`manual` 使用请求提供的分片。
 - 创建前可用 `GET /api/topom/data-migration/topology/codis/{xauth}` 预览 `unassigned_slots`、`slot_actions`、`complete`；`complete = true` 等价于“可作为目标端”。
 - 凭据：`codis_scope = current` 时自动使用 dashboard 的 backend auth（`backend_auth_username` / `backend_auth_password`，未配置时回退 `product_auth`）；`manual` 时使用请求里的 `username` / `password`。
 - Codis 端写入直连 codis-server，不经过 proxy：proxy 不支持 `RESTORE`、`SCAN`、`PSYNC`（`FlagNotAllow`），默认也不提供 `CLUSTER NODES`（启用兼容输出时返回的只是伪节点）。
@@ -323,7 +326,7 @@ pending → starting → running → succeeded | failed | stopped
 | `restore_behavior` | `rewrite` | 用 `RESTORE ... REPLACE` 覆盖同名 key；RedisShake 上游默认是 `panic`，dashboard 在创建时填入 `rewrite` |
 | `empty_db_before_sync` | 关闭 | writer 建好、reader 启动前发送一次 `FLUSHALL`；`static` 多分片目标会广播到每个分片，不可撤销 |
 | 状态端口 | `127.0.0.1` 上的空闲端口 | 只允许同机 dashboard 轮询，不暴露给网络，接口本身无鉴权 |
-| `spec.json` | 0600、明文凭据 | worker 需要凭据直连 Redis；凭据随任务目录在 Remove 或按保留条数淘汰时删除 |
+| `spec.json` | 0600、明文凭据 | worker 需要凭据直连 Redis。Remove 或淘汰后，凭据随任务目录清理；文件系统错误可能留下目录。 |
 | `jobs.json` | 0600、脱敏快照 | 只保留 `has_password` 标记，不含密码；包含任务目录/日志的绝对路径 |
 | 单实例 | 一个任务 = 一个 worker 进程 | worker 在任务目录持有 `pid.lockfile`，重复启动会 `log.Panicf` |
 | 自迁移防护 | 创建时拒绝 | 只要一个 server 地址（忽略大小写）同时出现在源端和目标端就失败：`source and target both contain server x; migrating a server into itself is not allowed`；覆盖 `codis` / `manual` 静态分片地址，避免把一个实例迁入自己 |
@@ -363,10 +366,10 @@ pending → starting → running → succeeded | failed | stopped
 4. 观察任务进入 `syncing aof`，`aof_lag_bytes` 降为 0，`consistent` 为 true。
 5. 业务停写。
 6. 再次确认延迟为 0、`consistent` 为 true，且 writer 无积压（原始 `writer` 状态里的 `unanswered_entries` 为 0）。
-7. 停止任务（SIGTERM 优雅停止，耗时受剩余积压和目标 QPS 限制），终态为 `stopped`，表示切换完成。
+7. 停止任务后检查 `state`、`exit_code`、`error` 和日志，确认 worker 已正常排空。超过停止宽限后被强制终止的任务也会显示 `stopped`。若停止异常，先核对并处理目标端数据差异。
 8. 校验目标数据：`DBSIZE`、抽样 key、关键业务读；必要时用 RDB Analysis 或任务日志排查差异。
 9. 切换客户端到新集群。
-10. 保留或删除任务：删除只接受终态任务，并会删除任务目录；保留的任务出现在历史列表中，超过 `data_migration_max_jobs_retained` 时最旧的终态任务会被自动清理。
+10. 保留或删除终态任务。超过 `data_migration_max_jobs_retained` 时优先淘汰最旧的终态任务。需要确认凭据清理时，检查对应任务目录是否已删除。
 
 补充：
 

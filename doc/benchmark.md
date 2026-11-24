@@ -1,5 +1,9 @@
 
 ## Performance (Benchmark)
+
+Historical results from 2015–2016. For the Redis 8 Linux performance
+baseline status, see the [validation index](validation/README.md).
+
 #### Intel(R) Core(TM) i7-4770 CPU @ 3.40GHz x 1 + 16G RAM
 + Archlinux: 4.0.5-1-ARCH #1 SMP PREEMPT Sat Jun 6 18:37:49 CEST 2015 x86\_64 GNU/Linux
 

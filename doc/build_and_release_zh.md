@@ -4,7 +4,7 @@
 
 ## 常用命令
 
-`make` 的默认目标是 `build-all`，也就是当前机器平台的 host build：依次构建 `codis-server`、`codis-dashboard`、`codis-proxy`、`codis-admin`、`codis-ha`、`codis-fe`，最后清理测试临时目录。
+`make` 的默认目标是 `build-all`。Host build 构建 `codis-server`、`codis-dashboard`、`codis-proxy`、`codis-admin`、`codis-ha`、`codis-fe` 和 `codis-shake`，并清理测试临时目录。
 
 | 命令 | 作用 |
 | --- | --- |
@@ -13,6 +13,7 @@
 | `make gobench` | 在 `./pkg/...` 上跑 benchmark（`-gcflags -l -bench=. -v`） |
 | `make codis-dashboard` | 只构建 dashboard，并用新二进制重写 `config/dashboard.toml` |
 | `make codis-proxy` | 只构建 proxy（带 `cgo_jemalloc`），并重写 `config/proxy.toml`；Linux 上会先跑 `jemalloc-config` |
+| `make codis-shake` | 构建数据迁移 worker `bin/codis-shake` |
 | `make codis-server` | 构建内嵌 Redis 8，产出 `bin/codis-server` 与 `redis-*` helper，并重写 `config/redis.conf`、`config/sentinel.conf` |
 | `make codis-server-redis8` | 以 `codis-server` 为前提，额外产出 `bin/*-redis8` 与 `config/redis8.conf`、`config/sentinel8.conf` |
 | `make build-platforms` / `make release-platforms` | 按 `TARGET_PLATFORMS` 矩阵构建平台产物到 `bin/<os>-<arch>/` |
@@ -24,7 +25,7 @@
 
 - `make codis-proxy` 和 `make codis-dashboard` 会顺带刷新对应默认配置文件，配置文件格式属于对外契约，不要随手改动。
 - `make codis-server` 生成 `config/redis.conf` 时会在 `databases` 行后注入 `codis-enabled yes`（1024 slot 模式）和 `codis-migration-auth-user` / `codis-migration-auth-pass` 空占位，并校验注入结果；`config/sentinel.conf` 由 Redis 8 的 `sentinel.conf` 注释掉 `sentinel` 行后生成。这两份文件是生成物，改配置模板请改 `extern/redis-8.6.3` 下的原始文件。
-- 单组件 target 都依赖 `codis-deps`：创建 `bin/`、`config/`、`scripts/tmp/` 并运行 `version` 脚本生成 `bin/version` 与 `bin/version.ldflags`。
+- Go 单组件 target 依赖 `codis-deps`，创建 `bin/`、`config/`、`scripts/tmp/` 并用 `version` 脚本生成 `bin/version` 与 `bin/version.ldflags`。`codis-server` target 直接构建内嵌 Redis。
 - 除非任务明确要求容器相关内容，不要改动 `Dockerfile` 或 docker 脚本，也不要把 `docker build` 当作默认必跑步骤。
 
 绕过 make 直接构建单个组件也能跑通，代价是不会刷新默认配置，适合快速验证：
@@ -37,7 +38,7 @@ go build -tags cgo_jemalloc -o bin/codis-proxy ./cmd/proxy
 
 ## Go modules 约定
 
-依赖只从 `go.mod` / `go.sum` 解析，`go` 指令为 `go 1.26.1`。旧的 `vendor/` 与 `Godeps/` 已退休，不要恢复基于 GOPATH 或源码级 vendor 副本的构建路径；真需要 vendor mode 时应另起方案用 `go mod vendor` 生成带 `vendor/modules.txt` 的一致目录树。
+依赖从 `go.mod` / `go.sum` 解析。模块声明 `go 1.26.1`，推荐工具链由 `toolchain go1.27.4` 指定。旧的 `vendor/` 与 `Godeps/` 路径已退休。
 
 - **不要跑全量 `go mod tidy`。** 它会顺着既有第三方依赖（包括其测试依赖）的链路重写 `go.mod` / `go.sum`，产生大量与本意无关的改动。更新依赖时让构建或测试命令驱动最小的机械变化即可，例如先跑 `go build ./cmd/...` 再补它明确报缺的条目。
 - **不要顺手升级依赖版本。** 版本偏离必须有可复现的现代 Go 编译原因；能编译就保持原状。
@@ -61,7 +62,7 @@ dnf install -y gcc gcc-c++ autoconf automake libtool
 apt install -y gcc g++ make autoconf automake libtool
 ```
 
-另外需要 OpenSSL 开发头文件才能编出 `libhiredis_ssl.a`（仅在 `BUILD_TLS=1` 时需要），对应 `openssl-devel` / `libssl-dev`。
+启用 Redis TLS（`BUILD_TLS=yes` 或 `BUILD_TLS=module`）时，安装 OpenSSL 开发包 `openssl-devel` 或 `libssl-dev`，用于构建 `libhiredis_ssl.a` 和链接 TLS 依赖。
 
 ### jemalloc 自动构建链路
 
@@ -84,7 +85,7 @@ make -j4
 | 运行期 jemalloc 相关断言，或 Redis 8 要求的 quantum 不一致 | configure 漏了 `--with-lg-quantum=3`（上游 `deps/README.md` 的要求） | 不要在 jemalloc 目录手跑裸 `./configure`，统一走 `deps/Makefile` |
 | `+inf`、`+1.5` 之类带正号的浮点解析失败 | `fast_float_strtod.cpp` 编译时缺 `-DFASTFLOAT_ALLOWS_LEADING_PLUS` | 保留该宏，不要简化成默认 C++17 参数 |
 | `make distclean` 之后重新构建仍复用旧产物 | deps 下的 `clean` / `distclean` 退化成 no-op | `clean` 必须清掉所有 `.o` / `.a`，`distclean` 额外清 jemalloc 生成物 |
-| `BUILD_TLS=1` 时链接失败，缺 `libhiredis_ssl.a` | hiredis 未编 `ssl.c`，或系统无 OpenSSL 头文件 | 保留 `ssl.c` 的 best-effort 编译分支；缺 OpenSSL 开发包时先装再编 |
+| `BUILD_TLS=yes` 或 `BUILD_TLS=module` 时链接失败，缺 `libhiredis_ssl.a` | hiredis 未编 `ssl.c`，或系统无 OpenSSL 头文件 | 保留 `ssl.c` 的 best-effort 编译分支；缺 OpenSSL 开发包时先装再编 |
 | `make codis-server` 在 `module_tests` 步骤非零退出 | `src/Makefile` 的 `all` 硬依赖 `tests/modules`，该目录需要提供空的 `all` / `clean` target | 保留 `tests/modules/Makefile`，让测试模块不阻塞 server 链接 |
 | 改了 Redis 8 构建文件却不出现在 `git status` | 根 `.gitignore` 的 `makefile` 规则会误伤 `Makefile` | `extern/redis-8.6.3/Makefile` 与 `src/Makefile` 必须保持 tracked/unignored；不要在构建时 patch 被忽略的本地 Makefile |
 
@@ -98,7 +99,7 @@ make build-platforms TARGET_PLATFORMS="darwin/arm64"  # 只构建一个平台
 make build-no-redis-platform TARGET_OS=darwin TARGET_ARCH=arm64
 ```
 
-- **产物布局**：每个平台独立目录 `bin/<os>-<arch>/`，内含 `codis-dashboard`、`codis-proxy`、`codis-admin`、`codis-ha`、`codis-fe`、`assets/`、`codis-server` 及 `redis-benchmark` / `redis-cli` / `redis-sentinel` / `redis-check-aof` / `redis-check-rdb`，外加 `dashboard.toml`、`proxy.toml`、`redis.conf`、`sentinel.conf` 四份配置副本。`bin/<os>-<arch>-no-redis/` 只含 Go 入口、`assets/` 和配置。
+- 每个平台的 `bin/<os>-<arch>/` 包含 `codis-dashboard`、`codis-proxy`、`codis-admin`、`codis-ha`、`codis-fe`、`codis-shake`、`assets/`、`codis-server` 及 Redis helper，另附四份默认配置。`bin/<os>-<arch>-no-redis/` 包含同一组 Go 二进制、`assets/` 和配置。
 - **平台校验**：`TARGET_OS` 只接受 `darwin` / `linux`，`TARGET_ARCH` 只接受 `amd64` / `arm64`，label 还要过字符白名单检查。校验发生在 `rm -rf bin/<label>` 之前，任何直接调用产物写入 target 的方式都绕不过去。
 - **交叉构建 fail-fast**：target 与 host 不一致时，必须显式设置 `ALLOW_CROSS_FULL_BUILD=1` 并提供目标编译器（`PLATFORM_CC_<os>_<arch>`，必要时 `PLATFORM_CXX_<os>_<arch>`），否则命令直接失败并打印 host、target 和缺失条件，不会把 host 的 Redis 产物复制成 target 产物。
 - **配置生成在 host 侧**：`default-configs` 先用 host 可执行程序生成配置到 `scripts/tmp/default-config-bin`，平台构建只复制配置，绝不在 host 上运行目标平台二进制。
@@ -109,7 +110,7 @@ make build-no-redis-platform TARGET_OS=darwin TARGET_ARCH=arm64
 1. 不保证在任意 host 上完整交叉构建任意 target；完整跨平台产物仍依赖目标平台构建环境或明确配置好的 C/cgo cross toolchain。
 2. 不改变运行期协议、proxy 路由、dashboard 行为或 Redis 数据格式。
 3. 不负责 Docker 镜像、CI 发布流水线、release 包上传或生产部署编排。
-4. 不是纯 Go cross build：`codis-proxy` 与 Redis Server 的完整发布物仍带 C/cgo 边界，即使关掉 `cgo_jemalloc`，`pkg/utils/unsafe2/cgo_malloc.go` 仍然走 `import "C"`。
+4. 完整平台产物包含 C/C++ 构建的 Redis Server 和使用 `cgo_jemalloc` 的 proxy。Go 入口在 `CGO_ENABLED=0` 且省略 `cgo_jemalloc` 时有 Go 分配器回退。平台 target 生成默认配置的 host 阶段仍使用 `cgo_jemalloc`。
 
 两个不要：不要为了通用 C 交叉编译去改 `extern/redis-8.6.3/src/Makefile`（平台检测归上游维护）；不要把不同平台的产物平铺进根 `bin/` 的文件名空间。
 
@@ -126,7 +127,7 @@ make build-no-redis-platform TARGET_OS=darwin TARGET_ARCH=arm64
 
 | 路径 | 用途 |
 | --- | --- |
-| `cmd/` | 可执行入口：`dashboard`、`proxy`、`admin`、`ha`、`fe` |
+| `cmd/` | 可执行入口 `dashboard`、`proxy`、`admin`、`ha`、`fe`、`shake` |
 | `pkg/` | 核心 Go 包（proxy、topom、models、utils 等） |
 | `config/` | 运行期默认配置，`make` 相关 target 会自动刷新；`redis8.conf`、`sentinel8.conf` 是生成物 |
 | `doc/` | 文档与图片 |

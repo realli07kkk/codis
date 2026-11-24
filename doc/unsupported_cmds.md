@@ -1,4 +1,10 @@
-These commands are disallowed in codis proxy, if you use them, proxy will close the connection to warn you.
+# Codis Proxy command compatibility
+
+## Rejected commands
+
+Codis Proxy returns a Redis error for rejected commands. With the default
+`session_break_on_failure = false`, the connection stays open. Setting it to
+`true` can close the session for command-dispatch errors.
 
 |   Command Type   |   Command Name   |
 |:----------------:|:---------------- |
@@ -34,6 +40,7 @@ These commands are disallowed in codis proxy, if you use them, proxy will close 
 |                  |                  |
 |   Server         | BGREWRITEAOF     |
 |                  | BGSAVE           |
+|                  | ACL (except ACL WHOAMI when Codis ACL is active) |
 |                  | CLIENT (except CLIENT LIST) |
 |                  | CLUSTER (except CLUSTER NODES when explicitly enabled) |
 |                  | CONFIG           |
@@ -53,15 +60,35 @@ These commands are disallowed in codis proxy, if you use them, proxy will close 
 |                  | SLOWLOG          |
 |                  | SYNC             |
 |                  | TIME             |
+|                  | WAIT             |
+|                  |                  |
+|   Redis Cluster  | ASKING           |
+|                  | READONLY         |
+|                  | READWRITE        |
+|                  | RESTORE-ASKING   |
 |                  |                  |
 |   Codis Slot     | SLOTSCHECK       |
 |                  | SLOTSDEL         |
-|                  | SLOTSINFO        |
 |                  | SLOTSMGRTONE     |
 |                  | SLOTSMGRTSLOT    |
 |                  | SLOTSMGRTTAGONE  |
 |                  | SLOTSMGRTTAGSLOT |
+|                  | SLOTSMGRTONE-ASYNC |
+|                  | SLOTSMGRTSLOT-ASYNC |
+|                  | SLOTSMGRTTAGONE-ASYNC |
+|                  | SLOTSMGRTTAGSLOT-ASYNC |
+|                  | SLOTSMGRT-ASYNC-FENCE |
+|                  | SLOTSMGRT-ASYNC-CANCEL |
+|                  | SLOTSMGRT-ASYNC-STATUS |
+|                  | SLOTSMGRT-EXEC-WRAPPER |
+|                  | SLOTSRESTORE-ASYNC |
+|                  | SLOTSRESTORE-ASYNC-AUTH |
+|                  | SLOTSRESTORE-ASYNC-ACK |
 
+## Supported extensions
+
+`SLOTSINFO <backend-addr>` queries slot key counts on the specified backend.
+`SLOTSMAPPING` reports the proxy's current slot routing table.
 
 `CLIENT LIST` is supported by codis proxy and returns the client connections
 attached to the current proxy instance. Other `CLIENT` subcommands are still
@@ -87,7 +114,12 @@ are supported when all stream keys in one request share the same hash tag/key.
 proxy instead of being forwarded to an arbitrary backend slot.
 
 
-These commands is "half-supported". Codis does not support cross-node operation, so you must use Hash Tags (See [this blog](http://oldblog.antirez.com/post/redis-presharding.html)'s "Hash tags" section) to put all the keys which may shown in one request into the same slot then you can use these commands. Codis does not check if the keys have same tag, so if you don't use tag, your program will get wrong response.
+## Commands that require colocated keys
+
+For the following commands, use the same Codis hash tag for all keys in a
+request so they route to the same slot. The proxy forwards the command to
+one backend and leaves key colocation to the caller. For additional limits
+on newer commands, see [Proxy protocol extensions](proxy_protocol_extensions_zh.md#已知路由缺口).
 
 |   Command Type   |   Command Name   |
 |:----------------:|:---------------- |
