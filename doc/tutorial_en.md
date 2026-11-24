@@ -61,6 +61,17 @@ fe_pid=$!
 
 The generated `config/redis.conf` includes `codis-enabled yes`. The example writes the server log to `$demo_dir/redis.log`. If you use `admin/codis-server-admin.sh start` with the default config, the server's standard output is captured in `log/codis-server.out`. The script's stop command expects `/tmp/redis_6379.pid`, which requires an explicit `pidfile` setting.
 
+Wait for the Dashboard and codis-server to become ready before running the next
+commands (the loop gives up after about 30 seconds):
+
+```bash
+for i in $(seq 1 60); do
+  ./bin/codis-admin --dashboard=127.0.0.1:18080 --slots-status >/dev/null 2>&1 \
+    && ./bin/redis-cli -h 127.0.0.1 -p 6379 PING >/dev/null 2>&1 && break
+  sleep 0.5
+done
+```
+
 ### Add a group and initialize slots
 
 Open `http://127.0.0.1:9090/` and select `codis-demo`. Check that the proxy is online, create Group 1 under `Group 与 Server`, and add `127.0.0.1:6379`. In `Slots 分片`, choose `自动 Rebalance`, review the plan, and confirm it. You can also use the CLI once the Dashboard and Redis are ready.
@@ -72,7 +83,7 @@ Open `http://127.0.0.1:9090/` and select `codis-demo`. Check that the proxy is o
 ./bin/codis-admin --dashboard=127.0.0.1:18080 --rebalance --confirm
 ```
 
-The Dashboard processes slot actions in the background after you confirm Rebalance. Wait for all 1024 slots to be assigned to Group 1 and for the actions to finish in the Slots page. With the CLI, run `./bin/codis-admin --dashboard=127.0.0.1:18080 --slots-status` and check that each slot has `backend_addr_group_id` set to 1 and none has `locked: true`. Then verify writes and reads through port 19000. The expected responses are `OK` and `ok`.
+The Dashboard processes slot actions in the background after you confirm Rebalance. Wait for all 1024 slots to be assigned to Group 1 and for the actions to finish in the Slots page. With the CLI, run `./bin/codis-admin --dashboard=127.0.0.1:18080 --slots-status` and check that each slot has `backend_addr_group_id` set to 1 and none has `locked: true`. The proxy needs a moment to apply the new slot mapping; retry once if an immediate write or read fails. Then verify writes and reads through port 19000. The expected responses are `OK` and `ok`.
 
 ```bash
 ./bin/redis-cli -h 127.0.0.1 -p 19000 SET codis-demo:key ok

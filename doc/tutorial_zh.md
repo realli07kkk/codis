@@ -112,6 +112,16 @@ fe_pid=$!
 
 `config/redis.conf` 由 `make` 生成，包含 `codis-enabled yes`。Redis 的标准输出写入示例中的 `$demo_dir/redis.log`。使用 `admin/codis-server-admin.sh start` 时，当前默认配置的标准输出写到 `log/codis-server.out`，脚本的 stop 路径仍依赖 `/tmp/redis_6379.pid`，要使用该路径需显式配置 Redis 的 `pidfile`。
 
+等 dashboard 与 codis-server 就绪后再执行后续命令（示例最多等待约 30 秒）：
+
+```bash
+for i in $(seq 1 60); do
+  ./bin/codis-admin --dashboard=127.0.0.1:18080 --slots-status >/dev/null 2>&1 \
+    && ./bin/redis-cli -h 127.0.0.1 -p 6379 PING >/dev/null 2>&1 && break
+  sleep 0.5
+done
+```
+
 ### 通过 FE 添加 group 和初始化 slot
 
 打开 `http://127.0.0.1:9090/`，选择 `codis-demo`，确认 `Proxy 实例`页的 proxy 已上线。在 `Group 与 Server`页创建 Group 1，添加 `127.0.0.1:6379`，再到 `Slots 分片`页点击`自动 Rebalance`，检查预览并确认。也可以在 dashboard 和 Redis 就绪后用命令行完成相同步骤。
@@ -123,7 +133,7 @@ fe_pid=$!
 ./bin/codis-admin --dashboard=127.0.0.1:18080 --rebalance --confirm
 ```
 
-确认 Rebalance 后，Dashboard 在后台处理 slot action。在 FE 的 `Slots 分片`页等待 1024 个 slot 都分配到 Group 1、迁移动作结束。使用命令行时，可运行 `./bin/codis-admin --dashboard=127.0.0.1:18080 --slots-status`，确认各 slot 的 `backend_addr_group_id` 为 1，且没有 `locked: true`。再用业务端口验证，预期依次返回 `OK` 和 `ok`。
+确认 Rebalance 后，Dashboard 在后台处理 slot action。在 FE 的 `Slots 分片`页等待 1024 个 slot 都分配到 Group 1、迁移动作结束。使用命令行时，可运行 `./bin/codis-admin --dashboard=127.0.0.1:18080 --slots-status`，确认各 slot 的 `backend_addr_group_id` 为 1，且没有 `locked: true`。proxy 需要短暂时间应用新的 slot 映射，立即读写报错时等一两秒重试。再用业务端口验证，预期依次返回 `OK` 和 `ok`。
 
 ```bash
 ./bin/redis-cli -h 127.0.0.1 -p 19000 SET codis-demo:key ok

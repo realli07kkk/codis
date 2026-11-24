@@ -50,7 +50,9 @@ Codis Proxy 管理 1024 个真实 slot 的路由，客户端可以连接单个 p
 
 ### ZooKeeper session 过期会让 proxy 退出吗？
 
-Jodis 注册由 proxy 的后台 watcher 维护，watch 失败会重试。slot 路由由 Dashboard 下发。排查时先区分 Jodis 注册失败、启动时自动注册 Dashboard 失败和运行中的 proxy 退出，再检查对应日志。默认 `jodis_timeout` 为 `20s`。
+不会。Jodis 注册由 proxy 的后台 watcher 维护：watch 断开或临时节点创建失败时，按 1 秒起、上限 30 秒的指数退避重试，恢复后重新注册到默认路径 `/jodis/{product}/proxy-{token}`（`jodis_compatible = true` 时用 Codis 2.0 的 `/zk/codis/...` 路径）。运行中的 slot 路由由 Dashboard 通过管理 API 下发，不依赖 zk watch，当前主线没有“zk 会话过期即退出”的处理路径。
+
+会退出的失败发生在启动阶段：`--dashboard` 自动上线每 3 秒尝试一次、共 10 次，仍失败时打印 `online proxy failed` 后退出；coordinator 模式重试 30 次后同样退出。排查时先区分 Jodis 注册失败、启动自动上线失败和运行中退出，再看对应日志。默认 `jodis_timeout` 为 `20s`。
 
 ### 编译或版本信息异常怎么办？
 

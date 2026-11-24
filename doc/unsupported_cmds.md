@@ -89,6 +89,16 @@ Codis Proxy returns a Redis error for rejected commands. With the default
 
 `SLOTSINFO <backend-addr>` queries slot key counts on the specified backend.
 `SLOTSMAPPING` reports the proxy's current slot routing table.
+`SLOTSSCAN <slot> <cursor> [COUNT n]` iterates the keys of one slot and returns
+the next cursor plus a key batch. `SLOTSHASHKEY key [key ...]` returns the
+Codis slot id of each key. Both are Codis Server commands that the proxy
+routes: `SLOTSSCAN` by its slot argument, `SLOTSHASHKEY` by its first key.
+
+`SLOTSRESTORE key ttlms payload [key ttlms payload ...]` writes RDB fragments
+straight into the slots of the given keys and is the write path used by
+migration tooling. The proxy routes the request by its first key, so every key
+in one `SLOTSRESTORE` request must belong to the same slot. Plain `RESTORE`
+stays rejected because it carries no slot for the proxy to route on.
 
 `CLIENT LIST` is supported by codis proxy and returns the client connections
 attached to the current proxy instance. Other `CLIENT` subcommands are still

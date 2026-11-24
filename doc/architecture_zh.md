@@ -274,7 +274,7 @@ Consul 后端位于 `pkg/models/consul`，只接入 HashiCorp Go API 模块 `git
 - [proxy_protocol_extensions_zh.md](proxy_protocol_extensions_zh.md)：proxy 的本地命令与协议扩展。
 - [proxy_hot_key_cache_zh.md](proxy_hot_key_cache_zh.md)：热 key 缓存配置、一致性模型与 stats。
 - [proxy_qps_rate_limit_zh.md](proxy_qps_rate_limit_zh.md)：Proxy QPS limit 配置、动态管理与拒绝语义。
-- [proxy_session_auth_bruteforce_zh.md](proxy_session_auth_bruteforce_zh.md)：`session_auth` 防暴力破解配置与锁定语义。
+- [proxy_session_auth_bruteforce_zh.md](proxy_session_auth_bruteforce_zh.md)：单密码与 Codis ACL 模式的 AUTH 防暴力破解配置与锁定语义。
 - [rdb_analysis_zh.md](rdb_analysis_zh.md)：RDB Analysis 使用方式与边界。
 - [build_and_release_zh.md](build_and_release_zh.md)：构建、平台矩阵与发布产物。
 - [redis8_validation_zh.md](redis8_validation_zh.md)：Redis 8 本地与 Linux 验证矩阵。
