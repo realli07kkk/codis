@@ -22,7 +22,7 @@
 
 | 编号 | 日期 | 环境 | 执行时 HEAD | 状态 | 说明 |
 | --- | --- | --- | --- | --- | --- |
-| ENV-01 | 2026-11-21 | 华为云 cn-east-3：ECS-A（4C/8G）/ ECS-B（2C/4G），Ubuntu 22.04 x86_64，Go 1.27.4，Redis 8.6.3 | `c99592b1` | 已销毁 | filesystem coordinator。A：dashboard 18080、fe 8080、group1 master 6379、group2 replica 6382、group3 6383；B：proxy 19000/19001、group2 master 6380、group1 replica 6381。未跑性能、Docker、codis-ha。详见本地 `.runtime/state.md` 与各 `REPORT.md` |
+| ENV-01 | 2026-11-21 | 华为云 cn-east-3：ECS-A（4C/8G）/ ECS-B（2C/4G），Ubuntu 22.04 x86_64，Go 1.27.4，Redis 8.6.3 | `c99592b1` | 已销毁 | filesystem coordinator。A：dashboard 18080、fe 8080、group1 master 6379、group2 replica 6382、group3 6383；B：proxy 19000/19001、group2 master 6380、group1 replica 6381。未跑性能、codis-ha。详见本地 `.runtime/state.md` 与各 `REPORT.md` |
 | ENV-02 | 2026-11-28 | 华为云 cn-east-3a：3 台 ECS `c7.xlarge.2`（4C/8G），Ubuntu 22.04.5 x86_64（kernel 5.15.0-186），Go 1.27.4（host1 Linux 原生 `make`），etcd 3.7.4 官方 release 包三成员（HTTP + `--auth-token simple` + RBAC），Redis 8.6.3 | `3a5890d4` + 未提交工作树 | 保留（未销毁；Codis 组件已停，etcd 三成员运行） | etcd coordinator 新线。host1：dashboard 18080；host2/host3：codis-server 6379（slots 0–511 / 512–1023）+ codis-proxy 19000/11080（`etcd_register_online=true`、`cluster_nodes_compat=all`）。A6 四场景结果见 [etcd_3_7_coordinator_a6_zh.md](etcd_3_7_coordinator_a6_zh.md)；证据在本地 `.runtime/codis-a6/a6/`（`report.md` + `ev/`） |
 
 ## 进度总表
@@ -42,7 +42,7 @@
 
 | 能力 | 状态 | 结果摘要 | 遗留 / 未覆盖 | 详细文档 |
 | --- | --- | --- | --- | --- |
-| Redis 8 内核接入（codis 模式、slot、同步/异步迁移、slotsrestore） | 已通过（功能） | `make gotest`、4 组 Tcl、e2e semi-async / sync、跨版本 Redis 3→8 成功 / 8→3 可观测失败（源 key 保留）、fork/RDB、复制断连恢复均 PASS；干净 Linux 树 `make build-all`（cgo）PASS，cgo proxy 实际运行 | 性能基线 SKIPPED；Docker 部署 NOT RUN；跨版本只有单向成功 | gate 见 `../redis8_validation_zh.md`；真机记录待开 |
+| Redis 8 内核接入（codis 模式、slot、同步/异步迁移、slotsrestore） | 已通过（功能） | `make gotest`、4 组 Tcl、e2e semi-async / sync、跨版本 Redis 3→8 成功 / 8→3 可观测失败（源 key 保留）、fork/RDB、复制断连恢复均 PASS；干净 Linux 树 `make build-all`（cgo）PASS，cgo proxy 实际运行 | 性能基线 SKIPPED；跨版本只有单向成功 | gate 见 `../redis8_validation_zh.md`；真机记录待开 |
 | Redis 8 RDB HTTP 导出 + 限速 | 已通过 | Tcl `codis_rdb_export` 13 项 PASS；dashboard remote fetch PASS | 当前 dashboard HTTP 拉取入口待复验 | — |
 | RDB Analysis（本地 / 远程拉取 / upload / codis-admin） | 已通过 | fork `third_party/rdb` 修复 RDB v13 解析后 PASS；stream / IDMP 元素计数正确 | 当前 CLI、管理 HTTP 和任务生命周期待复验 | — |
 | Codis ACL | 已通过 | API + 两 proxy 实测：多账号、db 绑定、管理命令拒绝、revision 切换、`--acl-sync`；Playwright 新增/删除用户 | 浏览器只覆盖部分交互；当前 CLI、管理 HTTP 和 proxy 认证路径待复验 | — |
@@ -71,7 +71,6 @@
 | 多平台发布构建 | 待确认 | linux/amd64 `build-all` PASS；linux/arm64 与发布目录结构未验证 | — |
 | codis-ha | 未验证 | ENV-01 未启动 | — |
 | 性能基线 | 未验证 | ENV-01 明确 SKIPPED | — |
-| Docker 部署包装 | 未验证 | ENV-01 NOT RUN | — |
 
 ## 脚本索引
 
@@ -87,7 +86,7 @@
 | PITR | `scripts/validation/pitr/run_pitr.py` | `browser/tests/pitr.spec.js` | [pitr_flashback_zh.md](../pitr_flashback_zh.md) |
 | RDB Analysis | `scripts/validation/rdb/run_rdb_analysis.py` | `browser/tests/rdb-analysis.spec.js` | [rdb_analysis_zh.md](../rdb_analysis_zh.md) |
 | FE 浏览器冒烟 | —（环境由 `scripts/validation/env/setup_cluster.py --fe` 提供） | `browser/tests/fe-smoke.spec.js` | [../../cmd/fe/assets/README.md](../../cmd/fe/assets/README.md) |
-| 尚无脚本：性能基线（暂不固化）、数据迁移控制台、codis-ha、旧线（≤ `c635ade0…`）Consul/ZooKeeper coordinator、Docker（仅 gate `--docker` 可选）、多平台发布；etcd 3.7 coordinator 目前只有 Go 集成测试入口（`CODIS_ETCD_SERVER_BINARY`），没有真机脚本 | — | — | [data_migration_zh.md](../data_migration_zh.md)、[benchmark.md](../benchmark.md)、[architecture_zh.md](../architecture_zh.md) |
+| 尚无脚本：性能基线（暂不固化）、数据迁移控制台、codis-ha、旧线（≤ `c635ade0…`）Consul/ZooKeeper coordinator、多平台发布；etcd 3.7 coordinator 目前只有 Go 集成测试入口（`CODIS_ETCD_SERVER_BINARY`），没有真机脚本 | — | — | [data_migration_zh.md](../data_migration_zh.md)、[benchmark.md](../benchmark.md)、[architecture_zh.md](../architecture_zh.md) |
 
 ## 详细文档约定
 

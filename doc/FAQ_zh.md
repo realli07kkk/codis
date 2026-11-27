@@ -52,7 +52,7 @@ ZooKeeper、Consul、filesystem 后端的最后支持基线是提交 `c635ade042
 
 ### 异常退出后如何解锁？
 
-先隔离原 Dashboard 进程和它的自动拉起机制（systemd、supervisor、k8s 控制器等先停掉，确保它不会再起来），再读锁、按观察到的 revision 删除：
+先隔离原 Dashboard 进程和它的自动拉起机制（systemd、supervisor 等先停掉，确保它不会再起来），再读锁、按观察到的 revision 删除：
 
 ```bash
 codis-admin --etcd-config=etcd.toml --product=codis-demo --show-lock

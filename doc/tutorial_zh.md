@@ -351,11 +351,7 @@ Jodis 是旧线的 proxy 发现机制：客户端通过 ZooKeeper（或在 Consu
 
 Redis 后端可使用 Sentinel 完成故障转移，dashboard 和 proxy 根据监控结果更新所使用的 master。`codis-ha` 是另一个通过 dashboard API 巡检和 promote 的运维入口。手动 promote 或 `codis-ha` promote 后，检查组内其它实例的复制指向和同步进度，必要时创建 sync action。
 
-## 4. Docker 部署（未适配）
-
-仓库内的 `Dockerfile`、`make docker` 与 `scripts/docker.sh` 仍是旧线打包方式，尚未适配 etcd 3.7 新线：镜像与脚本中的 coordinator 参数、默认配置均未随新线更新，按它们启动会得到旧参数报错。在完成适配前，请直接用 `bin/` 产物部署或自行编写镜像，运行时按第 2 节提供 `--etcd` / `--etcd-config`。适配状态记录在 [发布说明](etcd_3_7_release_notes_zh.md)。
-
-## 5. 从Codis 2.x 升级（仅旧线）
+## 4. 从Codis 2.x 升级（仅旧线）
 
 以下步骤涉及从 ZooKeeper 读取 Codis 1.x 配置树（`--config-dump -1`），新线已移除该选项与旧 ZK 读取路径，因此本节只适用于检出旧线 `c635ade0424a1448fb251f32b88d64ca7cf9a555` 构建的工具。新线不做存量元数据迁移，也不在停机和切换流程上提供承诺；需要长期使用请在新线按第 1 节重新建群，业务数据用 [跨集群数据迁移](data_migration_zh.md) 搬运。
 

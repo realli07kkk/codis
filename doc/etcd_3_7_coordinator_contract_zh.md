@@ -164,7 +164,7 @@ Proxy TOML 新增 `etcd_register_online`（bool，默认 `false`）。保留 `cl
 | 1 · 接入客户端与 Store | 在 `pkg/models` 接入固定版本的 client/v3，实现现有路径的 KV、前缀 List、错误语义与共享连接配置。替换 `pkg/topom` 等测试对 fsclient 的依赖，纯单测使用测试专用替身，真实后端用明确的集成测试入口。 | Store 单测和真实单成员 etcd 集成通过。当前 Go modules 约束下可构建，依赖变化由实际验证命令驱动，避免全量 `go mod tidy`。 |
 | 2 · Dashboard 与运维 | 更新 Store 锁 API、Topom 启停、Admin 查锁/解锁与共享 CLI，接入 FE 动态发现、Admin 元数据命令和 Proxy 自动上线。 | 跑通第 7 节 A1–A4 的相关入口；API、CLI 与配置回显覆盖脱敏。 |
 | 3 · 在线发现和退役 | 替换 `pkg/proxy/jodis.go` 与 `cluster_nodes.go` 的发现源；清除旧驱动和生产依赖、路径、配置、stats/model 中专属 Jodis 字段及对应 UI 引用。收窄不再有调用方的接口。 | A5 通过；默认配置启动普通 proxy 时无需连接 etcd。运行时依赖图不存在旧后端驱动。 |
-| 4 · 部署与文档 | 从程序的 `--default-config` 再生两份默认 TOML；Dashboard 用 `go run ./cmd/dashboard --default-config`。更新教程、架构、能力边界、`example/`、`deploy/` 模板及渲染样例、Kubernetes、Ansible、验证脚本、发布说明与索引。Dockerfile 和 Docker 脚本遵守仓库单独授权要求；仍依赖旧服务的 Docker 入口在发布说明中列为未适配。 | 新部署示例只需 etcd、Codis 组件和应用连接入口。帮助列出新版选项，旧线使用者可按第 1 节的 SHA 重新编译。历史验证记录保留原环境与 SHA。 |
+| 4 · 部署与文档 | 从程序的 `--default-config` 再生两份默认 TOML；Dashboard 用 `go run ./cmd/dashboard --default-config`。更新教程、架构、能力边界、`example/`、`deploy/` 模板及渲染样例、Ansible、验证脚本、发布说明与索引。 | 新部署示例只需 etcd、Codis 组件和应用连接入口。帮助列出新版选项，旧线使用者可按第 1 节的 SHA 重新编译。历史验证记录保留原环境与 SHA。 |
 | 5 · 构建与签收 | 先跑受影响包，再运行 `make gotest`、`make` 和 `go list -deps ./cmd/... ./pkg/...`。给真实 etcd 集成测试记录可复现命令、版本及运行条件。 | 分别报告代码/本地回归、单成员集成和三成员 Linux 真机结论。无 Linux 环境时可交付实现和已有证据，真机门槛列为待验。 |
 
 ## 7. 交付验收表

@@ -88,7 +88,7 @@ Codis 的目标是让业务像用单机 Redis 一样使用可扩缩容的 Redis 
 | --- | --- | --- |
 | 默认构建 | `make` / `make build-all` 产出当前机器可运行的根 `bin/` 产物；`codis-server` 默认内嵌 Redis 8 并启用 `codis-enabled yes` | 不承诺 Linux 性能基线、fork/RDB、复制、部署包装与最终生产切换结论；不承诺跨大版本 RDB/AOF 兼容 |
 | 平台矩阵 | 发布入口按 `darwin/arm64`、`linux/amd64`、`linux/arm64` 等目标生成独立目录，每个目录是一个平台的完整产物集合 | 不保证在任意 host 上交叉构建任意 target，完整产物仍依赖目标平台环境或配置好的 C/cgo toolchain；不是纯 Go cross build，proxy 与 Codis Server 仍含 C/cgo 边界 |
-| 构建边界 | 构建前检查目标平台与必要工具链，条件不满足直接报错 | 不改变运行期协议、proxy 路由、dashboard 行为或 Redis 数据格式；不负责 Docker 镜像、CI 发布流水线、release 包上传或生产部署编排 |
+| 构建边界 | 构建前检查目标平台与必要工具链，条件不满足直接报错 | 不改变运行期协议、proxy 路由、dashboard 行为或 Redis 数据格式；不负责 CI 发布流水线、release 包上传或生产部署编排 |
 
 ## 相关文档
 

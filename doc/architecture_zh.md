@@ -91,7 +91,7 @@ flowchart LR
 - `go.mod` 声明 `go 1.26.1` 和 `toolchain go1.27.4`。Go 组件的构建与测试都使用 Go modules，`cgo_jemalloc` 依赖通过 `replace github.com/spinlock/jemalloc-go => ./third_party/jemalloc-go` 指向仓库内的模块。
 - `Makefile` 产出 `codis-dashboard`、`codis-proxy`、`codis-admin`、`codis-ha`、`codis-fe`、`codis-shake` 和嵌入式 `codis-server`，并刷新 tracked 的 `config/dashboard.toml`、`config/proxy.toml`、`config/redis.conf`、`config/sentinel.conf`；默认 `make`/`make codis-server` 从 `extern/redis-8.6.3` 构建正式 Redis 8 Codis Server，复制为 `bin/codis-server`、`bin/redis-cli`、`bin/redis-benchmark`、`bin/redis-sentinel`。
 - 显式平台矩阵：`make build-platforms` / `make release-platforms`，默认 `TARGET_PLATFORMS` 为 `darwin/arm64 linux/amd64 linux/arm64`，产物落在 `bin/<os>-<arch>/`；`build-platform-artifact` 先做 target allowlist、unsafe label 校验与 C/cgo cross toolchain guard，非 host full build 缺少 `ALLOW_CROSS_FULL_BUILD=1` 与对应 `PLATFORM_CC_<os>_<arch>` 时 fail-fast。`build-no-redis-platform` 只产出 `bin/<os>-<arch>-no-redis/` 下的 Go 入口、FE assets 和配置副本，不构建 Redis Server 与 helper，也不承诺纯 Go（非 jemalloc allocator 路径仍使用 cgo）。
-- 版本元数据由 `pkg/utils/version.go` 提供 clean checkout 兜底，`version` 脚本生成 `bin/version` 与 `bin/version.ldflags`，Makefile 通过 `-ldflags -X` 注入；发布包装入口为 `Dockerfile`、`scripts/docker.sh`、`example/server.py`、`kubernetes/codis-server.yaml`。
+- 版本元数据由 `pkg/utils/version.go` 提供 clean checkout 兜底，`version` 脚本生成 `bin/version` 与 `bin/version.ldflags`，Makefile 通过 `-ldflags -X` 注入；本地示例入口为 `example/server.py`。
 
 ## 数据与状态
 
@@ -210,7 +210,7 @@ flowchart LR
 | `Makefile`、`extern/redis-8.6.3/Makefile`、`extern/redis-8.6.3/src/Makefile` | `build-all`、`build-platforms`、`release-platforms`、`build-platform-artifact`、`build-no-redis-platform`；Redis 8 源码接入点（`codis_rdb_export.o` 在同一 Makefile 中登记） |
 | `config/redis.conf`、`config/sentinel.conf` | Redis 8 Codis Server tracked 默认模板，`redis.conf` 显式包含 `codis-enabled yes` |
 | `go.mod`、`go.sum` | module 依赖、`replace` 指令与校验锁定 |
-| `Dockerfile`、`scripts/docker.sh`、`example/server.py`、`kubernetes/codis-server.yaml`、`scripts/redis8_local_validation.py`、`scripts/validation/` | 发布包装与本地示例入口；本地 Mac 非性能 validation gate。注意：Docker 入口与 `scripts/redis8_local_validation.py` 里的 filesystem coordinator 配置尚未适配 etcd，见[发布说明](etcd_3_7_release_notes_zh.md)；真机验证脚本（环境搭建、能力场景、Playwright） |
+| `example/server.py`、`scripts/redis8_local_validation.py`、`scripts/validation/` | 本地示例入口；本地 Mac 非性能 validation gate。注意：`scripts/redis8_local_validation.py` 里的 filesystem coordinator 配置尚未适配 etcd，见[发布说明](etcd_3_7_release_notes_zh.md)；真机验证脚本（环境搭建、能力场景、Playwright） |
 
 ## 已知约束与边界
 
@@ -240,7 +240,7 @@ flowchart LR
 - Codis 端拓扑是创建任务时的静态快照（Group Master + 1024 slot 归属），之后不会被跟随；迁移期间不要做 slot 迁移/重平衡或 failover，拓扑变化会导致迁移到错误分片或任务失败。
 - 数据迁移任务不支持断点续传：dashboard 重启后运行中的任务被标记 `failed`，需要重新创建；任务记录只保存在 dashboard 本地 workspace，不写 coordinator。
 - 默认 `make`/`make codis-server` 构建内嵌 Redis 8 Codis Server，`config/redis.conf` 显式 `codis-enabled yes`，但仍不启用 Redis Cluster 协议；`make codis-server-redis8` 只是默认 Redis 8 产物的 suffixed alias。
-- 本地 Mac validation gate 不产出性能、fork/RDB、复制或网络栈的正式结论；所有 throughput/latency、RDB/fork、replication、Docker 包装和生产 cutover 判断以 Linux 验证为准（见 [redis8_validation_zh.md](redis8_validation_zh.md)）。
+- 本地 Mac validation gate 不产出性能、fork/RDB、复制或网络栈的正式结论；所有 throughput/latency、RDB/fork、replication 和生产 cutover 判断以 Linux 验证为准（见 [redis8_validation_zh.md](redis8_validation_zh.md)）。
 
 ### 配置管理与运维语义
 

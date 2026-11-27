@@ -508,7 +508,7 @@ def build_gate_definitions():
         {
             "name": "linux-formal-handoff",
             "command": "review doc/redis8_validation_zh.md (Linux 正式验证要求)",
-            "expected": "Linux e2e, benchmark, fork/RDB, replication, Docker/deploy checks are enumerated",
+            "expected": "Linux e2e, benchmark, fork/RDB and replication checks are enumerated",
             "failure_owner": "validation planning",
             "local_execution": "documented_only",
             "evidence": "doc/redis8_validation_zh.md",

@@ -74,21 +74,12 @@ bin/redis-benchmark -h 127.0.0.1 -p <redis8-direct-port> -t get,set -n <N> -c <C
 bin/redis-benchmark -h 127.0.0.1 -p <codis-proxy-port> -t get,set -n <N> -c <C> -P <P>
 ```
 
-部署包装 gate：
-
-```bash
-make docker
-docker run --rm <codis-image> <smoke-command>
-```
-
-Docker daemon 不可用时只能记为 blocked，不能写成已验证。
-
 ### 必须产出的结果
 
 - 两条 benchmark 的原始输出与测试参数；proxy 相对直连 Redis 8 的开销必须用 Linux 实测，不得用 macOS 数字补位。
 - fork/RDB：`BGSAVE` 是否成功、日志、耗时、RDB 文件大小。执行前记录 `vm.overcommit_memory`，为 0 时记录 Redis 的 overcommit 警告，并在生产切换前评估改为 1。
 - 复制：master/replica link 状态、初次同步、断连恢复。复制关系必须写入持久配置（`redis.conf` 的 `replicaof` 或服务启动参数），不能只执行运行时 `SLAVEOF`；重启副本后要确认 link 恢复且新增写入可读。
-- 迁移与包装：迁移期间持续读写的表现、slot action 是否清零、失败重试行为；镜像构建、启动命令、默认配置与日志路径。
+- 迁移：迁移期间持续读写的表现、slot action 是否清零、失败重试行为。
 
 ### 阻塞条件
 
@@ -96,7 +87,7 @@ Docker daemon 不可用时只能记为 blocked，不能写成已验证。
 - e2e 的 `semi-async` 或 `sync` 任一路径失败。
 - 迁移失败造成源端 key 静默丢失。
 - Redis 8 直连或 proxy 路径性能明显低于可接受阈值，且没有容量预案。
-- fork/RDB、复制、Docker/部署包装任一生产必需路径未验证。
+- fork/RDB、复制任一生产必需路径未验证。
 
 ## 切换手顺
 
@@ -105,7 +96,7 @@ Docker daemon 不可用时只能记为 blocked，不能写成已验证。
 ### 1. Preflight
 
 - 确认当前 Codis commit、默认 `bin/codis-server` 指向 Redis 8，且只使用仓库内 Redis 8 构建产物。
-- 跑完 Linux 功能 gate 与性能 gate，并完成 fork/RDB、复制、迁移期间读写、Docker 包装检查。
+- 跑完 Linux 功能 gate 与性能 gate，并完成 fork/RDB、复制、迁移期间读写检查。
 - 备份 coordinator 元数据、Redis 数据目录、关键配置，记录操作窗口。
 - 明确 Redis 8 的 RDB/AOF 与旧大版本不保证兼容；回滚只能依赖已验证的备份或恢复方案。
 
@@ -155,7 +146,7 @@ Docker daemon 不可用时只能记为 blocked，不能写成已验证。
 ## 真机验证脚本
 
 - 环境：`../scripts/validation/env/collect_env.py` 按上文"必须记录的环境字段"输出 8 类字段（`env-<run-id>.json`）；`setup_cluster.py` / `teardown_cluster.py` 拉起与回收单机验证集群（dashboard、fe、N proxy、N 组 master+replica，filesystem coordinator）。
-- 功能 gate：`../scripts/validation/redis8/run_functional_gate.py` 覆盖上文"必跑命令"中除性能 gate 外的全部：`make build-all`、`make gotest`、5 组 Redis 8 Codis Tcl（含 `codis_rdb_export`）、`scripts/redis8_local_validation.py` e2e；`--docker` 可选执行部署包装 gate，daemon 不可用时记 blocked。
+- 功能 gate：`../scripts/validation/redis8/run_functional_gate.py` 覆盖上文"必跑命令"中除性能 gate 外的全部：`make build-all`、`make gotest`、5 组 Redis 8 Codis Tcl（含 `codis_rdb_export`）、`scripts/redis8_local_validation.py` e2e。
 - 安全回归：`../scripts/validation/security/run_dependency_audit.py` 覆盖 govulncheck、`go build` / `go test`、`npm audit`、Redis 3 移除断言与 `codis-server` 版本。
 - 证据：`redis8-gate-<run-id>.json`、`env-<run-id>.json`、`security-audit-<run-id>.json`，默认在 `.runtime/realmachine/`；退出码 0 / 1 / 2 分别对应 passed / failed / blocked|skipped。
 - 性能 gate 按要求暂未脚本化：`redis-benchmark` 的参数与执行未入脚本，性能结论仍按上文手工执行并记录。

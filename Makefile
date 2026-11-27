@@ -32,7 +32,7 @@ TARGET_REDIS_MAKE_ARGS := $($(TARGET_REDIS_MAKE_ARGS_VAR))
 GO_BUILD_ENV = GOOS=$(TARGET_OS) GOARCH=$(TARGET_ARCH) CGO_ENABLED=$(TARGET_CGO_ENABLED) $(if $(TARGET_CC),CC="$(TARGET_CC)")
 REDIS_BUILD_ENV = $(if $(TARGET_CC),CC="$(TARGET_CC)") $(if $(TARGET_CXX),CXX="$(TARGET_CXX)") $(TARGET_REDIS_MAKE_ARGS)
 
-.PHONY: build-all host-build-all build-host codis-deps jemalloc-config validate-target-platform check-target-platforms check-target-platform default-configs build-platforms release-platforms build-platform build-platform-artifact build-no-redis-platform codis-dashboard codis-proxy codis-admin codis-ha codis-fe codis-shake codis-server codis-server-redis8 clean-gotest clean distclean gotest gobench lint docker demo
+.PHONY: build-all host-build-all build-host codis-deps jemalloc-config validate-target-platform check-target-platforms check-target-platform default-configs build-platforms release-platforms build-platform build-platform-artifact build-no-redis-platform codis-dashboard codis-proxy codis-admin codis-ha codis-fe codis-shake codis-server codis-server-redis8 clean-gotest clean distclean gotest gobench lint demo
 
 build-all: host-build-all
 
@@ -109,7 +109,7 @@ default-configs: codis-deps $(JEMALLOC_CONFIG_DEP)
 	@awk '1; /^[[:space:]]*databases[[:space:]]+[0-9]+([[:space:]]*#.*)?$$/ && !injected { print ""; print "# Enable Codis 1024-slot mode for the packaged Codis Server."; print "codis-enabled yes"; print ""; print "# Codis Redis 8 slot migration auth. Empty values keep using requirepass for"; print "# backward-compatible migration auth. Set both fields to use Redis ACL named user."; print "codis-migration-auth-user \"\""; print "codis-migration-auth-pass \"\""; injected=1 }' $(REDIS8_DIR)/redis.conf | sed -e 's/[[:blank:]]*$$//' > config/redis.conf
 	@grep -q '^codis-enabled yes$$' config/redis.conf
 	@sed -e "s/^sentinel/# sentinel/g" -e 's/[[:blank:]]*$$//' $(REDIS8_DIR)/sentinel.conf > config/sentinel.conf
-	@awk '1; /^protected-mode no$$/ { print ""; print "# Codis packaging note: Docker and Kubernetes examples rely on network-layer"; print "# isolation when Sentinel protected mode is disabled. Bare-metal deployments"; print "# should restrict exposure with firewall rules or override this setting." }' config/sentinel.conf > config/sentinel.conf.tmp
+	@awk '1; /^protected-mode no$$/ { print ""; print "# Codis packaging note: Sentinel protected mode is disabled above. Restrict"; print "# exposure with firewall rules or override this setting." }' config/sentinel.conf > config/sentinel.conf.tmp
 	@mv config/sentinel.conf.tmp config/sentinel.conf
 
 build-platform: build-platform-artifact
@@ -217,7 +217,7 @@ codis-server:
 	@awk '1; /^[[:space:]]*databases[[:space:]]+[0-9]+([[:space:]]*#.*)?$$/ && !injected { print ""; print "# Enable Codis 1024-slot mode for the packaged Codis Server."; print "codis-enabled yes"; print ""; print "# Codis Redis 8 slot migration auth. Empty values keep using requirepass for"; print "# backward-compatible migration auth. Set both fields to use Redis ACL named user."; print "codis-migration-auth-user \"\""; print "codis-migration-auth-pass \"\""; injected=1 }' $(REDIS8_DIR)/redis.conf | sed -e 's/[[:blank:]]*$$//' > config/redis.conf
 	@grep -q '^codis-enabled yes$$' config/redis.conf
 	@sed -e "s/^sentinel/# sentinel/g" -e 's/[[:blank:]]*$$//' $(REDIS8_DIR)/sentinel.conf > config/sentinel.conf
-	@awk '1; /^protected-mode no$$/ { print ""; print "# Codis packaging note: Docker and Kubernetes examples rely on network-layer"; print "# isolation when Sentinel protected mode is disabled. Bare-metal deployments"; print "# should restrict exposure with firewall rules or override this setting." }' config/sentinel.conf > config/sentinel.conf.tmp
+	@awk '1; /^protected-mode no$$/ { print ""; print "# Codis packaging note: Sentinel protected mode is disabled above. Restrict"; print "# exposure with firewall rules or override this setting." }' config/sentinel.conf > config/sentinel.conf.tmp
 	@mv config/sentinel.conf.tmp config/sentinel.conf
 
 codis-server-redis8: codis-server
@@ -249,9 +249,6 @@ gobench: codis-deps
 lint:
 	go vet ./cmd/... ./pkg/...
 	golangci-lint run ./cmd/... ./pkg/...
-
-docker:
-	docker build --force-rm -t codis-image .
 
 demo:
 	pushd example && make

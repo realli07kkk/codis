@@ -26,7 +26,6 @@
 - `make codis-proxy` 和 `make codis-dashboard` 会顺带刷新对应默认配置文件，配置文件格式属于对外契约，不要随手改动。
 - `make codis-server` 生成 `config/redis.conf` 时会在 `databases` 行后注入 `codis-enabled yes`（1024 slot 模式）和 `codis-migration-auth-user` / `codis-migration-auth-pass` 空占位，并校验注入结果；`config/sentinel.conf` 由 Redis 8 的 `sentinel.conf` 注释掉 `sentinel` 行后生成。这两份文件是生成物，改配置模板请改 `extern/redis-8.6.3` 下的原始文件。
 - Go 单组件 target 依赖 `codis-deps`，创建 `bin/`、`config/`、`scripts/tmp/` 并用 `version` 脚本生成 `bin/version` 与 `bin/version.ldflags`。`codis-server` target 直接构建内嵌 Redis。
-- 除非任务明确要求容器相关内容，不要改动 `Dockerfile` 或 docker 脚本，也不要把 `docker build` 当作默认必跑步骤。
 
 绕过 make 直接构建单个组件也能跑通，代价是不会刷新默认配置，适合快速验证：
 
@@ -109,7 +108,7 @@ make build-no-redis-platform TARGET_OS=darwin TARGET_ARCH=arm64
 
 1. 不保证在任意 host 上完整交叉构建任意 target；完整跨平台产物仍依赖目标平台构建环境或明确配置好的 C/cgo cross toolchain。
 2. 不改变运行期协议、proxy 路由、dashboard 行为或 Redis 数据格式。
-3. 不负责 Docker 镜像、CI 发布流水线、release 包上传或生产部署编排。
+3. 不负责 CI 发布流水线、release 包上传或生产部署编排。
 4. 完整平台产物包含 C/C++ 构建的 Redis Server 和使用 `cgo_jemalloc` 的 proxy。Go 入口在 `CGO_ENABLED=0` 且省略 `cgo_jemalloc` 时有 Go 分配器回退。平台 target 生成默认配置的 host 阶段仍使用 `cgo_jemalloc`。
 
 两个不要：不要为了通用 C 交叉编译去改 `extern/redis-8.6.3/src/Makefile`（平台检测归上游维护）；不要把不同平台的产物平铺进根 `bin/` 的文件名空间。
@@ -137,7 +136,7 @@ make build-no-redis-platform TARGET_OS=darwin TARGET_ARCH=arm64
 | `bin/` | 构建产物，`make clean` 直接删除，不要手工编辑 |
 | `scripts/tmp/` | 构建中间产物（含 host 侧默认配置生成用的二进制） |
 | `admin/` | 本地快速启动脚本 |
-| `deploy/`、`kubernetes/`、`ansible/` | 部署材料 |
+| `deploy/`、`ansible/` | 部署材料 |
 
 - 只有一处 Redis 8 源码：`extern/redis-8.6.3/`，不要另建根目录 `redis-8.6.3/`。`extern/redis-8.6.3/` 不能被 `.gitignore` 忽略，否则 Redis 8 的补丁改动无法被 `git status` 看到。
 - `extern/` 下的生成物（`.o`、`.a`、jemalloc 的 `Makefile` / `lib/`）不要提交，也不要手改；需要重建时用 `make clean` / `make distclean` 再走正常构建。

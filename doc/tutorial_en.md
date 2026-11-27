@@ -267,10 +267,6 @@ cd ansible
 ansible-playbook -i hosts site.yml
 ```
 
-### Docker (not adapted)
-
-The repository's `Dockerfile`, `make docker` and `scripts/docker.sh` still package the old line and have not been adapted to etcd 3.7: their coordinator options and default configuration are unchanged, so starting them produces the removed-option error. Until that work is done, deploy with the `bin/` binaries or write your own image and supply `--etcd` / `--etcd-config` as described under "Configuration and deployment". The status is recorded in the [release notes](etcd_3_7_release_notes_zh.md).
-
 ## Proxy availability and discovery
 
 A product can have multiple proxies, kept in sync by the Dashboard through its admin API.

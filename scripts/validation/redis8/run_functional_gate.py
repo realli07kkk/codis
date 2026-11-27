@@ -1,14 +1,13 @@
 #!/usr/bin/env python3
 """Orchestrate the Redis 8 functional gates on a real machine.
 
-Cases: build-all, gotest, tcl-codis, e2e-local and (opt-in) docker. Every case
-is recorded in one Evidence JSON file; the exit code follows the evidence
-status (0 passed, 1 failed, 2 blocked/skipped).
+Cases: build-all, gotest, tcl-codis and e2e-local. Every case is recorded in one
+Evidence JSON file; the exit code follows the evidence status (0 passed, 1
+failed, 2 blocked/skipped).
 """
 
 import argparse
 import json
-import re
 import shutil
 import sys
 from pathlib import Path
@@ -20,14 +19,12 @@ import vlib
 REPO_FEATURE = "redis8-functional-gate"
 SCOPE = "functional gates only; performance and formal cutover verdict are out of scope"
 
-GROUPS = ("build", "gotest", "tcl", "e2e", "docker")
+GROUPS = ("build", "gotest", "tcl", "e2e")
 
 BUILD_TIMEOUT = 45 * 60
 GOTEST_TIMEOUT = 45 * 60
 TCL_TIMEOUT = 30 * 60
 E2E_TIMEOUT = 30 * 60
-DOCKER_BUILD_TIMEOUT = 30 * 60
-DOCKER_RUN_TIMEOUT = 5 * 60
 
 TCL_SUITES = (
     "unit/codis",
@@ -59,11 +56,6 @@ def build_parser():
         help="run only these groups (repeatable); default: all",
     )
     parser.add_argument("--skip-build", action="store_true", help="do not run make build-all")
-    parser.add_argument(
-        "--docker",
-        action="store_true",
-        help="also run the docker image gate (skipped by default)",
-    )
     parser.add_argument(
         "--keep-temp", action="store_true", help="pass --keep-temp through to the e2e script"
     )
@@ -162,59 +154,6 @@ def run_e2e(evidence, repo, workdir, keep_temp):
                 case.step("e2e evidence is not valid JSON", error=str(err))
 
 
-def run_docker(evidence, repo, workdir, enabled):
-    with evidence.case("docker", "docker image build and smoke run") as case:
-        if not enabled:
-            case.skip("docker gate runs only with --docker")
-            return
-        docker_bin = shutil.which("docker")
-        case.set(docker=docker_bin)
-        if not docker_bin:
-            case.blocked("docker CLI not found on PATH")
-            return
-        info = vlib.run([docker_bin, "info"], cwd=repo, timeout=120, check=False)
-        if info["returncode"] != 0:
-            case.blocked(
-                "docker daemon is not available: {}".format(info["stderr"].strip()[:500])
-            )
-            return
-        image = docker_image_name(repo)
-        case.set(image=image)
-        build_log = workdir / "docker-build.log"
-        build = record(
-            case,
-            vlib.run(
-                ["make", "docker"], cwd=repo, timeout=DOCKER_BUILD_TIMEOUT, check=False, log_path=build_log
-            ),
-            build_log,
-        )
-        if build["returncode"] != 0:
-            case.fail("make docker exited {}".format(build["returncode"]))
-            return
-        case.step("make docker finished", returncode=build["returncode"], log=str(build_log))
-        smoke_log = workdir / "docker-run.log"
-        smoke = record(
-            case,
-            vlib.run(
-                [docker_bin, "run", "--rm", image, "codis-server", "--version"],
-                cwd=repo,
-                timeout=DOCKER_RUN_TIMEOUT,
-                check=False,
-                log_path=smoke_log,
-            ),
-            smoke_log,
-        )
-        case.set(smoke_command="docker run --rm {} codis-server --version".format(image))
-        if smoke["returncode"] != 0:
-            case.fail("docker run exited {}".format(smoke["returncode"]))
-
-
-def docker_image_name(repo):
-    text = vlib.read_text(repo / "Makefile")
-    match = re.search(r"docker build[^\n]*?-t\s+([^\s]+)", text)
-    return match.group(1) if match else "codis-image"
-
-
 def main(argv=None):
     args = build_parser().parse_args(argv)
     repo = vlib.find_repo(args.repo)
@@ -298,9 +237,6 @@ def main(argv=None):
 
         if "e2e" in selected:
             run_e2e(evidence, repo, workdir, args.keep_temp)
-
-        if "docker" in selected:
-            run_docker(evidence, repo, workdir, args.docker)
 
         return evidence.exit_code()
 

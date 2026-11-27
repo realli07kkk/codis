@@ -22,7 +22,7 @@
 
 - 不改变 Redis 协议、slot 路由、迁移、ACL、QPS limit、hot key cache、PITR、RDB Analysis 的外部语义。
 - 不改变既有命令行参数名称、配置 key、HTTP API 路径、方法、鉴权规则和成功响应结构。
-- 不修改 `third_party/`、`extern/`、Docker 或部署配置。
+- 不修改 `third_party/`、`extern/` 或部署配置。
 - 不运行全量 `go mod tidy`；`go.mod` / `go.sum` 只允许由本次实际替换驱动的最小编辑。
 - 不为追求“现代 API 使用率”牺牲可审计性。标准库不能表达原有语义时，保留原实现并在本文记录理由。
 - 性能改造必须先分析对象所有权，再补充回归和基准；不使用全局缓存改变请求之间的隔离性。

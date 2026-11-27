@@ -2,7 +2,7 @@
 
 ## Project Structure & Module Organization
 
-Codis uses Go modules (`go.mod` / `go.sum`, `go 1.26.1`) as its default build path; the module is `github.com/CodisLabs/codis`. Executable entry points live in `cmd/` (`dashboard`, `proxy`, `admin`, `ha`, `fe`, `shake`). Core packages live in `pkg/`, including proxy routing, topology management, models, Redis protocol helpers, and utilities. Runtime configs are under `config/`. Deployment resources are in `deploy/`, `kubernetes/`, and `ansible/`. Documentation and images are in `doc/`; examples and helper scripts are in `example/` and `scripts/`. Embedded Redis sources are in `extern/`; the `cgo_jemalloc` build tag uses `third_party/jemalloc-go` via `go.mod` replace. Old `vendor/` and `Godeps/` directories have been retired.
+Codis uses Go modules (`go.mod` / `go.sum`, `go 1.26.1`) as its default build path; the module is `github.com/CodisLabs/codis`. Executable entry points live in `cmd/` (`dashboard`, `proxy`, `admin`, `ha`, `fe`, `shake`). Core packages live in `pkg/`, including proxy routing, topology management, models, Redis protocol helpers, and utilities. Runtime configs are under `config/`. Deployment resources are in `deploy/` and `ansible/`. Documentation and images are in `doc/`; examples and helper scripts are in `example/` and `scripts/`. Embedded Redis sources are in `extern/`; the `cgo_jemalloc` build tag uses `third_party/jemalloc-go` via `go.mod` replace. Old `vendor/` and `Godeps/` directories have been retired.
 
 ## Build, Test, and Development Commands
 
@@ -12,7 +12,6 @@ Codis uses Go modules (`go.mod` / `go.sum`, `go 1.26.1`) as its default build pa
 - `make codis-proxy` or `make codis-dashboard`: builds one binary and refreshes its default config.
 - `make clean`: removes `bin/`, `scripts/tmp`, and test temp files.
 - `make distclean`: also cleans embedded Redis and jemalloc build output.
-- `make docker`: builds the `codis-image` Docker image.
 
 ## Coding Style & Naming Conventions
 
@@ -49,4 +48,3 @@ Hard constraints worth repeating here:
 - Building `codis-server` requires a C/C++ toolchain and autotools (`gcc`, `gcc-c++`, `autoconf`, `automake`, `libtool` on EL/Rocky or apt equivalents); jemalloc autogen/configure/make runs automatically.
 - On darwin, `/bin/true` and `/bin/false` usually live under `/usr/bin`; in `os/exec` tests use `exec.LookPath` or a multi-path fallback instead of hardcoding `/bin/xxx`.
 - Use `python3`, not `python`, for repository scripts.
-- Do not modify Dockerfiles or Docker scripts unless the task explicitly asks for it.

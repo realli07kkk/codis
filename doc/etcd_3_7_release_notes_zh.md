@@ -49,11 +49,9 @@
 | 入口 | 状态 | 说明 |
 | --- | --- | --- |
 | `deploy/` | **已适配** | 模板与渲染样例改为 etcd 连接参数（无 `coordinator_auth`、无 `jodis_*`）；首次建群预检脚本化 |
-| `kubernetes/` | **已适配** | 新增 etcd StatefulSet/Service 与 `codis-etcd-config.yaml` ConfigMap；`start.sh` 含首次建群预检 |
 | `ansible/` | **已适配** | 角色变量与模板改为 etcd 连接参数 |
 | `example/` | **已适配** | 示例配置与启动命令按新线再生 |
-| `Dockerfile`、`make docker`、`scripts/docker.sh` | **未适配 etcd** | 镜像与脚本仍是旧线 coordinator 参数与默认配置，按它们启动会得到旧参数报错；适配前请用 `bin/` 产物部署或自建镜像并显式提供 `--etcd`/`--etcd-config` |
-| `deploy/Makefile` | **未动** | 按仓库约定本次未改；其中的镜像相关目标同样属于未适配范围 |
+| `deploy/Makefile` | **未动** | 按仓库约定本次未改 |
 | `scripts/validation/env/*`、`scripts/redis8_local_validation.py` | **未适配（后续验证工作）** | 仍生成旧线 coordinator 配置，不作为新线建群证据；新线本地端到端证据见[实施交付记录](etcd_3_7_implementation_record_zh.md) §8.4 |
 
 ## 6. 验证状态

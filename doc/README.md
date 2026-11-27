@@ -6,7 +6,7 @@ Codis 是基于代理的高性能 Redis 集群方案。本目录是项目的全�
 
 ## 入门与使用
 
-- [tutorial_zh.md](tutorial_zh.md) / [tutorial_en.md](tutorial_en.md)：主线构建、etcd 3.7 前置准备与连接文件、四条启动命令、两 group 建群、拓扑锁与人工恢复、Proxy 在线注册与 CLUSTER NODES、HA；Docker 小节标注未适配；中文教程附 Codis 2.x 元数据迁移历史说明（仅旧线）
+- [tutorial_zh.md](tutorial_zh.md) / [tutorial_en.md](tutorial_en.md)：主线构建、etcd 3.7 前置准备与连接文件、四条启动命令、两 group 建群、拓扑锁与人工恢复、Proxy 在线注册与 CLUSTER NODES、HA；中文教程附 Codis 2.x 元数据迁移历史说明（仅旧线）
 - [FAQ_zh.md](FAQ_zh.md) / [FAQ_en.md](FAQ_en.md)：常见问题
 - [unsupported_cmds.md](unsupported_cmds.md)：Proxy 不支持与半支持的命令清单
 
@@ -62,5 +62,4 @@ Codis 是基于代理的高性能 Redis 集群方案。本目录是项目的全�
 - [../pkg/shake/README.md](../pkg/shake/README.md)：内嵌 RedisShake 内核的来源版本、与上游的差异、为什么每个迁移任务一个进程、升级上游的流程
 - [../third_party/rdb/README.md](../third_party/rdb/README.md)：RDB 解析器 fork 相对上游 v1.3.2 的改动（RDB v13、stream/IDMP、KEY_META/SLOT_INFO 跳过）
 - [../cmd/fe/assets/README.md](../cmd/fe/assets/README.md)：codis-fe 前端的结构、部署到真实集群、内置 Mock 预览、状态与监控数据
-- [../kubernetes/README.md](../kubernetes/README.md)：k8s 上 buildup / cleanup / 扩容 proxy 与 server 的脚本用法
 - [../scripts/validation/README.md](../scripts/validation/README.md)：真机验证脚本总索引（环境搭建 / 采集 / 清理、各能力场景脚本、Playwright 浏览器用例、证据约定）

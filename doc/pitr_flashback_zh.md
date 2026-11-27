@@ -41,7 +41,7 @@ aof-timestamp-enabled yes
 | 磁盘 | snapshot 与 AOF 目录同文件系统，可用空间不小于最后一个 segment 文件大小。 | feasibility 失败，server 仍在线。 |
 | 工具 | dashboard 主机可执行 `redis-check-aof`，版本应与目标 Redis 一致。 | create 阶段拒绝。 |
 | 文件系统 | dashboard 进程对目标 server 的 AOF 目录有直接读写权限。 | 首版不支持跨机文件操作，无法执行。 |
-| 进程管理 | Redis 由 systemd/supervisor/k8s 等外部进程管理器接管；生产环境应使用 `Restart=no` 或 `Restart=on-failure`。 | `Restart=always` 会在 `SHUTDOWN NOSAVE` 后立即拉起实例，与停服窗口竞争。 |
+| 进程管理 | Redis 由 systemd/supervisor 等外部进程管理器接管；生产环境应使用 `Restart=no` 或 `Restart=on-failure`。 | `Restart=always` 会在 `SHUTDOWN NOSAVE` 后立即拉起实例，与停服窗口竞争。 |
 | 访问控制 | API 要求 `xauth`，且 `pitr_enabled=true`。 | 请求被拒绝。 |
 | 业务影响 | 恢复期间该 group 承载的 slot 写入会失败。 | dashboard 不自动切 slot，需自行评估或提前切流。 |
 
