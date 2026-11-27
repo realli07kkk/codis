@@ -45,8 +45,6 @@ var (
 	ErrNotExist = errors.New("key does not exist")
 	// ErrClosedClient is returned by every method of a closed Client.
 	ErrClosedClient = errors.New("use of closed in-memory client")
-	// ErrNotSupported is returned by the pre-3.7 watch/ephemeral methods.
-	ErrNotSupported = errors.New("operation not supported")
 )
 
 var (
@@ -286,31 +284,6 @@ func (c *Client) begin() error {
 		return errors.Trace(ErrClosedClient)
 	}
 	return nil
-}
-
-// WatchInOrder is part of the pre-3.7 models.Client; the in-memory double has
-// no ordered-watch support.
-func (c *Client) WatchInOrder(p string) (<-chan struct{}, []string, error) {
-	if err := c.begin(); err != nil {
-		return nil, nil, err
-	}
-	return nil, nil, errors.Trace(ErrNotSupported)
-}
-
-// CreateEphemeral is part of the pre-3.7 models.Client.
-func (c *Client) CreateEphemeral(p string, data []byte) (<-chan struct{}, error) {
-	if err := c.begin(); err != nil {
-		return nil, err
-	}
-	return nil, errors.Trace(ErrNotSupported)
-}
-
-// CreateEphemeralInOrder is part of the pre-3.7 models.Client.
-func (c *Client) CreateEphemeralInOrder(p string, data []byte) (<-chan struct{}, string, error) {
-	if err := c.begin(); err != nil {
-		return nil, "", err
-	}
-	return nil, "", errors.Trace(ErrNotSupported)
 }
 
 // cleanPath normalizes keys so that byte-identical paths map to one entry.

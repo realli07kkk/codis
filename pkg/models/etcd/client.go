@@ -443,29 +443,3 @@ func (c *Client) Close() error {
 	}
 	return nil
 }
-
-// WatchInOrder is part of the pre-3.7 models.Client; the etcd coordinator line
-// has no ordered-watch support.
-func (c *Client) WatchInOrder(path string) (<-chan struct{}, []string, error) {
-	if err := c.checkOpen(); err != nil {
-		return nil, nil, err
-	}
-	return nil, nil, &OpError{Op: "watch", Key: path, Err: ErrNotSupported, Kind: KindRejected}
-}
-
-// CreateEphemeral is part of the pre-3.7 models.Client; ephemeral keys are
-// bound to a lease through the lease API instead.
-func (c *Client) CreateEphemeral(path string, data []byte) (<-chan struct{}, error) {
-	if err := c.checkOpen(); err != nil {
-		return nil, err
-	}
-	return nil, &OpError{Op: "create-ephemeral", Key: path, Err: ErrNotSupported, Kind: KindRejected}
-}
-
-// CreateEphemeralInOrder is part of the pre-3.7 models.Client.
-func (c *Client) CreateEphemeralInOrder(path string, data []byte) (<-chan struct{}, string, error) {
-	if err := c.checkOpen(); err != nil {
-		return nil, "", err
-	}
-	return nil, "", &OpError{Op: "create-ephemeral", Key: path, Err: ErrNotSupported, Kind: KindRejected}
-}

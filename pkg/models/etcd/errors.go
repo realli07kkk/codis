@@ -25,10 +25,6 @@ var (
 	// ErrNotExist means the key (or the path prefix) was missing while
 	// must=true required it.
 	ErrNotExist = errors.New("key does not exist")
-
-	// ErrNotSupported means the caller used an operation the etcd coordinator
-	// line does not implement (the pre-3.7 watch/ephemeral methods).
-	ErrNotSupported = errors.New("operation not supported")
 )
 
 // Kind is the outcome class of an error, designed for callers that must tell
@@ -122,8 +118,6 @@ func Classify(err error) Kind {
 		return KindExist
 	case stderrors.Is(err, ErrClosedClient):
 		return KindOther
-	case stderrors.Is(err, ErrNotSupported):
-		return KindRejected
 	case stderrors.Is(err, context.DeadlineExceeded), stderrors.Is(err, context.Canceled):
 		return KindUnknown
 	case stderrors.Is(err, io.EOF), stderrors.Is(err, io.ErrUnexpectedEOF):

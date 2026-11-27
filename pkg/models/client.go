@@ -1,16 +1,14 @@
 // Copyright 2016 CodisLabs. All Rights Reserved.
 // Licensed under the MIT (MIT-LICENSE.txt) license.
 
+// Package models holds the Codis metadata models and the client interface the
+// coordinator is accessed through.
+//
+// The only backend on the etcd line is etcd (pkg/models/etcd). This package
+// never imports a concrete coordinator: each component entry builds the
+// client (cmd/internal/coordinator) and injects it into the store, the topom
+// and the proxy. Tests use the in-memory pkg/models/modelstest client.
 package models
-
-import (
-	"time"
-
-	"github.com/CodisLabs/codis/pkg/models/consul"
-	"github.com/CodisLabs/codis/pkg/models/fs"
-	"github.com/CodisLabs/codis/pkg/models/zk"
-	"github.com/CodisLabs/codis/pkg/utils/errors"
-)
 
 type Client interface {
 	Create(path string, data []byte) error
@@ -21,11 +19,6 @@ type Client interface {
 	List(path string, must bool) ([]string, error)
 
 	Close() error
-
-	WatchInOrder(path string) (<-chan struct{}, []string, error)
-
-	CreateEphemeral(path string, data []byte) (<-chan struct{}, error)
-	CreateEphemeralInOrder(path string, data []byte) (<-chan struct{}, string, error)
 }
 
 // LockClient is implemented by coordinators that support the revision-conditioned
@@ -40,16 +33,4 @@ type LockClient interface {
 	// DeleteByCreateRevision: Txn(CreateRevision(key)==createRevision) → Delete.
 	// succeeded=false when the key is missing or has another create_revision.
 	DeleteByCreateRevision(path string, createRevision int64) (succeeded bool, err error)
-}
-
-func NewClient(coordinator string, addrlist string, auth string, timeout time.Duration) (Client, error) {
-	switch coordinator {
-	case "zk", "zookeeper":
-		return zkclient.New(addrlist, auth, timeout)
-	case "fs", "filesystem":
-		return fsclient.New(addrlist)
-	case "consul":
-		return consulclient.New(addrlist, auth, timeout)
-	}
-	return nil, errors.Errorf("invalid coordinator name = %s", coordinator)
 }
