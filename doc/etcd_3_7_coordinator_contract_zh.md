@@ -1,6 +1,6 @@
 # 新建 Codis 集群使用 etcd 3.7 的实施契约
 
-**实施交接版 v1.1 · 2026-11-26。** 实施 Agent 首先完成第 0 节 P0 调研，再按第 1–5 节的对外行为开发，第 6 节给出开发顺序，第 7 节用于签收。实现与验证均待执行。适用场景为使用新版 Codis，在 etcd 的空 product 命名空间中首次建群。存量集群的后端迁移、原地替换和跨版本回退均在本契约范围之外。
+**实施交接版 v1.3 · 2026-11-28（按 A6 真机裁决修订 Dashboard 启动失败与单成员隔离口径）。** 实施 Agent 首先完成第 0 节 P0 调研，再按第 1–5 节的对外行为开发，第 6 节给出开发顺序，第 7 节用于签收。P0 调研与第 1 步已完成，进度与证据见[实施交付记录](etcd_3_7_implementation_record_zh.md)。适用场景为使用新版 Codis，在 etcd 的空 product 命名空间中首次建群。存量集群的后端迁移、原地替换和跨版本回退均在本契约范围之外。
 
 ## 0. P0 前置调研：Go 依赖链与 gRPC 的影响
 
@@ -15,7 +15,7 @@ Codis 基线为 `c635ade0424a1448fb251f32b88d64ca7cf9a555`，本地 Go 1.27.4、
 | etcd SDK、gRPC-Go | `client/v3`、`google.golang.org/grpc` 均不在当前选定模块中 | Codis 新增直接依赖 `go.etcd.io/etcd/client/v3 v3.7.4`；它要求 `go.etcd.io/etcd/api/v3`、`go.etcd.io/etcd/client/pkg/v3` 同为 v3.7.4，要求 `google.golang.org/grpc v1.83.2`。若 Codis 自己导入 `grpc/status` 等包，再按实际 import 记为直接依赖。 |
 | 两代 protobuf Go 模块 | 已选 `google.golang.org/protobuf v1.34.1`、`github.com/golang/protobuf v1.5.0` | 客户端分别要求 v1.36.11 和 v1.5.4。前者供生成代码使用，客户端 KV 源码也直接引用后者的兼容包；两条模块路径要分别列差异。 |
 | 日志、生成代码相关包 | `go.uber.org/zap` 不在当前选定模块中 | 客户端要求 zap v1.27.1；etcd API 要求 `grpc-gateway/v2 v2.29.0` 和 `genproto/googleapis/{api,rpc}`。核对实际进入各命令的包，例如生成消息引用的 OpenAPI options；业务范围不含网关监听或替换 Codis 日志系统。 |
-| 指标与其他传递依赖 | 现有 `armon/go-metrics` 已要求 `prometheus/client_golang v1.4.0`，六入口默认包图未包含其包 | client/v3 声明 `client_golang v1.23.2` 和 gRPC Prometheus provider v1.1.0。gRPC 自身还声明 OpenTelemetry、xDS 等模块。对这些体量较大的依赖，分别记录模块选版、实际导入包和是否启用运行行为；本方案不要求启用 exporter、指标端口或 xDS。 |
+| 指标与其他传递依赖 | 现有 `armon/go-metrics` 已要求 `prometheus/client_golang v1.4.0`，六入口默认包图未包含其包 | client/v3 声明 `client_golang v1.23.2` 和 gRPC Prometheus provider v1.1.0。gRPC 自身还声明 OpenTelemetry、xDS 等模块。对这些体量较大的依赖，分别记录模块选版、实际导入包和是否启用运行行为；client/v3 v3.7.4 默认不注册 Prometheus collector（上游示例显式创建并注册 collector；P0 实测创建客户端及执行 RPC 前后均为 34 个指标族）。本方案不要求启用 exporter、指标端口或 xDS。 |
 | 已有公共模块 | 已选 `x/net v0.62.0`、`x/sys v0.49.0`、`x/text v0.43.0`，以及 `go-humanize v1.0.1`、`xxhash/v2 v2.3.0` | 这些版本与 client/v3 清单对应项相同。检查合图后是否还有其他依赖抬高版本，避免把所有上游模块都列成新增。 |
 | 旧驱动与本地构建 | `github.com/go-zookeeper/zk v1.0.4`、`github.com/hashicorp/consul/api v1.34.3` 为直接依赖；filesystem 是仓内 Go 包 | 三个生产驱动都要移除。Consul 专属间接依赖逐条以引用链确认，共享模块按实际使用保留。Codis 的本地 RDB、jemalloc 两项 `replace` 保留；上游开发仓的相对 `replace` 不复制进 Codis。 |
 
@@ -80,7 +80,7 @@ done
 
 锁键为 `/codis3/{product}/topom`，不附 lease。值保留现有 Topom JSON 和 `admin_addr`，新增 `owner_id`。每次启动生成随机 UUID，本进程重试沿用同一个 ID。同 product、同监听地址重启仍须产生不同 ID，原 Topom token 保留其原有用途。[Topom 模型](../pkg/models/topom.go) · [启动、后台任务与关闭](../pkg/topom/topom.go)
 
-1. **获得所有权。** 用同一事务比较锁键版本为 0 并写入 Topom。成功时记下该键的 `create_revision`。若应答不确定，线性一致地读取锁；值为本实例时取回 revision 并继续，值为其他实例时报冲突。键缺失时只允许用原 owner ID 重试条件创建。未确认持锁期间不得开放管理写入或启动后台拓扑动作。
+1. **获得所有权。** 用同一事务比较锁键版本为 0 并写入 Topom。成功时记下该键的 `create_revision`。若应答不确定，线性一致地读取锁；值为本实例时取回 revision 并继续，值为其他实例时报冲突。键缺失时只允许用原 owner ID 重试条件创建。未确认持锁期间不得开放管理写入或启动后台拓扑动作。**启动失败**：建连或鉴权失败（抢锁事务尚未发出）时，Dashboard 报出脱敏原因并非零退出，由进程管理器退避重启，不在此阶段重试；抢锁事务发出后若结果未知，仍须按本条用原 `owner_id` 线性一致回读，确认持锁后才能上线。
 2. **正常释放。** 停止接收新的管理写入，等待进行中的管理动作和后台任务退出，再用事务比较锁键 `CreateRevision == 本次取得的 revision` 并删除。比较失败表示所有权已变更。取得锁后若初始化失败，同样按本次 revision 清理再失败退出。锁记录在一次持有期间不可被原地更新。
 3. **异常恢复。** 进程异常退出时保留持久锁。运维先隔离原进程和自动拉起机制，再检查锁并显式提交观察到的 revision。Dashboard 的启动参数 `--remove-lock` 移除。Admin 新增和修改的命令如下，示例中的 revision 是操作者上一步实际读到的值。
 
@@ -98,11 +98,14 @@ codis-admin --etcd-config=etcd.toml --product=demo --remove-lock --expected-revi
 | 字段 | 类型与默认值 | 规则 |
 | --- | --- | --- |
 | `endpoints` | 字符串数组；未给出时按下文优先级取值 | 一个或多个同集群的 HTTP(S) 客户端 URL。拒绝空项、嵌入凭据、文件路径、混用 HTTP/HTTPS。CLI 以逗号分隔，去除项间空白。 |
-| `dial_timeout`、`request_timeout` | Go duration 字符串，均为 `"5s"` | 必须大于 0。分别用于客户端连接设置和单次 KV/Txn RPC；Dashboard 用实际抢锁 RPC 确认可写。lease 续约流由进程 context 管理。 |
+| `dial_timeout` | Go duration 字符串，默认 `"5s"` | 必须大于 0。用于 Codis 的连接预检和 SDK 构造期获取鉴权 token；首次 lease 续约等待由 SDK 设为 dial_timeout + 1s。版本检查仅在启用 RejectOldCluster 时使用该值，Codis 当前未启用。gRPC 实际 TCP 建连没有独立的 dial_timeout 上限。 |
+| `request_timeout` | Go duration 字符串，默认 `"5s"` | 必须大于 0。每次业务 KV/Txn 调用的总预算，包含该调用内的 SDK 重试；Dashboard 用实际抢锁 RPC 确认可写。lease 续约流由进程 context 管理。 |
 | `username`、`password` | 字符串，默认空 | 同设或同空。含密码的生产文件仅授予运行账号读取权限。禁止通过 CLI、URL、日志、配置回显或错误文本暴露密码。 |
 | `ca_file`、`cert_file`、`key_file` | 文件路径，默认空 | HTTPS 默认使用系统信任根或显式 CA 并校验主机名。客户端证书与私钥成对出现。HTTP 配 TLS 文件、文件不可读、证书无法解析均报错。相对路径按连接文件所在目录解析。 |
 
 **优先级。** 地址按显式 `--etcd` → 连接文件 `endpoints` → Dashboard 的 `coordinator_addr` → `http://127.0.0.1:2379` 依次取值，其余连接字段取连接文件或表中默认值。显式空地址、无效文件、旧后端字段在建立连接前报错，禁止静默回退。Dashboard 的默认 `coordinator_name="etcd"`。旧 `coordinator_auth` 和旧后端选择值报错，凭据统一用连接文件。发布的示例分别给出本机 HTTP 和生产 HTTPS/mTLS 两种配置。
+
+**连接预检。** 组件建立 etcd 连接时执行有界预检：对全部 endpoint 采用统一的预检截止时间（`dial_timeout`），任一可用 endpoint 即通过。失败时，已识别的鉴权拒绝、证书校验或 TLS 握手错误直接返回原因并脱敏，不得只表现为超时。启动依赖 etcd 的入口通过首次实际操作验证角色权限。仅开启在线注册的 Proxy 在后台执行预检和重试，业务上线照常进行。
 
 | 程序 | 何时选用 etcd |
 | --- | --- |
@@ -143,7 +146,7 @@ Proxy TOML 新增 `etcd_register_online`（bool，默认 `false`）。保留 `cl
 | `all` | 配置校验失败，提示启用注册 | 发布自身，轮询同 product 的在线列表并生成响应 |
 
 - **记录与所有权。** 注册键为 `/codis3/{product}/online-proxies/{token}`，JSON 至少含 `token` 和 `addr`（客户端访问的 Proxy 地址）。每个在线实例申请独立 lease，重试同一轮注册时复用该 lease，采用版本为 0 的条件事务将键与 lease 绑定。应答不确定时核对键的 lease ID。相同 token 已由其他 lease 持有时，不覆盖、不认领；等待其正常退出或过期后再竞争。
-- **续约与关闭。** 注册失败在后台有界退避重试，业务上线不等待注册成功；日志记录未注册、冲突和恢复。续约失效后重新确认所有权并注册。关闭先取消并等待本实例注册循环，再有界撤销本实例 lease；不按 token 裸删键。崩溃依靠服务端 lease 到期。
+- **续约与关闭。** 注册失败在后台有界退避重试，业务上线不等待注册成功；日志记录未注册、冲突和恢复。`KeepAlive` 同时处理调用时的直接错误和启动后的 channel 关闭；channel 关闭是重新确认所有权并注册的触发条件（SDK 以最后一次成功响应携带的 TTL 设定截止时间、每秒扫描，服务端失联后最迟在最后一次响应 + TTL 左右关闭）。关闭顺序：停止并等待本实例注册循环 → 有界撤销本实例 lease → Close；撤销失败记录错误，由服务端 TTL 收敛。不按 token 裸删键，崩溃依靠服务端 lease 到期。
 - **读取与故障。** `all` 每个刷新周期对该 product 在线前缀做一次一致范围读取；跳过坏记录，复用现有自身补全、去重、排序、节点 ID 和伪 slot 分配。首次读失败时只提供自身，此后失败保留最后一次成功快照；成功读到空列表则只返回自身。在 quorum 健康、客户端可达时，服务端删除注册键后，最迟在下一个成功刷新完成时移除该 peer。该内部记录不提供 Jodis 客户端协议，普通 Redis 请求继续读取本地路由。
 
 ## 5. 新建集群与重启
@@ -169,12 +172,12 @@ Proxy TOML 新增 `etcd_register_online`（bool，默认 `false`）。保留 `cl
 | 编号 | 可复现场景 | 必须观察到的结果 |
 | --- | --- | --- |
 | A0 依赖调研 | 对比旧线、隔离候选与最终交付的模块图和六入口包图。 | 正式接入前有第 0 节要求的候选报告；交付时核对最终选版、产物和旧驱动退役结果，记录与候选的差异。 |
-| A1 配置与入口 | 四个组件接同一启用认证的 etcd。分别覆盖 CLI 覆盖文件、错误凭据、缺证书、旧参数、FE 静态模式及三种 Proxy 自动上线入口。 | Dashboard 可建群、FE 可发现、Admin 可查询、Proxy 可注册。无效配置在相应入口报错，拒绝访问可辨认，错误与日志中没有测试密码。 |
+| A1 配置与入口 | 四个组件接同一启用认证的 etcd。分别覆盖 CLI 覆盖文件、错误凭据、缺证书、旧参数、FE 静态模式及三种 Proxy 自动上线入口；多 endpoint 预检补测"坏地址在前、健康地址在后"与"全部地址不可用"。 | Dashboard 可建群、FE 可发现、Admin 可查询、Proxy 可注册。无效配置在相应入口报错；预检在统一截止时间内完成，拒绝访问以具体原因可辨认；错误与日志中没有测试密码。 |
 | A2 建群与隔离 | 按第 5 节从空 product 建群；在同一 etcd 中预置另一个名称有公共前缀的 product，再正常重启 Dashboard。 | 首次预检对非空前缀报错；正常重启成功。两组读写、1024 个 slot 和启用的 ACL/QPS/Sentinel 配置符合预期，另一 product 的测试数据未变化。 |
 | A3 锁与迟到请求 | 两 Dashboard 同时抢锁；进程 A 异常退出后按已观察的 revision 解锁，B 在同地址启动；再提交针对 A 的旧解锁请求。 | 同时至多一个实例持锁，A、B 的 owner ID 与 create revision 均不同。旧请求失败且 B 的记录完整。缺 revision、负 revision、缺确认参数均失败。 |
 | A4 结果未知 | 测试替身在真实存储调用外围分别模拟提交前失败、锁已提交但响应丢失、删除已提交但响应丢失，以及回读也不可用。 | 抢锁仅在核实本实例 owner 后继续；删除只认观察过的 revision。回读不可用时返回未知；迟到的重试不会覆盖其他所有者，也不会重复触发拓扑动作。 |
 | A5 混合 Proxy | 一台 `all+注册`、一台 `self+注册`，另测 `disabled+注册` 和注册关闭。覆盖正常退出、崩溃、同 token 重启及刷新失败。 | `all` 能看到所有已注册在线 peer；`self` 仅返回自身。记录服务端授予的 TTL、键消失时刻和下一次刷新结果；键消失后 peer 按第 4 节时限收敛。同 token 的旧进程关闭无法撤销新进程的 lease。 |
-| A6 Linux 发布门槛 | 三成员 etcd 3.7.x：切换 leader、隔离一成员、失去多数派、恢复多数派。经已上线 proxy 连续执行已分配 slot 的读写，同时观察控制面。 | quorum 恢复后控制面可读写和重新发现在线节点。期间无空拓扑误判、无错误接管；Redis 后端健康且拓扑稳定时数据面仍可服务。管理请求按第 2 节三种结果归类。 |
+| A6 Linux 发布门槛 | 三成员 etcd 3.7.x：切换 leader、仅隔离一个成员的 peer 流量（如 2380），保持多数派健康且 Proxy 仍可续约、失去多数派、恢复多数派。经已上线 proxy 连续执行已分配 slot 的读写，同时观察控制面。 | quorum 恢复后控制面可读写和重新发现在线节点。期间无空拓扑误判、无错误接管；Redis 后端健康且拓扑稳定时数据面仍可服务。隔离期间在线记录保留；Dashboard 持久纳管记录不变。全隔离变体（peer 与客户端端口均不通）下 lease 按 TTL 过期、恢复后自动重注册属预期，不作为失败。管理请求按第 2 节三种结果归类。 |
 | A7 构建与清理 | clean checkout 验证默认配置、帮助、构建、包测试和示例；检查生产 Go 依赖与活动部署入口。 | 旧 SDK、filesystem coordinator 和 Jodis 注册路径从新版生产入口退出。历史文档、拒绝旧参数的诊断与测试可保留旧名称。 |
 
 交付说明列出 Codis SHA、etcd/server 与 client/v3 版本、实际命令及结果，并逐项标示 A0–A7 的通过、失败或待验。Linux 发布签收按仓库约定登记环境、结果与证据位置。[构建与发布指南](build_and_release_zh.md) · [真机验证索引](validation/README.md)

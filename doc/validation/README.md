@@ -23,6 +23,7 @@
 | 编号 | 日期 | 环境 | 执行时 HEAD | 状态 | 说明 |
 | --- | --- | --- | --- | --- | --- |
 | ENV-01 | 2026-11-21 | 华为云 cn-east-3：ECS-A（4C/8G）/ ECS-B（2C/4G），Ubuntu 22.04 x86_64，Go 1.27.4，Redis 8.6.3 | `c99592b1` | 已销毁 | filesystem coordinator。A：dashboard 18080、fe 8080、group1 master 6379、group2 replica 6382、group3 6383；B：proxy 19000/19001、group2 master 6380、group1 replica 6381。未跑性能、Docker、codis-ha。详见本地 `.runtime/state.md` 与各 `REPORT.md` |
+| ENV-02 | 2026-11-28 | 华为云 cn-east-3a：3 台 ECS `c7.xlarge.2`（4C/8G），Ubuntu 22.04.5 x86_64（kernel 5.15.0-186），Go 1.27.4（host1 Linux 原生 `make`），etcd 3.7.4 官方 release 包三成员（HTTP + `--auth-token simple` + RBAC），Redis 8.6.3 | `3a5890d4` + 未提交工作树 | 保留（未销毁；Codis 组件已停，etcd 三成员运行） | etcd coordinator 新线。host1：dashboard 18080；host2/host3：codis-server 6379（slots 0–511 / 512–1023）+ codis-proxy 19000/11080（`etcd_register_online=true`、`cluster_nodes_compat=all`）。A6 四场景结果见 [etcd_3_7_coordinator_a6_zh.md](etcd_3_7_coordinator_a6_zh.md)；证据在本地 `.runtime/codis-a6/a6/`（`report.md` + `ev/`） |
 
 ## 进度总表
 
@@ -50,12 +51,18 @@
 | Redis 3 移除 + 依赖安全扫描回归 | 已通过 | govulncheck 无漏洞；go build / test PASS；npm audit 2→1 | AngularJS 1.8.3 high 为已知残留 | — |
 | FE 控制台重设计（浏览器冒烟） | 已通过 | Playwright headless：总览 / 安全与限流 / RDB / PITR 四页加载无 console error；HTML 错误页渲染问题已修复 | 当前 FE 反向代理待复验；数据迁移页为后加，未覆盖 | — |
 
+### A6 真机结果（2026-11-28，ENV-02）
+
+| 能力 | 范围 | 状态 | 结果摘要 | 遗留 / 未覆盖 | 详细文档 |
+| --- | --- | --- | --- | --- | --- |
+| etcd 3.7 coordinator（新线单后端） | A6：三成员 etcd 3.7.4 Linux 真机（leader 切换、隔离一成员的 peer 流量、失去/恢复多数派、正常退出） | **已通过（2026-11-28 签收）** | S-A leader 切换：新 leader 2ms（leadership transfer）、端到端 9.18s，锁/在线记录不变；S-B 隔离单成员（仅 peer 2380 隔离 108s）：2/3 保持 leader、负载 0 失败、在线记录 TTL 27/28s 不丢、0.1s 归队、约 1.6min 追平；S-C 失去/恢复多数派：`--show-lock` 5011ms/848ms 报错不挂死、`--create-group` 5013ms `store: load slots failed`（加载 slots 失败、组未创建，符合预期）、恢复 19.2s、锁 owner/create_revision 不变、在线记录误删 0；S-D 正常退出：在线记录 ~0.2s 消失、锁 76ms 释放。S-A/B/C 故障窗口负载 0 失败，S-D 的 40 条/台 `Connection refused` 为主动停机后的负载计数 | 无阻塞项：启动期建连/鉴权失败（抢锁事务发出前）的非零退出由进程管理器退避重启、全隔离变体下 lease 按 TTL 过期并自动重注册，均已按契约 v1.3 裁决为预期；无仓库内真机脚本 | [etcd_3_7_coordinator_a6_zh.md](etcd_3_7_coordinator_a6_zh.md) |
+
 ### 无真机记录
 
 | 能力 | 状态 | 备注 | 详细文档 |
 | --- | --- | --- | --- |
-| Consul coordinator | 待确认 | ENV-01 用的是 filesystem；仓库内无真机记录 | — |
-| ZooKeeper coordinator（go-zookeeper SDK 迁移） | 待确认 | 同上 | — |
+| Consul coordinator（旧线 ≤ `c635ade0…`） | 待确认 | ENV-01 用的是 filesystem；仓库内无真机记录；该后端已在新线移除 | — |
+| ZooKeeper coordinator（旧线 ≤ `c635ade0…`，go-zookeeper SDK 迁移） | 待确认 | 同上 | — |
 | 热 key 缓存 + 跨 proxy 广播失效 | 待确认 | | — |
 | CLUSTER NODES 兼容 | 待确认 | | — |
 | Stream 命令路由 | 待确认 | | — |
@@ -80,7 +87,7 @@
 | PITR | `scripts/validation/pitr/run_pitr.py` | `browser/tests/pitr.spec.js` | [pitr_flashback_zh.md](../pitr_flashback_zh.md) |
 | RDB Analysis | `scripts/validation/rdb/run_rdb_analysis.py` | `browser/tests/rdb-analysis.spec.js` | [rdb_analysis_zh.md](../rdb_analysis_zh.md) |
 | FE 浏览器冒烟 | —（环境由 `scripts/validation/env/setup_cluster.py --fe` 提供） | `browser/tests/fe-smoke.spec.js` | [../../cmd/fe/assets/README.md](../../cmd/fe/assets/README.md) |
-| 尚无脚本：性能基线（暂不固化）、数据迁移控制台、codis-ha、Consul/ZooKeeper coordinator、Docker（仅 gate `--docker` 可选）、多平台发布 | — | — | [data_migration_zh.md](../data_migration_zh.md)、[benchmark.md](../benchmark.md)、[architecture_zh.md](../architecture_zh.md) |
+| 尚无脚本：性能基线（暂不固化）、数据迁移控制台、codis-ha、旧线（≤ `c635ade0…`）Consul/ZooKeeper coordinator、Docker（仅 gate `--docker` 可选）、多平台发布；etcd 3.7 coordinator 目前只有 Go 集成测试入口（`CODIS_ETCD_SERVER_BINARY`），没有真机脚本 | — | — | [data_migration_zh.md](../data_migration_zh.md)、[benchmark.md](../benchmark.md)、[architecture_zh.md](../architecture_zh.md) |
 
 ## 详细文档约定
 

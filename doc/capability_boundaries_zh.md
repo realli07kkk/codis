@@ -7,9 +7,9 @@ Codis 的目标是让业务像用单机 Redis 一样使用可扩缩容的 Redis 
 | 能力 | 支持 | 明确不支持或限制 |
 | --- | --- | --- |
 | 分片 | 固定 1024 slot，key 取第一个 `{...}` 作 hash tag 后按 CRC32 落到 slot | 不是 Redis Cluster：没有 cluster bus、gossip、`MOVED`/`ASK`、cluster failover；1024 与 16384 是两套独立 slot 空间 |
-| 拓扑变更 | 经 dashboard/topom 增删 Codis Server、迁移 slot、重新均衡容量 | 直接访问 coordinator 的运维入口仅用于元数据导出、导入和锁恢复等场景，见 [架构总览](architecture_zh.md) |
-| 数据归属 | proxy 按 slot 转发，不在业务路径持久化数据；元数据存于 filesystem、Zookeeper、Consul | 后端容量、持久化和资源隔离仍由 Redis 自身承担，Codis 不代为规划 |
-| Consul 后端 | 只使用 Consul 的 KV 与 Session 语义保存 `/codis3` 元数据与 `/jodis` 注册 | 不迁移存量元数据；不使用 Consul service catalog、health check 或 service mesh |
+| 拓扑变更 | 经 dashboard/topom 增删 Codis Server、迁移 slot、重新均衡容量 | 直接访问 coordinator 的运维入口仅用于元数据导出、导入和锁恢复等场景，见 [架构总览](architecture_zh.md)；拓扑锁是持久锁，异常退出后需按 `--show-lock` 观察到的 revision 人工解锁 |
+| 数据归属 | proxy 按 slot 转发，不在业务路径持久化数据；控制面元数据（拓扑、目标配置、拓扑锁、proxy 在线记录）存于外部 etcd 3.7.x，业务键存于 codis-server | 后端容量、持久化和资源隔离仍由 Redis 自身承担，Codis 不代为规划 |
+| Coordinator 能力域 | 只支持外部部署的 etcd 3.7.x（`--etcd` / `--etcd-config`，可带 username/password 与 mTLS）；保存 `/codis3/{product}` 元数据、持久拓扑锁与 `/codis3/{product}/online-proxies/{token}` 在线记录 | 不支持 ZooKeeper、Consul、filesystem 等旧后端（最后支持基线 `c635ade0424a1448fb251f32b88d64ca7cf9a555`）；不做双写或回退开关，不做旧后端到 etcd 的存量元数据迁移，不提供 Jodis 注册协议，不把 etcd 当作 service registry 或健康检查来源 |
 
 ## 集群内 slot 迁移
 
@@ -54,7 +54,7 @@ Codis 的目标是让业务像用单机 Redis 一样使用可扩缩容的 Redis 
 | 能力 | 支持 | 明确不支持或限制 |
 | --- | --- | --- |
 | 普通 Redis 命令 | 常用命令按 key 所在 slot 路由，普通客户端无需改造 | 不保证支持所有 Redis 命令，边界以 [unsupported_cmds.md](unsupported_cmds.md) 和 proxy 命令处理逻辑为准 |
-| `CLUSTER NODES` | 默认关闭；`cluster_nodes_compat = "self"` 只返回当前 proxy，`"all"` 从 Jodis/coordinator 轮询 online proxy 并均分逻辑 slot `0-16383` | 只服务 cluster-mode SDK bootstrap；不实现真实 Redis Cluster 路由、重定向、failover 或 bus；`CLUSTER SLOTS`、`CLUSTER INFO`、`CLUSTER KEYSLOT`、`CLUSTER SHARDS` 仍不支持；`0-16383` 不改变 1024 slot 的真实路由 |
+| `CLUSTER NODES` | 默认关闭；`cluster_nodes_compat = "self"` 只返回当前 proxy，`"all"` 从 etcd 的 `/codis3/{product}/online-proxies` 轮询已注册在线 proxy（需 `etcd_register_online = true`）并均分逻辑 slot `0-16383` | 只服务 cluster-mode SDK bootstrap；不实现真实 Redis Cluster 路由、重定向、failover 或 bus；不是 Jodis 协议，也不做 proxy 间探活；`CLUSTER SLOTS`、`CLUSTER INFO`、`CLUSTER KEYSLOT`、`CLUSTER SHARDS` 仍不支持；`0-16383` 不改变 1024 slot 的真实路由 |
 | `CLIENT` 命令族 | 只支持 `CLIENT LIST`，返回当前 proxy 实例的活动客户端连接快照 | 不聚合多个 proxy、不下探后端 Redis、不承诺 Redis 8 全字段；其余 `CLIENT` 子命令不支持 |
 | Stream | 单 key Stream 命令、`XGROUP`/`XINFO` 容器命令、非阻塞 `XREAD`/`XREADGROUP`（所有 stream key 共享同一 hash tag 或同一个 key） | 不是完整 Stream 支持：`XGROUP HELP`/`XINFO HELP`、带 `BLOCK` 的读、跨 hash tag multi-stream、未知 subcommand 由 proxy 拒绝；不含 Vector Set、Hash field expiration 与 RedisJSON/RedisBloom/RedisTimeSeries/RediSearch 等模块能力 |
 
@@ -100,3 +100,4 @@ Codis 的目标是让业务像用单机 Redis 一样使用可扩缩容的 Redis 
 - [rdb_analysis_zh.md](rdb_analysis_zh.md)：RDB Analysis 使用方式与边界。
 - [redis8_codis_server_zh.md](redis8_codis_server_zh.md)：Redis 8 Codis Server 的 slot 模型与迁移命令。
 - [build_and_release_zh.md](build_and_release_zh.md)：构建、平台矩阵与发布产物。
+- [etcd_3_7_release_notes_zh.md](etcd_3_7_release_notes_zh.md)：新线首个采用 etcd 3.7 的版本说明（版本分界、不兼容变更、未适配项）。

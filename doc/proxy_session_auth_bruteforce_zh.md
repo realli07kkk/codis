@@ -24,7 +24,7 @@ session_auth_bruteforce_lock_duration = "60s"
 
 ## 行为边界
 
-- 保护范围只覆盖 Codis Proxy 的客户端 `AUTH` 命令，不影响 `product_auth`、dashboard/topom `xauth`、coordinator/Jodis auth 或后端 Redis auth。
+- 保护范围只覆盖 Codis Proxy 的客户端 `AUTH` 命令，不影响 `product_auth`、dashboard/topom `xauth`、etcd 连接文件里的 coordinator 凭据或后端 Redis auth。
 - 锁定状态只存在于当前 proxy 进程内，不写入 coordinator，不跨 proxy 同步，proxy 重启后清空。
 - proxy 会对内部 tracked IP 状态表设置固定上限。插入新来源 IP 前会清理过期记录；仍达到上限时优先淘汰最旧的未锁定记录，避免该功能变成无界内存记录器。
 - 锁定期间，单密码模式拒绝该 IP 未认证连接的 `AUTH`。ACL 模式还会拒绝已认证连接的重新 `AUTH`。

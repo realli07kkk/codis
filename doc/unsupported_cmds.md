@@ -109,8 +109,9 @@ or `all` in codis proxy config. It returns a limited fake Redis Cluster node
 list for cluster-mode client bootstrap. Other `CLUSTER` subcommands are still
 disallowed, and codis proxy does not implement Redis Cluster routing, MOVED/ASK,
 cluster bus, or failover semantics. Old configs keep the default `disabled`
-behavior; `all` mode depends on Jodis proxy registrations and filters duplicate
-or invalid records before building the fake node list.
+behavior; `all` mode requires `etcd_register_online = true` and reads the etcd
+online records (`/codis3/{product}/online-proxies`), filtering duplicate or
+invalid records before building the fake node list.
 
 Redis Stream commands are supported as a constrained Redis 8 proxy-routing
 subset. Single-key commands such as `XADD`, `XDEL`, `XTRIM`, `XACK`, `XLEN`,

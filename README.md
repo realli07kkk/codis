@@ -23,12 +23,20 @@ Donate if you want to help us maintaining this project. Thank you!
 ## Other Features
 * GUI website dashboard & admin tools
 * Supports most of Redis commands, Fully compatible with Twemproxy(https://github.com/twitter/twemproxy)
-* Proxies can register on the ZooKeeper or Consul coordinator, clients can avoid dead proxies, see "High Availability" section.
+* Proxies register their online records in etcd 3.7, so clients and cluster-mode SDKs can avoid dead proxies, see "High Availability" section.
+
+## Version boundary
+
+The current mainline supports only an externally deployed etcd 3.7.x as the coordinator (`go.etcd.io/etcd/client/v3 v3.7.4`): the control plane lives in etcd, business keys stay in codis-server. The new binaries carry no legacy drivers, no fallback switch, no dual write and no legacy proxy registration protocol; removed CLI/TOML options are rejected with the commit that last supported them.
+
+The ZooKeeper, Consul and filesystem coordinators and the Jodis discovery mechanism were last supported at commit `c635ade0424a1448fb251f32b88d64ca7cf9a555`; check that out and run `make` as described in that commit. See the [etcd 3.7 release notes](doc/etcd_3_7_release_notes_zh.md) for the incompatible changes and upgrade notes.
 
 ## Tutorial
 
 [简体中文](doc/tutorial_zh.md)
 [English (WIP) ](doc/tutorial_en.md)
+
+Quick start: prepare etcd 3.7.x, then follow [step 1 of the Chinese tutorial](doc/tutorial_zh.md#1-快速启动) (etcd connection file, the four startup commands, two groups and slot assignment, proxy online registration). The Chinese tutorial also documents the persistent topom lock and its manual recovery.
 
 [All documents](doc/README.md)
 
@@ -39,12 +47,14 @@ Donate if you want to help us maintaining this project. Thank you!
 
 ## High Availability
 
-[简体中文](doc/tutorial_zh.md#3-jodis-与-ha)
-[English (WIP) ](doc/tutorial_en.md#ha)
+[简体中文](doc/tutorial_zh.md#3-proxy-高可用与在线发现)
+[English (WIP) ](doc/tutorial_en.md#proxy-availability-and-discovery)
 
 ## Architecture
 
 ![architecture](doc/pictures/architecture.png)
+
+The drawing predates the etcd 3.7 line: the coordinator box in it stands for the control-plane store, which is now an externally deployed etcd 3.7.x. The current component interaction, namespaces and code map are in [architecture_zh.md](doc/architecture_zh.md).
 
 ## Snapshots
 

@@ -34,7 +34,9 @@ Codis Proxy 管理 1024 个真实 slot 的路由，客户端可以连接单个 p
 
 ### Codis 支持哪些外部存储？
 
-支持 ZooKeeper、filesystem 和 Consul。Dashboard 使用 `coordinator_name` 和 `coordinator_addr` 选择后端，随仓库生成的默认配置为 filesystem。ZooKeeper SDK 迁移说明见 [专项文档](zookeeper_sdk_migration_zh.md)。
+只支持外部部署的 etcd 3.7.x。控制面（拓扑、目标配置、拓扑锁、proxy 在线记录）写入 etcd，业务键仍由 codis-server 保存。四个组件共用 `--etcd=URL[,URL...]` 或 `--etcd-config=FILE`（用户名密码、CA 与 mTLS 证书都放在连接文件里）；Dashboard 的 `coordinator_name` 默认且只接受 `"etcd"`，`coordinator_addr` 只是地址回退项。
+
+ZooKeeper、Consul、filesystem 后端的最后支持基线是提交 `c635ade0424a1448fb251f32b88d64ca7cf9a555`，需要它们的部署检出该 SHA 构建；新线不含旧驱动、双写和回退开关，显式使用旧参数会报错并提示该 SHA。详见 [etcd 3.7 发布说明](etcd_3_7_release_notes_zh.md)。
 
 ### 如何把现有 Redis 或 Codis 的数据迁入新集群？
 
@@ -44,15 +46,30 @@ Codis Proxy 管理 1024 个真实 slot 的路由，客户端可以连接单个 p
 
 确认业务流量经过 proxy，并从 dashboard 所在主机检查已注册 proxy 的 `admin_addr` 是否可达。Dashboard 通过该管理地址获取 proxy stats。需要定位采集错误时，检查 Dashboard 日志和 proxy 管理面状态。
 
-### Dashboard 重启提示拓扑锁已存在怎么办？
+### 为什么 Dashboard 启动报另一个实例持有锁？
 
-当前拓扑锁路径为 `/codis3/{product}/topom`。确认持有锁的 Dashboard 已退出后，使用 `codis-admin --remove-lock`，并指定该 product 实际使用的 coordinator。命令示例见[使用教程](tutorial_zh.md#25-codis-admin命令行工具)。
+拓扑锁是 `/codis3/{product}/topom` 的持久锁（不附 lease），同一 product 同一时刻只允许一个 Dashboard 持有。出现冲突时日志会打印持有者的 `admin_addr`、`owner_id` 和 `create_revision`，Dashboard 每 2 秒退避重试（约 16 次后放弃）。先确认那个地址上的 Dashboard 是否还在运行：还在运行就正常停掉它，锁会在停止时按本次 revision 释放；如果进程已不存在（例如直接被 kill），进入下一问。
 
-### ZooKeeper session 过期会让 proxy 退出吗？
+### 异常退出后如何解锁？
 
-不会。Jodis 注册由 proxy 的后台 watcher 维护：watch 断开或临时节点创建失败时，按 1 秒起、上限 30 秒的指数退避重试，恢复后重新注册到默认路径 `/jodis/{product}/proxy-{token}`（`jodis_compatible = true` 时用 Codis 2.0 的 `/zk/codis/...` 路径）。运行中的 slot 路由由 Dashboard 通过管理 API 下发，不依赖 zk watch，当前主线没有“zk 会话过期即退出”的处理路径。
+先隔离原 Dashboard 进程和它的自动拉起机制（systemd、supervisor、k8s 控制器等先停掉，确保它不会再起来），再读锁、按观察到的 revision 删除：
 
-会退出的失败发生在启动阶段：`--dashboard` 自动上线每 3 秒尝试一次、共 10 次，仍失败时打印 `online proxy failed` 后退出；coordinator 模式重试 30 次后同样退出。排查时先区分 Jodis 注册失败、启动自动上线失败和运行中退出，再看对应日志。默认 `jodis_timeout` 为 `20s`。
+```bash
+codis-admin --etcd-config=etcd.toml --product=codis-demo --show-lock
+codis-admin --etcd-config=etcd.toml --product=codis-demo --remove-lock --expected-revision=417 --confirm
+```
+
+`--show-lock` 输出 JSON（`product`、`admin_addr`、`owner_id`、`create_revision` 等），没有锁时输出 `null` 并成功退出。`--remove-lock` 只按输入 revision 在事务中删除：缺 revision、revision 非正、缺 `--confirm` 都失败；锁已不存在、revision 不匹配、结果未知或请求被拒绝都以非零退出且文案不同；回读发现已被别的实例换上的锁一律保留。Dashboard 自身不再提供 `--remove-lock`。命令示例见[使用教程](tutorial_zh.md#26-codis-admin命令行工具)。
+
+### etcd 短暂不可用会让 proxy 退出吗？
+
+不会。开启 `etcd_register_online` 后，proxy 在拿到 token 并上线之后才在后台惰性建立 etcd 连接；注册失败按有界退避重试，业务上线与转发不等待注册，也不会因为 etcd 不可达而退出。运行中的 slot 路由由 Dashboard 通过管理 API 下发，不依赖 etcd。
+
+会退出的失败发生在启动阶段：`--dashboard` 自动上线每 3 秒尝试一次、共 10 次，仍失败时打印 `online proxy failed` 后退出；`--etcd` 自动上线重试 30 次后同样退出；Dashboard 抢锁冲突重试约 16 次后放弃。排查时先区分注册失败、启动自动上线失败和运行中退出，再看对应日志。
+
+### 一个 proxy 崩溃后多久会从 CLUSTER NODES 里消失？
+
+在线记录绑定独立 lease，TTL 固定 30 秒；进程崩溃后键最迟在 TTL 过期时消失，`cluster_nodes_compat = "all"` 的 proxy 会在下一个成功刷新周期里移除该 peer，陈旧窗口不超过 TTL 加一个刷新周期（默认刷新周期 30 秒）。正常退出会主动撤销 lease，因此通常在下一个刷新周期就消失。这是 etcd 在线注册，不是 Jodis 协议；旧的 Jodis/ZooKeeper 注册行为仅旧线（≤ `c635ade0424a1448fb251f32b88d64ca7cf9a555`）适用，说明见 [ZooKeeper SDK 迁移文档](zookeeper_sdk_migration_zh.md)。
 
 ### 编译或版本信息异常怎么办？
 

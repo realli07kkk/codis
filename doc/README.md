@@ -6,7 +6,7 @@ Codis 是基于代理的高性能 Redis 集群方案。本目录是项目的全�
 
 ## 入门与使用
 
-- [tutorial_zh.md](tutorial_zh.md) / [tutorial_en.md](tutorial_en.md)：主线构建、本地快速启动、组件配置、Jodis、HA 与 Docker；中文教程附 Codis 2.x 元数据迁移历史说明
+- [tutorial_zh.md](tutorial_zh.md) / [tutorial_en.md](tutorial_en.md)：主线构建、etcd 3.7 前置准备与连接文件、四条启动命令、两 group 建群、拓扑锁与人工恢复、Proxy 在线注册与 CLUSTER NODES、HA；Docker 小节标注未适配；中文教程附 Codis 2.x 元数据迁移历史说明（仅旧线）
 - [FAQ_zh.md](FAQ_zh.md) / [FAQ_en.md](FAQ_en.md)：常见问题
 - [unsupported_cmds.md](unsupported_cmds.md)：Proxy 不支持与半支持的命令清单
 
@@ -15,6 +15,8 @@ Codis 是基于代理的高性能 Redis 集群方案。本目录是项目的全�
 - [architecture_zh.md](architecture_zh.md)：系统架构总览（组件交互、数据与状态、代码地图、已知约束）
 - [capability_boundaries_zh.md](capability_boundaries_zh.md)：各能力域的明确边界（支持什么、不做什么）
 - [etcd_3_7_coordinator_contract_zh.md](etcd_3_7_coordinator_contract_zh.md)：新建集群采用 etcd 3.7 单后端的实施交接契约，含实施前 Go/gRPC 依赖调研、配置、锁恢复、Proxy 在线发现和验收用例
+- [etcd_3_7_implementation_record_zh.md](etcd_3_7_implementation_record_zh.md)：etcd 3.7 coordinator 实施交付记录（P0 依赖/构建/运行行为调研结论、决策 D1–D10、契约修订建议、实施进度与 A0–A7 验收状态）
+- [etcd_3_7_release_notes_zh.md](etcd_3_7_release_notes_zh.md)：etcd 3.7 新线首个版本的发布说明（版本分界与旧线 SHA、新线能力、不兼容变更、升级须知、未适配项与验证状态）
 
 ## Codis Server（内嵌 Redis）
 
@@ -41,9 +43,9 @@ Codis 是基于代理的高性能 Redis 集群方案。本目录是项目的全�
 ## 构建与验证
 
 - [build_and_release_zh.md](build_and_release_zh.md)：构建与发布指南（常用命令、Go modules 约定、codis-server 编译排障、多平台发布、测试约定）
-- [go_modernization_zh.md](go_modernization_zh.md)：Go 现代化改造计划、行为兼容边界与逐项回归矩阵（含 etcd 移除前的历史约束）
+- [go_modernization_zh.md](go_modernization_zh.md)：历史文档。Go 现代化改造计划、行为兼容边界与逐项回归矩阵（含 etcd 移除前的历史约束）；etcd 3.7 新线以 [发布说明](etcd_3_7_release_notes_zh.md) 与新线文档为准
 - [redis8_validation_zh.md](redis8_validation_zh.md)：Redis 8 迁移验证与切换（验证 gate、Linux 正式验证、切换手顺、Go 组件兼容矩阵）
-- [zookeeper_sdk_migration_zh.md](zookeeper_sdk_migration_zh.md)：ZooKeeper Go SDK 迁移说明
+- [zookeeper_sdk_migration_zh.md](zookeeper_sdk_migration_zh.md)：历史文档（仅旧线 ≤ `c635ade0424a1448fb251f32b88d64ca7cf9a555` 适用）。ZooKeeper Go SDK 迁移说明
 
 ## 真机验证
 

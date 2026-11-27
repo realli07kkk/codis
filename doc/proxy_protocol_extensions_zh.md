@@ -54,9 +54,9 @@ Codis Proxy 以普通 Redis 协议面向客户端，除常规 key 路由外还�
 | --- | --- | --- |
 | `disabled`（默认） | 无 | `CLUSTER` 与既有不允许命令同路径，返回错误；开启 `session_break_on_failure` 时关闭连接 |
 | `self` | 当前 proxy 的 `models.Proxy`，不访问 coordinator | 一行当前 proxy，slot range 为 `0-16383` |
-| `all` | 后台按 `cluster_nodes_refresh_period`（默认 `30s`）轮询 Jodis/coordinator 的 proxy 注册信息 | 每个 online proxy 一行，`0-16383` 均分 |
+| `all` | 后台按 `cluster_nodes_refresh_period`（默认 `30s`）读取 etcd 中 `/codis3/{product}/online-proxies` 的在线记录 | 每个 online proxy 一行，`0-16383` 均分 |
 
-`all` 模式要求同时配置 `jodis_name` 与 `jodis_addr`，并兼容 `jodis_auth`、`jodis_timeout`、`jodis_compatible`。命令路径只读原子快照，不等待 coordinator IO：轮询失败时保留上一份成功快照并写日志，从未成功过则退回 self 快照。同一份 proxy 列表在各实例上输出一致，当前 proxy 只影响 `myself` 标记。
+`all` 模式要求同时开启 `etcd_register_online = true`（两者缺一由 `Config.Validate` 拒绝），否则校验失败并提示启用注册。在线记录由各 proxy 以固定 30 秒 TTL 的 lease 维护，etcd 连接在 proxy 上线、token 已知后才在后台惰性建立。命令路径只读原子快照，不等待 coordinator IO：首次读失败只提供自身，此后失败保留上一份成功快照并写日志，成功读到空列表时只返回自身。同一份 proxy 列表在各实例上输出一致，当前 proxy 只影响 `myself` 标记。
 
 输出行格式与取值：
 
@@ -80,8 +80,8 @@ Codis Proxy 以普通 Redis 协议面向客户端，除常规 key 路由外还�
 - `0-16383` 是面向 SDK 的逻辑 slot 标签。Codis 真实路由由 `pkg/models/slots.go` 的 `MaxSlotNum = 1024` 和 dashboard 下发的 slot mapping 决定。用 `SLOTSMAPPING` 查询 proxy 路由，用 `SLOTSINFO <backend-addr>` 查询指定后端的 slot key 计数。
 - 不存在 16384 slot 的数据所有权、slot 迁移或 rebalance；迁移仍由 Codis slot action 完成。
 - 不实现 `MOVED` / `ASK`、cluster bus、gossip、failover 和 Redis Cluster 配置文件。
-- 不做 proxy 之间的 RPC、探活或广播；`all` 模式只读取 Jodis/coordinator 中已注册的 proxy，并按 token、addr 去重（当前 proxy 优先保留）。
-- 不读取 Consul service catalog、health check 或 service mesh；Consul 只通过 `models.Client` 的 KV/Session 语义参与。
+- 不做 proxy 之间的 RPC、探活或广播；`all` 模式只读取 etcd 在线前缀里已注册的 proxy，并按 token、addr 去重（当前 proxy 优先保留）。
+- 该在线记录是 Codis 内部的发现数据，不是 Jodis 协议，也不读取 etcd 的 service registry 或健康检查；只使用 etcd 的 KV、事务、lease 与前缀读。
 - `CLUSTER SLOTS`、`CLUSTER INFO`、`CLUSTER KEYSLOT`、`CLUSTER SHARDS` 等其他子命令返回 `ERR unsupported CLUSTER subcommand '<subcommand>'`，不转发后端。
 - 不承诺所有 cluster-mode SDK 可用：SDK 若强制调用 `CLUSTER SLOTS` 或依赖重定向，本能力无法补足。
 
