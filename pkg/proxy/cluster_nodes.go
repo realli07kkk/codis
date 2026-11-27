@@ -5,11 +5,10 @@ package proxy
 
 import (
 	"cmp"
+	"context"
 	"crypto/sha1"
-	"encoding/json"
 	"fmt"
 	"net"
-	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -36,9 +35,12 @@ type clusterNodesProvider struct {
 
 	config *Config
 	self   *models.Proxy
-	client models.Client
+	lister OnlineLister
 
 	nodes []clusterNode
+
+	ctx    context.Context
+	cancel context.CancelFunc
 
 	exit chan struct{}
 	once sync.Once
@@ -54,31 +56,14 @@ type clusterNode struct {
 	SlotEnd   int
 }
 
-type jodisProxyNode struct {
-	Addr  string `json:"addr"`
-	Token string `json:"token"`
-	State string `json:"state"`
-}
-
-func newClusterNodesProviderForProxy(config *Config, self *models.Proxy) (*clusterNodesProvider, error) {
-	var client models.Client
-	if config.ClusterNodesCompat == ClusterNodesCompatAll {
-		c, err := models.NewClient(config.JodisName, config.JodisAddr, config.JodisAuth, config.JodisTimeout.Duration())
-		if err != nil {
-			return nil, errors.Trace(err)
-		}
-		client = c
-	}
-	return newClusterNodesProvider(config, self, client), nil
-}
-
-func newClusterNodesProvider(config *Config, self *models.Proxy, client models.Client) *clusterNodesProvider {
+func newClusterNodesProvider(config *Config, self *models.Proxy, lister OnlineLister) *clusterNodesProvider {
 	p := &clusterNodesProvider{
 		config: config,
 		self:   cloneProxyModel(self),
-		client: client,
+		lister: lister,
 		exit:   make(chan struct{}),
 	}
+	p.ctx, p.cancel = context.WithCancel(context.Background())
 	p.setNodes(p.selfFallbackNodes())
 	return p
 }
@@ -92,7 +77,7 @@ func cloneProxyModel(p *models.Proxy) *models.Proxy {
 }
 
 func (p *clusterNodesProvider) Start() {
-	if p == nil || p.config.ClusterNodesCompat != ClusterNodesCompatAll || p.client == nil {
+	if p == nil || p.config.ClusterNodesCompat != ClusterNodesCompatAll || p.lister == nil {
 		return
 	}
 	p.wg.Add(1)
@@ -118,13 +103,12 @@ func (p *clusterNodesProvider) Close() {
 		return
 	}
 	p.once.Do(func() {
+		// Cancel first so an in-flight List returns before Close waits for it.
+		if p.cancel != nil {
+			p.cancel()
+		}
 		close(p.exit)
 		p.wg.Wait()
-		if p.client != nil {
-			if err := p.client.Close(); err != nil {
-				log.WarnErrorf(err, "close cluster nodes provider client failed")
-			}
-		}
 	})
 }
 
@@ -163,47 +147,38 @@ func (p *clusterNodesProvider) handleRequestCluster(r *Request) error {
 }
 
 func (p *clusterNodesProvider) refresh() error {
-	if p == nil || p.config.ClusterNodesCompat != ClusterNodesCompatAll || p.client == nil {
+	if p == nil || p.config.ClusterNodesCompat != ClusterNodesCompatAll || p.lister == nil {
 		return nil
 	}
-	nodes, err := p.loadJodisNodes()
+	nodes, err := p.loadOnlineNodes(p.ctx)
 	if err != nil {
-		log.WarnErrorf(err, "refresh cluster nodes from jodis failed")
+		log.WarnErrorf(err, "refresh cluster nodes from online registry failed")
 		return err
 	}
+	// An empty result falls back to the self node inside setNodes; a failure
+	// keeps the last successful snapshot.
 	p.setNodes(nodes)
 	return nil
 }
 
-func (p *clusterNodesProvider) loadJodisNodes() ([]clusterNode, error) {
-	paths, err := p.client.List(p.jodisPrefix(), false)
+func (p *clusterNodesProvider) loadOnlineNodes(ctx context.Context) ([]clusterNode, error) {
+	records, err := p.lister.List(ctx)
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
-	nodes := make([]clusterNode, 0, len(paths)+1)
-	for _, path := range paths {
-		b, err := p.client.Read(path, true)
-		if err != nil {
-			return nil, errors.Trace(err)
-		}
-		var node jodisProxyNode
-		if err := json.Unmarshal(b, &node); err != nil {
-			log.WarnErrorf(err, "decode jodis proxy node %s failed", path)
+	nodes := make([]clusterNode, 0, len(records)+1)
+	for _, record := range records {
+		if record.Token == "" || record.Addr == "" {
+			log.Warnf("ignore invalid online proxy record token=%q addr=%q", record.Token, record.Addr)
 			continue
-		}
-		if node.Addr == "" {
-			continue
-		}
-		if node.State != "" && strings.ToLower(node.State) != "online" {
-			continue
-		}
-		if node.Token == "" {
-			node.Token = tokenFromJodisPath(path)
 		}
 		nodes = append(nodes, clusterNode{
-			Token: node.Token,
-			Addr:  node.Addr,
+			Token: record.Token,
+			Addr:  record.Addr,
 		})
+	}
+	if len(nodes) == 0 {
+		return nil, nil
 	}
 	nodes = p.normalizeClusterNodes(nodes)
 	nodes = p.ensureSelfNode(nodes)
@@ -287,13 +262,6 @@ func sortClusterNodesForDedup(nodes []clusterNode) {
 	})
 }
 
-func (p *clusterNodesProvider) jodisPrefix() string {
-	if p.config.JodisCompatible {
-		return filepath.Join("/zk/codis", fmt.Sprintf("db_%s", p.config.ProductName), "proxy")
-	}
-	return filepath.Join(models.JodisDir, p.config.ProductName)
-}
-
 func (p *clusterNodesProvider) selfFallbackNodes() []clusterNode {
 	if p.self == nil || p.self.ProxyAddr == "" {
 		return nil
@@ -343,11 +311,6 @@ func sameClusterNode(node clusterNode, self *models.Proxy) bool {
 		return true
 	}
 	return node.Addr != "" && node.Addr == self.ProxyAddr
-}
-
-func tokenFromJodisPath(path string) string {
-	token := filepath.Base(path)
-	return strings.TrimPrefix(token, "proxy-")
 }
 
 func fakeClusterNodeID(product, token, addr string) string {

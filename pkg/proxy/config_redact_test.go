@@ -11,7 +11,6 @@ import (
 
 func TestConfigStringRedactsCredentials(t *testing.T) {
 	c := NewDefaultConfig()
-	c.JodisAuth = "jodis-secret"
 	c.ProductAuth = "product-secret"
 	c.SessionAuth = "session-secret"
 	c.BackendAuthPassword = "backend-secret"
@@ -19,7 +18,7 @@ func TestConfigStringRedactsCredentials(t *testing.T) {
 
 	out := c.String()
 	for _, secret := range []string{
-		"jodis-secret", "product-secret", "session-secret",
+		"product-secret", "session-secret",
 		"backend-secret", "influx-secret",
 	} {
 		if strings.Contains(out, secret) {
@@ -33,7 +32,6 @@ func TestConfigStringRedactsCredentials(t *testing.T) {
 
 func TestConfigJSONDoesNotExposeCredentials(t *testing.T) {
 	c := NewDefaultConfig()
-	c.JodisAuth = "jodis-secret"
 	c.ProductAuth = "product-secret"
 	c.SessionAuth = "session-secret"
 	c.BackendAuthPassword = "backend-secret"
@@ -45,7 +43,7 @@ func TestConfigJSONDoesNotExposeCredentials(t *testing.T) {
 	}
 	out := string(b)
 	for _, secret := range []string{
-		"jodis-secret", "product-secret", "session-secret",
+		"product-secret", "session-secret",
 		"backend-secret", "influx-secret",
 	} {
 		if strings.Contains(out, secret) {

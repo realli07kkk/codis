@@ -6,6 +6,7 @@ package proxy
 import (
 	"bytes"
 	"math"
+	"strings"
 
 	"github.com/BurntSushi/toml"
 
@@ -15,6 +16,21 @@ import (
 	redisutils "github.com/CodisLabs/codis/pkg/utils/redis"
 	"github.com/CodisLabs/codis/pkg/utils/timesize"
 )
+
+// deprecatedJodisSHA is the last commit that supported the jodis_* options of
+// the proxy config; errors for those options point at it.
+const deprecatedJodisSHA = "c635ade0424a1448fb251f32b88d64ca7cf9a555"
+
+// deprecatedJodisOptions are the removed Jodis registration fields. They are
+// only recognized so a TOML file that still carries one is rejected by name,
+// even when its value is empty.
+var deprecatedJodisOptions = []string{
+	"jodis_name",
+	"jodis_addr",
+	"jodis_auth",
+	"jodis_timeout",
+	"jodis_compatible",
+}
 
 const DefaultConfig = `
 ##################################################
@@ -53,25 +69,20 @@ admin_addr = "0.0.0.0:11080"
 proto_type = "tcp4"
 proxy_addr = "0.0.0.0:19000"
 
-# Set jodis address & session timeout
-#   1. jodis_name is short for jodis_coordinator_name, only accept "zookeeper" & "consul".
-#   2. jodis_addr is short for jodis_coordinator_addr
-#   3. jodis_auth is short for jodis_coordinator_auth, for zookeeper, "user:password" is accepted; for consul, ACL token is accepted.
-#   4. proxy will be registered as node:
-#        if jodis_compatible = true (not suggested):
-#          /zk/codis/db_{PRODUCT_NAME}/proxy-{HASHID} (compatible with Codis2.0)
-#        or else
-#          /jodis/{PRODUCT_NAME}/proxy-{HASHID}
-jodis_name = ""
-jodis_addr = ""
-jodis_auth = ""
-jodis_timeout = "20s"
-jodis_compatible = false
-
 # Enable limited CLUSTER NODES compatibility for cluster-mode SDK bootstrap.
 # Allowed values: "disabled", "self", "all".
 cluster_nodes_compat = "disabled"
 cluster_nodes_refresh_period = "30s"
+
+# Enable online proxy registration/discovery through the coordinator.
+#   1. Once the proxy is online it publishes an online record for its token.
+#      The lease TTL is fixed at 30s and maintained by the registration
+#      implementation, not by this config.
+#   2. cluster_nodes_compat = "all" requires this to be enabled: it then polls
+#      the online records of the same product to answer CLUSTER NODES.
+#   3. Leaving it false with cluster_nodes_compat = "all" is rejected by
+#      validation; a proxy without it never connects to the coordinator.
+etcd_register_online = false
 
 # Set datacenter of proxy.
 proxy_datacenter = ""
@@ -172,14 +183,9 @@ type Config struct {
 	HostProxy string `toml:"-" json:"-"`
 	HostAdmin string `toml:"-" json:"-"`
 
-	JodisName       string            `toml:"jodis_name" json:"jodis_name"`
-	JodisAddr       string            `toml:"jodis_addr" json:"jodis_addr"`
-	JodisAuth       string            `toml:"jodis_auth" json:"-"`
-	JodisTimeout    timesize.Duration `toml:"jodis_timeout" json:"jodis_timeout"`
-	JodisCompatible bool              `toml:"jodis_compatible" json:"jodis_compatible"`
-
 	ClusterNodesCompat        string            `toml:"cluster_nodes_compat" json:"cluster_nodes_compat"`
 	ClusterNodesRefreshPeriod timesize.Duration `toml:"cluster_nodes_refresh_period" json:"cluster_nodes_refresh_period"`
+	EtcdRegisterOnline        bool              `toml:"etcd_register_online" json:"etcd_register_online"`
 
 	ProductName string `toml:"product_name" json:"product_name"`
 	ProductAuth string `toml:"product_auth" json:"-"`
@@ -238,6 +244,10 @@ type Config struct {
 	MetricsReportStatsdServer     string            `toml:"metrics_report_statsd_server" json:"metrics_report_statsd_server"`
 	MetricsReportStatsdPeriod     timesize.Duration `toml:"metrics_report_statsd_period" json:"metrics_report_statsd_period"`
 	MetricsReportStatsdPrefix     string            `toml:"metrics_report_statsd_prefix" json:"metrics_report_statsd_prefix"`
+
+	// deprecatedJodis lists the removed jodis_* options found in the TOML
+	// file. LoadFromFile fills it; Validate rejects any occurrence.
+	deprecatedJodis []string
 }
 
 func NewDefaultConfig() *Config {
@@ -252,9 +262,15 @@ func NewDefaultConfig() *Config {
 }
 
 func (c *Config) LoadFromFile(path string) error {
-	_, err := toml.DecodeFile(path, c)
+	md, err := toml.DecodeFile(path, c)
 	if err != nil {
 		return errors.Trace(err)
+	}
+	c.deprecatedJodis = c.deprecatedJodis[:0]
+	for _, name := range deprecatedJodisOptions {
+		if md.IsDefined(name) {
+			c.deprecatedJodis = append(c.deprecatedJodis, name)
+		}
 	}
 	return c.Validate()
 }
@@ -275,7 +291,6 @@ func (c *Config) Redacted() *Config {
 		return nil
 	}
 	x := *c
-	x.JodisAuth = redactSecret(x.JodisAuth)
 	x.ProductAuth = redactSecret(x.ProductAuth)
 	x.SessionAuth = redactSecret(x.SessionAuth)
 	x.BackendAuthPassword = redactSecret(x.BackendAuthPassword)
@@ -319,13 +334,9 @@ func (c *Config) Validate() error {
 	if c.AdminAddr == "" {
 		return errors.New("invalid admin_addr")
 	}
-	if c.JodisName != "" {
-		if c.JodisAddr == "" {
-			return errors.New("invalid jodis_addr")
-		}
-		if c.JodisTimeout < 0 {
-			return errors.New("invalid jodis_timeout")
-		}
+	if len(c.deprecatedJodis) > 0 {
+		return errors.Errorf("jodis_* options are no longer supported; Jodis registration was last supported at %s, use etcd_register_online (found: %s)",
+			deprecatedJodisSHA, strings.Join(c.deprecatedJodis, ", "))
 	}
 	if c.ClusterNodesCompat == "" {
 		c.ClusterNodesCompat = ClusterNodesCompatDisabled
@@ -339,8 +350,8 @@ func (c *Config) Validate() error {
 		return errors.New("invalid cluster_nodes_refresh_period")
 	}
 	if c.ClusterNodesCompat == ClusterNodesCompatAll {
-		if c.JodisName == "" || c.JodisAddr == "" {
-			return errors.New("invalid cluster_nodes_compat, all mode requires jodis_name and jodis_addr")
+		if !c.EtcdRegisterOnline {
+			return errors.New("invalid cluster_nodes_compat, all mode requires etcd_register_online to be enabled")
 		}
 		if c.ClusterNodesRefreshPeriod <= 0 {
 			return errors.New("invalid cluster_nodes_refresh_period")

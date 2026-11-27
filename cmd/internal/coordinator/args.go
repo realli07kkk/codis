@@ -33,14 +33,6 @@ type Args struct {
 	ConfigFile    string // --etcd-config value
 	HasEndpoints  bool   // whether --etcd was given
 	HasConfigFile bool   // whether --etcd-config was given
-
-	// Deprecated: the legacy backend selection. These fields are always zero
-	// and exist only so the entry packages in cmd/* that still print them keep
-	// compiling until they are rewired to the etcd options.
-	Name    string
-	Addr    string
-	Auth    string
-	HasAuth bool
 }
 
 // Value is a string option that accepts an empty argument and records whether

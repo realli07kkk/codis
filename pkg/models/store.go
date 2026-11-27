@@ -20,12 +20,6 @@ func init() {
 	}
 }
 
-const JodisDir = "/jodis"
-
-func JodisPath(product string, token string) string {
-	return filepath.Join(JodisDir, product, fmt.Sprintf("proxy-%s", token))
-}
-
 const CodisDir = "/codis3"
 
 func ProductDir(product string) string {
@@ -131,14 +125,6 @@ func (s *Store) ACLPath() string {
 
 func (s *Store) ProxyQPSLimitPath() string {
 	return ProxyQPSLimitPath(s.product)
-}
-
-func (s *Store) Acquire(topom *Topom) error {
-	return s.client.Create(s.LockPath(), topom.Encode())
-}
-
-func (s *Store) Release() error {
-	return s.client.Delete(s.LockPath())
 }
 
 // LockOwnership is what one process holds on the /topom key: the owner id

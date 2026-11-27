@@ -35,25 +35,20 @@ admin_addr = "0.0.0.0:11080"
 proto_type = "tcp4"
 proxy_addr = "0.0.0.0:19000"
 
-# Set jodis address & session timeout
-#   1. jodis_name is short for jodis_coordinator_name, only accept "zookeeper" & "consul".
-#   2. jodis_addr is short for jodis_coordinator_addr
-#   3. jodis_auth is short for jodis_coordinator_auth, for zookeeper, "user:password" is accepted; for consul, ACL token is accepted.
-#   4. proxy will be registered as node:
-#        if jodis_compatible = true (not suggested):
-#          /zk/codis/db_{PRODUCT_NAME}/proxy-{HASHID} (compatible with Codis2.0)
-#        or else
-#          /jodis/{PRODUCT_NAME}/proxy-{HASHID}
-jodis_name = ""
-jodis_addr = ""
-jodis_auth = ""
-jodis_timeout = "20s"
-jodis_compatible = false
-
 # Enable limited CLUSTER NODES compatibility for cluster-mode SDK bootstrap.
 # Allowed values: "disabled", "self", "all".
 cluster_nodes_compat = "disabled"
 cluster_nodes_refresh_period = "30s"
+
+# Enable online proxy registration/discovery through the coordinator.
+#   1. Once the proxy is online it publishes an online record for its token.
+#      The lease TTL is fixed at 30s and maintained by the registration
+#      implementation, not by this config.
+#   2. cluster_nodes_compat = "all" requires this to be enabled: it then polls
+#      the online records of the same product to answer CLUSTER NODES.
+#   3. Leaving it false with cluster_nodes_compat = "all" is rejected by
+#      validation; a proxy without it never connects to the coordinator.
+etcd_register_online = false
 
 # Set datacenter of proxy.
 proxy_datacenter = ""

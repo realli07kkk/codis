@@ -4,10 +4,8 @@
 package proxy
 
 import (
-	"encoding/json"
+	"context"
 	"fmt"
-	"path/filepath"
-	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -159,13 +157,18 @@ func TestClusterNodesRequiresAuth(t *testing.T) {
 	}
 }
 
-func TestClusterNodesAllRequiresJodisConfig(t *testing.T) {
+func TestClusterNodesAllRequiresEtcdRegisterOnline(t *testing.T) {
 	config := newProxyConfig()
 	config.ClusterNodesCompat = ClusterNodesCompatAll
-	config.JodisName = ""
-	config.JodisAddr = ""
-	if err := config.Validate(); err == nil || !strings.Contains(err.Error(), "all mode requires jodis_name and jodis_addr") {
+	config.EtcdRegisterOnline = false
+	err := config.Validate()
+	if err == nil || !strings.Contains(err.Error(), "etcd_register_online") {
 		t.Fatalf("Validate error = %v", err)
+	}
+
+	config.EtcdRegisterOnline = true
+	if err := config.Validate(); err != nil {
+		t.Fatalf("Validate failed with etcd_register_online enabled: %v", err)
 	}
 }
 
@@ -207,7 +210,7 @@ func TestFormatClusterNodesAndSlotDistribution(t *testing.T) {
 	}
 }
 
-func TestClusterNodesNormalizeDuplicateJodisNodes(t *testing.T) {
+func TestClusterNodesNormalizeDuplicateNodes(t *testing.T) {
 	config := newProxyConfig()
 	config.ProductName = "codis-test"
 	self := &models.Proxy{Token: "self", ProxyAddr: "127.0.0.1:19000", ProductName: config.ProductName}
@@ -235,20 +238,21 @@ func TestClusterNodesDiscoveryRefreshAndFallback(t *testing.T) {
 	config := newProxyConfig()
 	config.ProductName = "codis-test"
 	config.ClusterNodesCompat = ClusterNodesCompatAll
-	config.JodisName = "fake"
-	config.JodisAddr = "fake"
+	config.EtcdRegisterOnline = true
 	config.ClusterNodesRefreshPeriod.Set(10 * time.Millisecond)
 
 	self := &models.Proxy{Token: "self", ProxyAddr: "127.0.0.1:19000", ProductName: config.ProductName}
-	client := newFakeClusterNodesClient(config.ProductName)
-	client.putJodis("proxy-a", "token-a", "127.0.0.2:19000", "online")
-	client.putJodis("proxy-self", "self", "127.0.0.1:19000", "online")
-	client.putJodis("proxy-b", "token-b", "127.0.0.3:19000", "online")
-	client.putRaw("bad-json", []byte("{"))
-	client.putJodis("empty-addr", "empty", "", "online")
-	client.putJodis("offline", "offline", "127.0.0.4:19000", "offline")
+	lister := newFakeOnlineLister(
+		models.OnlineRecord{Token: "token-a", Addr: "127.0.0.2:19000"},
+		models.OnlineRecord{Token: "self", Addr: "127.0.0.1:19000"},
+		models.OnlineRecord{Token: "token-b", Addr: "127.0.0.3:19000"},
+		models.OnlineRecord{Token: "token-a", Addr: "127.0.0.9:19000"},
+		models.OnlineRecord{Token: "bad-addr", Addr: ""},
+		models.OnlineRecord{Token: "", Addr: "127.0.0.4:19000"},
+	)
 
-	provider := newClusterNodesProvider(config, self, client)
+	provider := newClusterNodesProvider(config, self, lister)
+	defer provider.Close()
 	if err := provider.refresh(); err != nil {
 		t.Fatal(err)
 	}
@@ -260,8 +264,14 @@ func TestClusterNodesDiscoveryRefreshAndFallback(t *testing.T) {
 	if countSelfNodes(nodes) != 1 {
 		t.Fatalf("self node count = %d, nodes = %+v", countSelfNodes(nodes), nodes)
 	}
+	for _, node := range nodes {
+		assertClusterNodeID(t, node.ID)
+	}
+	assertHasClusterNode(t, nodes, "self", "127.0.0.1:19000")
+	assertHasClusterNode(t, nodes, "token-a", "127.0.0.2:19000")
+	assertHasClusterNode(t, nodes, "token-b", "127.0.0.3:19000")
 
-	client.setListError(fmt.Errorf("list failed"))
+	lister.setListError(fmt.Errorf("list failed"))
 	if err := provider.refresh(); err == nil {
 		t.Fatal("expected refresh error")
 	}
@@ -269,29 +279,51 @@ func TestClusterNodesDiscoveryRefreshAndFallback(t *testing.T) {
 		t.Fatalf("snapshot should keep last good nodes, got %d", len(got))
 	}
 
-	client.setListError(nil)
-	client.reset()
-	client.putJodis("proxy-self", "self", "127.0.0.1:19000", "online")
-	client.putJodis("proxy-a", "token-a", "127.0.0.2:19000", "online")
+	lister.setListError(nil)
+	lister.setRecords(
+		models.OnlineRecord{Token: "token-a", Addr: "127.0.0.2:19000"},
+	)
 	provider.Start()
-	defer provider.Close()
 	waitUntil(t, func() bool {
 		return len(provider.snapshot()) == 2
 	})
-	client.putJodis("proxy-b", "token-b", "127.0.0.3:19000", "online")
+	lister.setRecords(
+		models.OnlineRecord{Token: "token-a", Addr: "127.0.0.2:19000"},
+		models.OnlineRecord{Token: "token-b", Addr: "127.0.0.3:19000"},
+	)
 	waitUntil(t, func() bool {
 		return len(provider.snapshot()) == 3
 	})
 
-	client2 := newFakeClusterNodesClient(config.ProductName)
-	client2.setListError(fmt.Errorf("list failed"))
-	provider2 := newClusterNodesProvider(config, self, client2)
+	lister2 := newFakeOnlineLister()
+	lister2.setListError(fmt.Errorf("list failed"))
+	provider2 := newClusterNodesProvider(config, self, lister2)
+	defer provider2.Close()
 	if err := provider2.refresh(); err == nil {
 		t.Fatal("expected initial refresh error")
 	}
 	if got := provider2.snapshot(); len(got) != 1 || !got[0].IsSelf {
 		t.Fatalf("initial failure should keep self fallback, got %+v", got)
 	}
+
+	lister3 := newFakeOnlineLister()
+	provider3 := newClusterNodesProvider(config, self, lister3)
+	defer provider3.Close()
+	if err := provider3.refresh(); err != nil {
+		t.Fatal(err)
+	}
+	if got := provider3.snapshot(); len(got) != 1 || !got[0].IsSelf {
+		t.Fatalf("empty online list should only return self, got %+v", got)
+	}
+
+	// A server-side removal disappears no later than the next successful read.
+	lister.setRecords(
+		models.OnlineRecord{Token: "token-a", Addr: "127.0.0.2:19000"},
+	)
+	waitUntil(t, func() bool {
+		got := provider.snapshot()
+		return len(got) == 2 && countSelfNodes(got) == 1
+	})
 }
 
 func assertHasClusterNode(t *testing.T, nodes []clusterNode, token, addr string) {
@@ -322,97 +354,43 @@ func redisMultiBulk(args ...string) []*redis.Resp {
 	return multi
 }
 
-type fakeClusterNodesClient struct {
+// fakeOnlineLister is the in-process stand-in for an injected OnlineLister
+// (the real etcd-backed one lives outside pkg/proxy, rule D2).
+type fakeOnlineLister struct {
 	mu      sync.RWMutex
-	product string
-	data    map[string][]byte
-	listErr error
-	closed  bool
+	records []models.OnlineRecord
+	err     error
+	calls   int
 }
 
-func newFakeClusterNodesClient(product string) *fakeClusterNodesClient {
-	return &fakeClusterNodesClient{
-		product: product,
-		data:    make(map[string][]byte),
+func newFakeOnlineLister(records ...models.OnlineRecord) *fakeOnlineLister {
+	return &fakeOnlineLister{records: records}
+}
+
+func (l *fakeOnlineLister) setRecords(records ...models.OnlineRecord) {
+	l.mu.Lock()
+	l.records = records
+	l.mu.Unlock()
+}
+
+func (l *fakeOnlineLister) setListError(err error) {
+	l.mu.Lock()
+	l.err = err
+	l.mu.Unlock()
+}
+
+func (l *fakeOnlineLister) callCount() int {
+	l.mu.RLock()
+	defer l.mu.RUnlock()
+	return l.calls
+}
+
+func (l *fakeOnlineLister) List(ctx context.Context) ([]models.OnlineRecord, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.calls++
+	if l.err != nil {
+		return nil, l.err
 	}
-}
-
-func (c *fakeClusterNodesClient) putJodis(name, token, addr, state string) {
-	node := jodisProxyNode{Token: token, Addr: addr, State: state}
-	b, err := json.Marshal(node)
-	if err != nil {
-		panic(err)
-	}
-	c.putRaw(name, b)
-}
-
-func (c *fakeClusterNodesClient) putRaw(name string, b []byte) {
-	c.mu.Lock()
-	c.data[filepath.Join(models.JodisDir, c.product, name)] = b
-	c.mu.Unlock()
-}
-
-func (c *fakeClusterNodesClient) reset() {
-	c.mu.Lock()
-	c.data = make(map[string][]byte)
-	c.mu.Unlock()
-}
-
-func (c *fakeClusterNodesClient) setListError(err error) {
-	c.mu.Lock()
-	c.listErr = err
-	c.mu.Unlock()
-}
-
-func (c *fakeClusterNodesClient) Create(path string, data []byte) error { return nil }
-func (c *fakeClusterNodesClient) Update(path string, data []byte) error { return nil }
-func (c *fakeClusterNodesClient) Delete(path string) error              { return nil }
-
-func (c *fakeClusterNodesClient) Read(path string, must bool) ([]byte, error) {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-	b := c.data[path]
-	if b == nil && must {
-		return nil, fmt.Errorf("path %s not found", path)
-	}
-	return b, nil
-}
-
-func (c *fakeClusterNodesClient) List(path string, must bool) ([]string, error) {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-	if c.listErr != nil {
-		return nil, c.listErr
-	}
-	var paths []string
-	prefix := path + "/"
-	for p := range c.data {
-		if strings.HasPrefix(p, prefix) {
-			paths = append(paths, p)
-		}
-	}
-	slices.Sort(paths)
-	if len(paths) == 0 && must {
-		return nil, fmt.Errorf("path %s not found", path)
-	}
-	return paths, nil
-}
-
-func (c *fakeClusterNodesClient) Close() error {
-	c.mu.Lock()
-	c.closed = true
-	c.mu.Unlock()
-	return nil
-}
-
-func (c *fakeClusterNodesClient) WatchInOrder(path string) (<-chan struct{}, []string, error) {
-	return make(chan struct{}), nil, nil
-}
-
-func (c *fakeClusterNodesClient) CreateEphemeral(path string, data []byte) (<-chan struct{}, error) {
-	return make(chan struct{}), nil
-}
-
-func (c *fakeClusterNodesClient) CreateEphemeralInOrder(path string, data []byte) (<-chan struct{}, string, error) {
-	return make(chan struct{}), path, nil
+	return append([]models.OnlineRecord(nil), l.records...), nil
 }

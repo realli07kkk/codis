@@ -6,12 +6,10 @@ package proxy
 import (
 	"context"
 	stderrors "errors"
-	"fmt"
 	"net"
 	"net/http"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
@@ -62,12 +60,47 @@ type Proxy struct {
 		masters map[int]string
 		servers []string
 	}
-	jodis *Jodis
+
+	// onlineRegistry publishes this proxy's online record once its token is
+	// known and it is online. The registry may be created lazily, so
+	// registryMu guards the read path used by the cluster-nodes provider: that
+	// provider runs in its own goroutine and must not take s.mu, which Close
+	// holds while it waits for the provider to stop.
+	registryMu            sync.Mutex
+	onlineRegistry        OnlineRegistry
+	onlineRegistryFactory OnlineRegistryFactory
+	registryStarted       bool
 }
 
 var ErrClosedProxy = errors.New("use of closed proxy")
 
-func New(config *Config) (*Proxy, error) {
+// Option customizes a Proxy created by New. Options are only used at
+// construction time, before setup validates and wires the dependencies.
+type Option func(*Proxy)
+
+// WithOnlineRegistry injects the online registration/discovery implementation.
+// It is required when etcd_register_online is on, and when
+// cluster_nodes_compat=all it is also the discovery source. pkg/proxy only
+// program against the interface, never against the etcd client (rule D2).
+func WithOnlineRegistry(r OnlineRegistry) Option {
+	return func(s *Proxy) {
+		s.onlineRegistry = r
+	}
+}
+
+// WithOnlineRegistryFactory injects a factory that builds the implementation
+// once the proxy token is known. Unlike WithOnlineRegistry it needs no
+// coordinator connection at construction time: the registry is created by
+// SetModel and only connects when Register runs, so a proxy that merely
+// enabled the online registration goes online without waiting for etcd
+// (contract R2).
+func WithOnlineRegistryFactory(f OnlineRegistryFactory) Option {
+	return func(s *Proxy) {
+		s.onlineRegistryFactory = f
+	}
+}
+
+func New(config *Config, opts ...Option) (*Proxy, error) {
 	if err := config.Validate(); err != nil {
 		return nil, errors.Trace(err)
 	}
@@ -77,6 +110,11 @@ func New(config *Config) (*Proxy, error) {
 
 	s := &Proxy{}
 	s.config = config
+	for _, opt := range opts {
+		if opt != nil {
+			opt(s)
+		}
+	}
 	s.exit.C = make(chan struct{})
 	s.closeDone = make(chan struct{})
 	s.ctx, s.cancel = context.WithCancel(context.Background())
@@ -123,6 +161,15 @@ func New(config *Config) (*Proxy, error) {
 }
 
 func (s *Proxy) setup(config *Config) error {
+	if config.ClusterNodesCompat == ClusterNodesCompatAll &&
+		s.onlineRegistry == nil && s.onlineRegistryFactory == nil {
+		return errors.New("cluster_nodes_compat=all requires etcd_register_online and an injected online registry or registry factory")
+	}
+	if config.EtcdRegisterOnline &&
+		s.onlineRegistry == nil && s.onlineRegistryFactory == nil {
+		return errors.New("etcd_register_online requires an injected online registry or registry factory")
+	}
+
 	proto := config.ProtoType
 	if l, err := net.Listen(proto, config.ProxyAddr); err != nil {
 		return errors.Trace(err)
@@ -164,23 +211,16 @@ func (s *Proxy) setup(config *Config) error {
 		s.router.hotKeyCacheBroadcast.SetSource(s.model.Token, rpc.NewXAuth(config.ProductName))
 	}
 
-	if config.JodisAddr != "" {
-		c, err := models.NewClient(config.JodisName, config.JodisAddr, config.JodisAuth, config.JodisTimeout.Duration())
-		if err != nil {
-			return err
-		}
-		if config.JodisCompatible {
-			s.model.JodisPath = filepath.Join("/zk/codis", fmt.Sprintf("db_%s", config.ProductName), "proxy", s.model.Token)
-		} else {
-			s.model.JodisPath = models.JodisPath(config.ProductName, s.model.Token)
-		}
-		s.jodis = NewJodis(c, s.model)
+	var lister OnlineLister
+	switch {
+	case s.onlineRegistry != nil:
+		lister = s.onlineRegistry
+	case s.onlineRegistryFactory != nil:
+		// The registry itself is created once the proxy token is known; until
+		// then discovery reads an empty list, so the provider is wired now.
+		lister = &registryLister{proxy: s}
 	}
-	if p, err := newClusterNodesProviderForProxy(config, s.model); err != nil {
-		return err
-	} else {
-		s.router.clusterNodes = p
-	}
+	s.router.clusterNodes = newClusterNodesProvider(config, s.model, lister)
 
 	return nil
 }
@@ -196,10 +236,90 @@ func (s *Proxy) Start() error {
 	}
 	s.online = true
 	s.router.Start()
-	if s.jodis != nil {
-		s.jodis.Start()
-	}
+	// The record is published only after the proxy is online (contract §4),
+	// and going online must not wait for the registry: Register blocks until
+	// the proxy context is canceled.
+	s.startRegisterLocked()
 	return nil
+}
+
+// startRegisterLocked starts the registration loop at most once. The caller
+// holds s.mu; s.online must already be true.
+func (s *Proxy) startRegisterLocked() bool {
+	if s.closed || !s.online || s.registryStarted || s.onlineRegistry == nil {
+		return false
+	}
+	s.registryStarted = true
+	registry := s.onlineRegistry
+	s.startBackgroundLocked("online registry", func() {
+		registry.Register(s.ctx)
+	})
+	return true
+}
+
+// registry returns the current registration implementation, or nil while the
+// proxy token is unknown. It is safe to call from any goroutine: it never
+// takes s.mu, so the cluster-nodes refresh can use it while Close holds s.mu.
+func (s *Proxy) registry() OnlineRegistry {
+	s.registryMu.Lock()
+	defer s.registryMu.Unlock()
+	return s.onlineRegistry
+}
+
+// onlineRecordAddr returns the address clients use to reach this proxy, which
+// is what the online record publishes (contract §4). The model the coordinator
+// issued wins: the dashboard onboards a proxy by reading that model from its
+// admin API, so it already carries the client-facing address — the bound
+// proxy_addr with the unspecified IP resolved, or the --host-proxy override
+// when one was given. The options and the configured listen address are only
+// fallbacks, and an empty result means the record must not be written.
+func onlineRecordAddr(modelAddr, hostProxy, proxyAddr string) string {
+	if modelAddr != "" {
+		return modelAddr
+	}
+	if hostProxy != "" {
+		return hostProxy
+	}
+	return proxyAddr
+}
+
+// SetModel records the model issued by the coordinator for this proxy. Its
+// token identifies the online record, so registration only starts here and
+// never before: a proxy whose token is not known yet publishes nothing. When
+// the proxy is already online the registration loop starts immediately;
+// otherwise Start does it. The addr of the record is the client-facing
+// address of the issued model (see onlineRecordAddr).
+func (s *Proxy) SetModel(m *models.Proxy) {
+	if m == nil || m.Token == "" {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.closed {
+		return
+	}
+	if s.model.Token != "" && m.Token != s.model.Token {
+		// The record is keyed by token: publishing another proxy's token
+		// would claim its identity, so it is refused.
+		log.Warnf("[%p] ignore model token %s: this proxy token is %s", s, m.Token, s.model.Token)
+		return
+	}
+	if s.onlineRegistry != nil || s.onlineRegistryFactory == nil {
+		return
+	}
+	addr := onlineRecordAddr(m.ProxyAddr, s.config.HostProxy, s.config.ProxyAddr)
+	if addr == "" {
+		// Nothing can be discovered without an address; publishing a record
+		// with an empty addr would only be skipped by every reader.
+		log.Warnf("[%p] online registration skipped for token %s: no client-facing addr", s, m.Token)
+		return
+	}
+	registry := s.onlineRegistryFactory(s.config.ProductName, m.Token, addr)
+	s.registryMu.Lock()
+	s.onlineRegistry = registry
+	s.registryMu.Unlock()
+	log.Warnf("[%p] online registration enabled for token %s addr %q", s, m.Token, addr)
+	s.startRegisterLocked()
 }
 
 // Close shuts the proxy down. It is idempotent and safe to call from an API
@@ -225,14 +345,20 @@ func (s *Proxy) Close() error {
 	// Wake concurrent and future Close callers even if a downstream Close
 	// hook panics and the panic is recovered by an HTTP or serving boundary.
 	defer close(s.closeDone)
+	// The online registry goes first: it stops the registration loop, revokes
+	// its own lease with a bound and closes its client (contract R3). It also
+	// happens before the proxy context is canceled so a shutdown is never
+	// reported as a registry failure by the registration loop.
+	if registry := s.registry(); registry != nil {
+		if err := registry.Close(); err != nil {
+			log.WarnErrorf(err, "[%p] close online registry failed", s)
+		}
+	}
 	if s.cancel != nil {
 		s.cancel()
 	}
 	close(s.exit.C)
 
-	if s.jodis != nil {
-		s.jodis.Close()
-	}
 	if s.ladmin != nil {
 		s.ladmin.Close()
 	}
