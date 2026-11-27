@@ -14,6 +14,7 @@ Codis 是基于代理的高性能 Redis 集群方案。本目录是项目的全�
 
 - [architecture_zh.md](architecture_zh.md)：系统架构总览（组件交互、数据与状态、代码地图、已知约束）
 - [capability_boundaries_zh.md](capability_boundaries_zh.md)：各能力域的明确边界（支持什么、不做什么）
+- [etcd_3_7_coordinator_contract_zh.md](etcd_3_7_coordinator_contract_zh.md)：新建集群采用 etcd 3.7 单后端的实施交接契约，含实施前 Go/gRPC 依赖调研、配置、锁恢复、Proxy 在线发现和验收用例
 
 ## Codis Server（内嵌 Redis）
 
