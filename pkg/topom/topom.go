@@ -5,6 +5,7 @@ package topom
 
 import (
 	"container/list"
+	stderrors "errors"
 	"net"
 	"net/http"
 	"os"
@@ -15,6 +16,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/google/uuid"
 
 	"github.com/CodisLabs/codis/pkg/models"
 	"github.com/CodisLabs/codis/pkg/utils"
@@ -31,6 +34,9 @@ type Topom struct {
 	xauth string
 	model *models.Topom
 	store *models.Store
+	// lock is the persistent topom lock this process holds, nil while the
+	// topom is not online. It is guarded by mu.
+	lock  *models.LockOwnership
 	cache struct {
 		hooks list.List
 		slots []*models.SlotMapping
@@ -115,6 +121,9 @@ func New(client models.Client, config *Config) (*Topom, error) {
 
 	s.model = &models.Topom{
 		StartTime: time.Now().String(),
+		// One owner id per process start: retries of Start on this instance
+		// must recover the same lock, while a restart is a new owner.
+		OwnerID: uuid.NewString(),
 	}
 	s.model.ProductName = config.ProductName
 	s.model.Pid = os.Getpid()
@@ -212,14 +221,32 @@ func (s *Topom) Close() error {
 	}
 
 	var err error
-	if s.online {
-		if e := s.store.Release(); e != nil {
+	if e := s.releaseLock(); e != nil {
+		switch {
+		case stderrors.Is(e, models.ErrLockGone), stderrors.Is(e, models.ErrLockOwnershipChanged):
+			// The lock was already removed by the operator or replaced by a
+			// successor; the shutdown itself is complete.
+			log.WarnErrorf(e, "store: release lock of %s skipped", s.config.ProductName)
+		default:
 			log.ErrorErrorf(e, "store: release lock of %s failed", s.config.ProductName)
-			err = errors.Errorf("store: release lock of %s failed", s.config.ProductName)
+			err = errors.Errorf("store: release lock of %s failed: %w", s.config.ProductName, e)
 		}
 	}
 	s.store.Close()
 	return err
+}
+
+// releaseLock deletes the persistent lock this process holds and forgets the
+// ownership. Callers must hold s.mu; Close calls it after the background tasks
+// have exited and before the store is closed.
+func (s *Topom) releaseLock() error {
+	owner := s.lock
+	if owner == nil {
+		return nil
+	}
+	s.lock = nil
+	s.online = false
+	return s.store.ReleaseLock(owner)
 }
 
 func (s *Topom) Start(routines bool) error {
@@ -231,10 +258,14 @@ func (s *Topom) Start(routines bool) error {
 	if s.online {
 		return nil
 	} else {
-		if err := s.store.Acquire(s.model); err != nil {
+		owner, err := s.store.AcquireLock(s.model)
+		if err != nil {
 			log.ErrorErrorf(err, "store: acquire lock of %s failed", s.config.ProductName)
-			return errors.Errorf("store: acquire lock of %s failed", s.config.ProductName)
+			return errors.Errorf("store: acquire lock of %s failed: %w", s.config.ProductName, err)
 		}
+		// Ownership is recorded before anything becomes reachable, so a
+		// failure below can always clean up with this revision.
+		s.lock = owner
 		s.online = true
 	}
 
@@ -243,6 +274,9 @@ func (s *Topom) Start(routines bool) error {
 	}
 	ctx, err := s.newContext()
 	if err != nil {
+		if e := s.releaseLock(); e != nil {
+			log.ErrorErrorf(e, "store: release lock of %s failed after start failure", s.config.ProductName)
+		}
 		return err
 	}
 	s.rewatchSentinels(ctx.sentinel.Servers)
