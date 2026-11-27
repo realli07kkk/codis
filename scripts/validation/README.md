@@ -7,8 +7,8 @@
 ## 用途与边界
 
 - 覆盖：Redis 8 功能 gate、依赖与供应链安全扫描、Codis ACL、Proxy QPS 限流、PITR 数据闪回、RDB Analysis、FE 浏览器冒烟。
-- 不覆盖：性能压测、数据迁移控制台、codis-ha、Consul/ZooKeeper coordinator、Docker 部署（仅功能 gate 的 `--docker` 可选）、多平台发布。完整清单见[限制](#限制)。
-- 脚本只做单机布局：dashboard、fe、proxy、codis-server 全部同机，coordinator 用 filesystem。ENV-01 那种双机布局没有脚本化。
+- 不覆盖：性能压测、数据迁移控制台、codis-ha、coordinator 从旧后端迁移、Docker 部署（仅功能 gate 的 `--docker` 可选）、多平台发布。完整清单见[限制](#限制)。
+- 脚本只做单机布局：dashboard、fe、proxy、codis-server 全部同机，coordinator 统一为 etcd 3.7；脚本内的配置生成尚未跟改，属后续验证工作。ENV-01 那种双机布局没有脚本化。
 - 证据是本地 JSON 文件，默认落在 `.runtime/`（已 gitignore）；入库的只有文档，以及文档里引用的证据路径。
 
 ## 目录结构
@@ -127,7 +127,7 @@ CODIS_CLUSTER=<cluster.json> npx playwright test
 
 | 能力域 | 对应文档 | 真机脚本 | 浏览器用例 | 备注 |
 | --- | --- | --- | --- | --- |
-| 环境采集 · 集群搭建 · 清理 | [redis8_validation_zh.md](../../doc/redis8_validation_zh.md)（"必须记录的环境字段"）、[validation/README.md](../../doc/validation/README.md)（ENV 登记） | `env/collect_env.py`、`env/setup_cluster.py`、`env/teardown_cluster.py` | — | collect_env 覆盖 8 类字段；setup 默认开启 aof / rdb-export / pitr，filesystem coordinator |
+| 环境采集 · 集群搭建 · 清理 | [redis8_validation_zh.md](../../doc/redis8_validation_zh.md)（"必须记录的环境字段"）、[validation/README.md](../../doc/validation/README.md)（ENV 登记） | `env/collect_env.py`、`env/setup_cluster.py`、`env/teardown_cluster.py` | — | collect_env 覆盖 8 类字段；setup 默认开启 aof / rdb-export / pitr，coordinator 配置待跟改到 etcd 3.7 |
 | Redis 8 功能 gate | [redis8_validation_zh.md](../../doc/redis8_validation_zh.md)（验证 Gate、必跑命令） | `redis8/run_functional_gate.py` | — | build / gotest / 5 组 Tcl / e2e；`--docker` 可选；性能 gate 按要求未脚本化 |
 | 依赖与供应链安全 | [redis8_validation_zh.md](../../doc/redis8_validation_zh.md)（Redis 3 移除）、[build_and_release_zh.md](../../doc/build_and_release_zh.md) | `security/run_dependency_audit.py` | — | govulncheck / go build / go test / npm audit / Redis 3 移除断言 / codis-server 版本 |
 | Codis ACL | [codis_acl_zh.md](../../doc/codis_acl_zh.md) | `acl/run_acl.py` | [tests/acl.spec.js](browser/tests/acl.spec.js) | 18 个 case；浏览器覆盖新增 / 删除用户 |
@@ -162,7 +162,7 @@ CODIS_CLUSTER=<cluster.json> npx playwright test
 
 - 只覆盖单机布局（所有组件同机）；ENV-01 那种双机布局未脚本化。
 - 性能压测按要求暂不固化：`redis-benchmark` 的参数与执行未入脚本，功能 gate 也不产出吞吐/延迟结论。
-- 数据迁移控制台、codis-ha、Consul/ZooKeeper coordinator、Docker 部署（gate 脚本 `--docker` 可选）、多平台发布：尚无脚本。
+- 数据迁移控制台、codis-ha、coordinator 从旧后端迁移、Docker 部署（gate 脚本 `--docker` 可选）、多平台发布：尚无脚本。
 - `pitr-cancel-in-truncate` 固定 skipped：S17 的取消语义未定稿，脚本不把"failed"当成稳定契约。
 - 浏览器用例会真实创建/删除 ACL 用户、改限流、创建 PITR 任务（真实 `SHUTDOWN NOSAVE` 并截断 AOF）、创建 RDB 任务，只能对一次性验证集群运行，不能指向业务集群。
 - 脚本只验证"功能与契约"，不做容量、稳定性或长稳压测；`head.dirty` 为 true 时证据只对工作区状态负责。

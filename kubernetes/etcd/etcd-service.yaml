@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: etcd
+  labels:
+    app: etcd
+spec:
+  # Headless service: the StatefulSet publishes the stable pod record
+  # etcd-0.etcd, and the Codis components use etcd:2379 through it.
+  clusterIP: None
+  ports:
+  - port: 2379
+    name: client
+  - port: 2380
+    name: server
+  selector:
+    app: etcd

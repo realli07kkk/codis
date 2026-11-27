@@ -39,8 +39,8 @@ def symlink(src, dst):
 
 class Coordinator:
     def __init__(self, config):
-        self.name = config.get("name", "")
-        self.addr = config.get("addr", "")
+        self.name = config.get("name", "etcd")
+        self.addr = config.get("addr", "http://127.0.0.1:2379")
 
 
 class Dashboard():
@@ -55,8 +55,8 @@ class Dashboard():
 
         if self.admin_addr == "":
             raise Exception("dashboard.admin_addr not found")
-        if self.coordinator.name == "":
-            raise Exception("coordinator.name not found")
+        if self.coordinator.name != "etcd":
+            raise Exception("coordinator.name must be etcd, the only supported coordinator")
         if self.coordinator.addr == "":
             raise Exception("coordinator.addr not found or empty")
 
@@ -118,8 +118,7 @@ class Template:
         self.max_clients = config.get("max_clients", 10000)
         self.max_pipeline = config.get("max_pipeline", 1024)
         self.log_level = config.get("log_level", "INFO")
-        self.jodis_name = config.get("jodis_name", "")
-        self.jodis_addr = config.get("jodis_addr", "")
+        self.etcd_register_online = "true" if config.get("etcd_register_online", False) else "false"
 
 
 class Proxy():
@@ -148,8 +147,7 @@ class Proxy():
             'DATACENTER': self.datacenter,
             'MAX_CLIENTS': self.template.max_clients,
             'MAX_PIPELINE': self.template.max_pipeline,
-            'JODIS_NAME': self.template.jodis_name,
-            'JODIS_ADDR': self.template.jodis_addr,
+            'ETCD_REGISTER_ONLINE': self.template.etcd_register_online,
             'MIN_CPU': self.template.min_cpu,
             'MAX_CPU': self.template.max_cpu,
             'LOG_LEVEL': self.template.log_level,

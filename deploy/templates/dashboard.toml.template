@@ -4,7 +4,10 @@
 #                                                #
 ##################################################
 
-# Set Coordinator, only accept "zookeeper" & "filesystem" & "consul".
+# Set Coordinator. etcd is the only supported coordinator.
+# Endpoints come from, in order: --etcd, the endpoints field of the
+# --etcd-config file, this coordinator_addr, then http://127.0.0.1:2379.
+# Credentials and TLS material belong in the --etcd-config file.
 coordinator_name = "{COORDINATOR_NAME}"
 coordinator_addr = "{COORDINATOR_ADDR}"
 

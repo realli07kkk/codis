@@ -15,11 +15,19 @@ admin_addr = "10.4.10.200:11080"
 proto_type = "tcp4"
 proxy_addr = "10.4.10.200:19000"
 
-# Set jodis address & session timeout, only accept "zookeeper" & "consul".
-jodis_name = "zookeeper"
-jodis_addr = "10.4.10.101:2181,10.4.10.102:2181,10.4.10.103:2181,10.4.10.104:2181,10.4.10.105:2181"
-jodis_timeout = "20s"
-jodis_compatible = false
+# Enable online proxy registration/discovery through the coordinator.
+#   1. Once the proxy is online it publishes an online record for its token;
+#      the lease TTL is fixed at 30s and maintained by the proxy itself.
+#   2. cluster_nodes_compat = "all" requires this to be enabled; a proxy with
+#      it off never connects to the coordinator.
+#   3. Connection options come from --etcd/--etcd-config (or the default
+#      http://127.0.0.1:2379); credentials and TLS material belong in the
+#      --etcd-config file.
+etcd_register_online = false
+
+# Set cluster nodes discovery. Allowed values: "disabled", "self", "all".
+cluster_nodes_compat = "disabled"
+cluster_nodes_refresh_period = "30s"
 
 # Set datacenter of proxy.
 proxy_datacenter = "dc1"

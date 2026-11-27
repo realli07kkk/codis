@@ -4,9 +4,12 @@
 #                                                #
 ##################################################
 
-# Set Coordinator, only accept "zookeeper" & "filesystem" & "consul".
-coordinator_name = "zookeeper"
-coordinator_addr = "10.4.10.101:2181,10.4.10.102:2181,10.4.10.103:2181,10.4.10.104:2181,10.4.10.105:2181"
+# Set Coordinator. etcd is the only supported coordinator.
+# Endpoints come from, in order: --etcd, the endpoints field of the
+# --etcd-config file, this coordinator_addr, then http://127.0.0.1:2379.
+# Credentials and TLS material belong in the --etcd-config file.
+coordinator_name = "etcd"
+coordinator_addr = "http://10.4.10.101:2379,http://10.4.10.102:2379,http://10.4.10.103:2379"
 
 # Set Codis Product Name/Auth.
 product_name = "demo-beta"

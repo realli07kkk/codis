@@ -1,29 +1,49 @@
 #!/bin/bash
 
-if [ $(kubectl get pods -l app=zk |grep Running |wc -l) == 0 ]; then
-    echo "start create zookeeper cluster"
-    kubectl create -f zookeeper/zookeeper-service.yaml
-    kubectl create -f zookeeper/zookeeper.yaml
-    while [ $(kubectl get pods -l app=zk |grep Running |wc -l) != 3 ]; do sleep 1; done;
-    echo "finish create zookeeper cluster"
+if [ $(kubectl get pods -l app=etcd |grep Running |wc -l) == 0 ]; then
+    echo "start create etcd cluster"
+    kubectl create -f etcd/etcd-service.yaml
+    kubectl create -f etcd/etcd.yaml
+    while [ $(kubectl get pods -l app=etcd |grep Running |wc -l) != 1 ]; do sleep 1; done;
+    echo "finish create etcd cluster"
 fi
 
 product_name="codis-test"
 #product_auth="auth"
+
+### etcd client used by cleanup/buildup. The demo is a single member listening
+### on the plain HTTP client port; for a TLS cluster pass --cacert/--cert/--key
+### and use https endpoints.
+codis_etcdctl() {
+    kubectl exec etcd-0 -- etcdctl --endpoints=http://127.0.0.1:2379 "$@"
+}
+
 case "$1" in
 
 ### 清理原来codis遗留数据
 cleanup)
     kubectl delete -f .
-    # 如果zookeeper不是在kurbernetes上，需要登陆上zk机器 执行 zkCli.sh -server {zk-addr}:2181 rmr /codis3/$product_name
-    kubectl exec -it zk-0 -- zkCli.sh -server zk-0:2181 rmr /codis3/$product_name
+    # 如果etcd不在kubernetes上，需要在etcd机器上执行:
+    #   etcdctl --endpoints={etcd-addr}:2379 del /codis3/$product_name/ --prefix
+    codis_etcdctl del /codis3/$product_name/ --prefix
     ;;
 
 ### 创建新的codis集群
 buildup)
     kubectl delete -f .
-    # 如果zookeeper不是在kurbernetes上，需要登陆上zk机器 执行 zkCli.sh -server {zk-addr}:2181 rmr /codis3/$product_name
-    kubectl exec -it zk-0 -- zkCli.sh -server zk-0:2181 rmr /codis3/$product_name
+    # 如果etcd不在kubernetes上，需要在etcd机器上执行:
+    #   etcdctl --endpoints={etcd-addr}:2379 del /codis3/$product_name/ --prefix
+    codis_etcdctl del /codis3/$product_name/ --prefix
+    # 首次建群预检：product 前缀为空才继续，非空停止本次新建，读失败直接报错
+    if ! existing=$(codis_etcdctl get /codis3/$product_name/ --prefix); then
+        echo "read etcd prefix /codis3/$product_name/ failed, abort"
+        exit 1
+    fi
+    if [ -n "$existing" ]; then
+        echo "product $product_name is not empty in etcd, keep the existing cluster or remove the prefix first"
+        exit 1
+    fi
+    kubectl create -f codis-etcd-config.yaml
     kubectl create -f codis-service.yaml
     kubectl create -f codis-dashboard.yaml
     while [ $(kubectl get pods -l app=codis-dashboard |grep Running |wc -l) != 1 ]; do sleep 1; done;

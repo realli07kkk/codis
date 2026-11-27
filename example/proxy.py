@@ -17,7 +17,7 @@ class CodisProxy(Process):
         self.product_auth = product_auth
 
         self.logfile = "proxy-{}.log".format(proxy_port)
-        self.command = "codis-proxy -c {} --filesystem rootfs".format(self.config)
+        self.command = "codis-proxy -c {} --etcd http://127.0.0.1:2379".format(self.config)
         Process.__init__(self, self.command, self.logfile)
 
         dict = {"admin_port": admin_port, "proxy_port": proxy_port, "pid": self.proc.pid}

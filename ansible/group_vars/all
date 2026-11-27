@@ -1,9 +1,10 @@
 ---
 codis_dir: /home/codis/codis
 
-coordinator_name: filesystem
-
-coordinator_addr: /tmp/codis
+# etcd 3.7 is the only supported coordinator. Endpoints are one or more
+# comma separated http(s) URLs of the same cluster; credentials and TLS
+# material belong in an --etcd-config file, never in this inventory.
+etcd_endpoints: http://127.0.0.1:2379
 
 codis_install_dir: /data/codis-vip
 

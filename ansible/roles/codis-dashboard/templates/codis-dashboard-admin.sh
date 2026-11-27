@@ -16,6 +16,7 @@ CODIS_DASHBOARD_LOG_FILE=$CODIS_LOG_DIR/codis-dashboard.log
 CODIS_DASHBOARD_DAEMON_FILE=$CODIS_LOG_DIR/codis-dashboard.out
 
 CODIS_DASHBOARD_CONF_FILE=$CODIS_CONF_DIR/dashboard.toml
+COORDINATOR_ETCD="{{ etcd_endpoints }}"
 
 echo $CODIS_DASHBOARD_CONF_FILE
 
@@ -70,9 +71,12 @@ restart)
     "$0" start
     ;;
 remove-lock)
-    $CODIS_ADMIN_TOOL_BIN -v --remove-lock --product={{ product_name }} --{{ coordinator_name }}={{ coordinator_addr }}
+    # usage: codis-dashboard-admin.sh remove-lock <create_revision>
+    # The dashboard lock is persistent: read it with codis-admin --show-lock
+    # first, then delete it only with the revision you actually observed.
+    $CODIS_ADMIN_TOOL_BIN -v --remove-lock --product={{ product_name }} --etcd=$COORDINATOR_ETCD --expected-revision=$1 --confirm
     ;;
 *)
-    echo "Usage: $0 {start|start-foreground|stop|stop-forced|restart|remove-lock}" >&2
+    echo "Usage: $0 {start|start-foreground|stop|stop-forced|restart|remove-lock <create_revision>}" >&2
 
 esac

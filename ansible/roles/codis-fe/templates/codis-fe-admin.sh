@@ -15,8 +15,7 @@ CODIS_FE_ASSETS_DIR=$CODIS_BIN_DIR/assets
 CODIS_FE_LOG_FILE=$CODIS_LOG_DIR/codis-fe.log
 CODIS_FE_DAEMON_FILE=$CODIS_LOG_DIR/codis-fe.out
 
-COORDINATOR_NAME="{{ coordinator_name }}"
-COORDINATOR_ADDR="{{ coordinator_addr }}"
+COORDINATOR_ETCD="{{ etcd_endpoints }}"
 CODIS_FE_ADDR="0.0.0.0:9090"
 
 echo $CODIS_FE_CONF_FILE
@@ -35,11 +34,11 @@ start)
          exit 0
       fi
     fi
-    nohup "$CODIS_FE_BIN" "--assets-dir=${CODIS_FE_ASSETS_DIR}" "--$COORDINATOR_NAME=$COORDINATOR_ADDR" \
+    nohup "$CODIS_FE_BIN" "--assets-dir=${CODIS_FE_ASSETS_DIR}" "--etcd=$COORDINATOR_ETCD" \
     "--log=$CODIS_FE_LOG_FILE" "--pidfile=$CODIS_FE_PID_FILE" "--log-level=INFO" "--listen=$CODIS_FE_ADDR" > "$CODIS_FE_DAEMON_FILE" 2>&1 < /dev/null &
     ;;
 start-foreground)
-    $CODIS_FE_BIN "--assets-dir=${CODIS_FE_ASSETS_DIR}" "--$COORDINATOR_NAME=$COORDINATOR_ADDR" \
+    $CODIS_FE_BIN "--assets-dir=${CODIS_FE_ASSETS_DIR}" "--etcd=$COORDINATOR_ETCD" \
     "--log-level=DEBUG" "--listen=$CODIS_FE_ADDR"
     ;;
 stop)

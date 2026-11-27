@@ -1,3 +1,14 @@
+# Codis on etcd 3.7: the dashboard, codis-fe, codis-admin and codis-proxy all
+# connect through the same --etcd-config file, mounted from the codis-etcd
+# ConfigMap created by codis-etcd-config.yaml (see start.sh).
+#
+# The dashboard holds a persistent lock on /codis3/{product}/topom. After an
+# unclean exit the next start fails on that lock until an operator checks and
+# removes it explicitly (there is no --remove-lock startup flag any more):
+#   codis-admin --etcd-config=/etc/codis/etcd/etcd.toml --product=codis-test --show-lock
+#   codis-admin --etcd-config=/etc/codis/etcd/etcd.toml --product=codis-test \
+#       --remove-lock --expected-revision=N --confirm
+# N is the create_revision reported by --show-lock.
 apiVersion: "apps/v1beta1"
 kind: StatefulSet
 metadata:
@@ -17,14 +28,14 @@ spec:
         image: codis-image
         imagePullPolicy: IfNotPresent
         command: ["codis-dashboard"]
-        args: ["-l","log/$(POD_NAME).log","-c","$(CODIS_PATH)/config/dashboard.toml","--host-admin","$(POD_IP):18080", "--zookeeper","$(ZK_ADDR)","--product_name","$(PRODUCT_NAME)","--pidfile","log/dashboard.pid","--remove-lock"]
+        args: ["-l","log/$(POD_NAME).log","-c","$(CODIS_PATH)/config/dashboard.toml","--host-admin","$(POD_IP):18080","--etcd-config=/etc/codis/etcd/etcd.toml","--product_name","$(PRODUCT_NAME)","--pidfile","log/dashboard.pid"]
         lifecycle:
           postStart:
             exec:
-              command: ["/bin/bash", "-c", "codis-admin --dashboard-list  --zookeeper=${ZK_ADDR}"]
+              command: ["/bin/bash", "-c", "codis-admin --dashboard-list --etcd-config=/etc/codis/etcd/etcd.toml"]
           preStop:
             exec:
-              command: [/bin/sh", "-c", "PID=$(cat log/dashboard.pid) && kill $PID && while ps -p 1 > /dev/null; do sleep 1; done"]
+              command: ["/bin/sh", "-c", "PID=$(cat log/dashboard.pid) && kill $PID && while ps -p 1 > /dev/null; do sleep 1; done"]
         env:
         - name: CODIS_PATH
           value: "/gopath/src/github.com/CodisLabs/codis"
@@ -36,8 +47,6 @@ spec:
           valueFrom:
             fieldRef:
               fieldPath: metadata.name
-        - name: ZK_ADDR
-          value: "zookeeper:2181"
         - name: PRODUCT_NAME
           value: "codis-test"
         #- name: PRODUCT_AUTH
@@ -45,6 +54,10 @@ spec:
         ports:
         - containerPort: 18080
           name: dashboard
+        volumeMounts:
+        - name: codis-etcd-config
+          mountPath: /etc/codis/etcd
+          readOnly: true
         resources:
           limits:
             cpu: "4"
@@ -52,3 +65,7 @@ spec:
           requests:
             cpu: "0.1"
             memory: 0.1Gi
+      volumes:
+      - name: codis-etcd-config
+        configMap:
+          name: codis-etcd

@@ -16,7 +16,7 @@ spec:
         image: codis-image
         imagePullPolicy: IfNotPresent
         command: ["codis-proxy"]
-        args: ["-l","log/$(POD_NAME).log","-c","$(CODIS_PATH)/config/proxy.toml","--host-admin","$(POD_IP):11080","--host-proxy","$(POD_IP):19000","--zookeeper","$(ZK_ADDR)","--product_name","$(PRODUCT_NAME)","--pidfile","log/proxy.pid"]
+        args: ["-l","log/$(POD_NAME).log","-c","$(CODIS_PATH)/config/proxy.toml","--host-admin","$(POD_IP):11080","--host-proxy","$(POD_IP):19000","--dashboard","$(DASHBOARD_ADDR)","--etcd-config=/etc/codis/etcd/etcd.toml","--product_name","$(PRODUCT_NAME)","--pidfile","log/proxy.pid"]
         lifecycle:
           preStop:
             exec:
@@ -32,8 +32,6 @@ spec:
           valueFrom:
             fieldRef:
               fieldPath: metadata.name
-        - name: ZK_ADDR
-          value: "zookeeper:2181"
         - name: DASHBOARD_ADDR
           value: "codis-dashboard:18080"
         - name: PRODUCT_NAME
@@ -45,6 +43,10 @@ spec:
           name: proxy
         - containerPort: 19000
           name: admin
+        volumeMounts:
+        - name: codis-etcd-config
+          mountPath: /etc/codis/etcd
+          readOnly: true
         resources:
           limits:
             cpu: "4"
@@ -52,3 +54,7 @@ spec:
           requests:
             cpu: "0.1"
             memory: 0.1Gi
+      volumes:
+      - name: codis-etcd-config
+        configMap:
+          name: codis-etcd

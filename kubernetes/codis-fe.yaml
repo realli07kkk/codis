@@ -16,7 +16,7 @@ spec:
         image: codis-image
         imagePullPolicy: IfNotPresent
         command: ["codis-fe"]
-        args: ["-l","log/$(POD_NAME).log","--zookeeper","$(ZK_ADDR)","--listen=$(POD_IP):8080","--assets=$(CODIS_PATH)/bin/assets"]
+        args: ["-l","log/$(POD_NAME).log","--etcd-config=/etc/codis/etcd/etcd.toml","--listen=$(POD_IP):8080","--assets-dir=$(CODIS_PATH)/bin/assets"]
         env:
         - name: CODIS_PATH
           value: "/gopath/src/github.com/CodisLabs/codis"
@@ -28,11 +28,13 @@ spec:
           valueFrom:
             fieldRef:
               fieldPath: metadata.name
-        - name: ZK_ADDR
-          value: "zookeeper:2181"
         ports:
         - containerPort: 8080
           name: fe
+        volumeMounts:
+        - name: codis-etcd-config
+          mountPath: /etc/codis/etcd
+          readOnly: true
         resources:
           limits:
             cpu: "2"
@@ -40,3 +42,7 @@ spec:
           requests:
             cpu: "0.1"
             memory: 0.1Gi
+      volumes:
+      - name: codis-etcd-config
+        configMap:
+          name: codis-etcd

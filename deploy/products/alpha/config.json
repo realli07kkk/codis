@@ -4,8 +4,8 @@
     "dashboard": {
         "admin_addr": "127.0.0.1:18080",
         "coordinator": {
-            "name": "zookeeper",
-            "addr": "127.0.0.1:2181"
+            "name": "etcd",
+            "addr": "http://127.0.0.1:2379"
         },
         "sentinel_quorum": 2,
         "sentinel_down_after": "10s"
@@ -14,6 +14,7 @@
         "min_cpu": 4,
         "max_cpu": 8,
         "max_clients": 10000,
-        "max_pipeline": 1024
+        "max_pipeline": 1024,
+        "etcd_register_online": false
     }
 }
