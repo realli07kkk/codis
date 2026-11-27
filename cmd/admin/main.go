@@ -64,17 +64,27 @@ Usage:
 	codis-admin [-v] --dashboard=ADDR            --sentinel-add   --addr=ADDR
 	codis-admin [-v] --dashboard=ADDR            --sentinel-del   --addr=ADDR [--force]
 	codis-admin [-v] --dashboard=ADDR            --sentinel-resync
-	codis-admin [-v] --remove-lock               --product=NAME (--zookeeper=ADDR [--zookeeper-auth=USR:PWD]|--filesystem=ROOT|--consul=ADDR [--consul-auth=TOKEN])
-	codis-admin [-v] --config-dump               --product=NAME (--zookeeper=ADDR [--zookeeper-auth=USR:PWD]|--filesystem=ROOT|--consul=ADDR [--consul-auth=TOKEN]) [-1]
+	codis-admin [-v] --show-lock                --product=NAME (--etcd=URL[,URL...]|--etcd-config=FILE)
+	codis-admin [-v] --remove-lock              --product=NAME --expected-revision=REV --confirm (--etcd=URL[,URL...]|--etcd-config=FILE)
+	codis-admin [-v] --config-dump              --product=NAME (--etcd=URL[,URL...]|--etcd-config=FILE)
 	codis-admin [-v] --config-convert=FILE
-	codis-admin [-v] --config-restore=FILE       --product=NAME (--zookeeper=ADDR [--zookeeper-auth=USR:PWD]|--filesystem=ROOT|--consul=ADDR [--consul-auth=TOKEN]) [--confirm]
-	codis-admin [-v] --dashboard-list                           (--zookeeper=ADDR [--zookeeper-auth=USR:PWD]|--filesystem=ROOT|--consul=ADDR [--consul-auth=TOKEN])
+	codis-admin [-v] --config-restore=FILE      --product=NAME (--etcd=URL[,URL...]|--etcd-config=FILE) [--confirm]
+	codis-admin [-v] --dashboard-list                           (--etcd=URL[,URL...]|--etcd-config=FILE)
+
+Examples:
+	codis-admin --etcd-config=etcd.toml --product=demo --show-lock
+	codis-admin --etcd-config=etcd.toml --product=demo --remove-lock --expected-revision=417 --confirm
 
 Options:
 	-a AUTH, --auth=AUTH
 	-x ADDR, --addr=ADDR
 	-t TOKEN, --token=TOKEN
 	-g ID, --gid=ID
+	--etcd=URL[,URL...]         etcd endpoints; takes precedence over --etcd-config
+	--etcd-config=FILE          etcd connection file (endpoints, credentials, TLS)
+	--product=NAME              product whose metadata is accessed directly
+	--expected-revision=REV     create_revision of the lock --remove-lock may delete
+	--confirm                   confirm a destructive command
 	--server=ADDR
 	--topn=N
 	--prefix-sep=SEP
@@ -83,6 +93,11 @@ Options:
 	--acl-set=FILE
 	--truncate-ts=TS
 	--job=ID
+
+The commands that read the metadata directly (--show-lock, --remove-lock,
+--config-dump, --config-restore, --dashboard-list) need at least one of
+--etcd and --etcd-config. zookeeper, filesystem and consul are no longer
+supported.
 `
 
 func main() {

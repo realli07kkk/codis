@@ -4,6 +4,7 @@
 package main
 
 import (
+	stderrors "errors"
 	"fmt"
 	"os"
 	"os/signal"
@@ -24,7 +25,7 @@ import (
 // pinned by the parser tests.
 const dashboardUsage = `
 Usage:
-	codis-dashboard [--ncpu=N] [--config=CONF] [--log=FILE] [--log-level=LEVEL] [--host-admin=ADDR] [--pidfile=FILE] [--zookeeper=ADDR|--filesystem=ROOT|--consul=ADDR] [--product_name=NAME] [--product_auth=AUTH] [--remove-lock]
+	codis-dashboard [--ncpu=N] [--config=CONF] [--log=FILE] [--log-level=LEVEL] [--host-admin=ADDR] [--pidfile=FILE] [--etcd=URL[,URL...]] [--etcd-config=FILE] [--product_name=NAME] [--product_auth=AUTH]
 	codis-dashboard  --default-config
 	codis-dashboard  --version
 
@@ -33,6 +34,17 @@ Options:
 	-c CONF, --config=CONF      run with the specific configuration.
 	-l FILE, --log=FILE         set path/name of daliy rotated log file.
 	--log-level=LEVEL           set the log-level, should be INFO,WARN,DEBUG or ERROR, default is INFO.
+	--etcd=URL[,URL...]         etcd endpoints, comma separated. Takes precedence over
+	                            --etcd-config and over coordinator_addr from --config.
+	--etcd-config=FILE          etcd connection file (endpoints, credentials, TLS).
+	                            Its endpoints take precedence over coordinator_addr.
+
+The endpoints are resolved in this order: an explicit --etcd value, then the
+endpoints of the --etcd-config file, then coordinator_addr from --config, and
+finally http://127.0.0.1:2379. An invalid value is rejected before any
+connection is attempted. Coordinator credentials and TLS material belong in
+the --etcd-config file; zookeeper, filesystem and consul are no longer
+supported.
 `
 
 func main() {
@@ -96,41 +108,22 @@ func main() {
 		log.Warnf("option --host-admin = %s", config.HostAdmin)
 	}
 
-	if cfg.HasCoordinator {
-		config.CoordinatorName = cfg.CoordinatorArg.Name
-		config.CoordinatorAddr = cfg.CoordinatorArg.Addr
-		if cfg.CoordinatorArg.HasAuth {
-			config.CoordinatorAuth = cfg.CoordinatorArg.Auth
-		}
-		log.Warnf("option --%s = %s", cfg.CoordinatorArg.Name, cfg.CoordinatorArg.Addr)
-	}
-
 	if cfg.ProductName.Provided {
 		config.ProductName = cfg.ProductName.Value
 		log.Warnf("option --product_name = %s", config.ProductName)
 	}
 	if cfg.ProductAuth.Provided {
 		config.ProductAuth = cfg.ProductAuth.Value
-		log.Warnf("option --product_auth = %s", config.ProductAuth)
+		log.Warnf("option --product_auth=%s", credentialState(config.ProductAuth))
 	}
 
-	client, err := models.NewClient(config.CoordinatorName, config.CoordinatorAddr, config.CoordinatorAuth, time.Minute)
+	// Every connection value comes from the flags or their file; the dashboard
+	// coordinator_addr is only the last fallback for the endpoints.
+	client, err := cfg.CoordinatorArg.NewClient(config.CoordinatorAddr)
 	if err != nil {
-		log.PanicErrorf(err, "create '%s' client to '%s' failed", config.CoordinatorName, config.CoordinatorAddr)
+		log.PanicErrorf(err, "create etcd client failed")
 	}
 	defer client.Close()
-
-	if cfg.RemoveLock.Value {
-		store := models.NewStore(client, config.ProductName)
-		defer store.Close()
-
-		log.Warnf("force remove-lock")
-		if err := store.Release(); err != nil {
-			log.WarnErrorf(err, "force remove-lock failed")
-		} else {
-			log.Warnf("force remove-lock OK")
-		}
-	}
 
 	s, err := topom.New(client, config)
 	if err != nil {
@@ -164,11 +157,27 @@ func main() {
 		log.Warnf("[%p] dashboard receive signal = '%v'", s, sig)
 	}()
 
+	// The lock is taken by the first Start: it is the pre-flight check that the
+	// role may write, and no admin write path is opened before it succeeds.
+	store := models.NewStore(client, config.ProductName)
+
 	for i := 0; !s.IsClosed() && !s.IsOnline(); i++ {
 		if err := s.Start(true); err != nil {
-			if i <= 15 {
-				log.Warnf("[%p] dashboard online failed [%d]", s, i)
-			} else {
+			switch {
+			case models.IsRejected(err):
+				// Permission/authentication failures cannot be fixed by a
+				// retry: report the reason and stop before listening.
+				log.PanicErrorf(err, "[%p] dashboard startup rejected by the coordinator", s)
+			case stderrors.Is(err, models.ErrLockHeld):
+				logLockHolder(store, err)
+			case stderrors.Is(err, models.ErrResultUnknown):
+				// A later Start re-reads the lock and recovers the one this
+				// instance owns, so the outcome is retried, never assumed.
+				log.WarnErrorf(err, "[%p] dashboard lock state is unknown, will retry [%d]", s, i)
+			default:
+				log.WarnErrorf(err, "[%p] dashboard online failed [%d]", s, i)
+			}
+			if i > 15 {
 				log.Panicf("dashboard online failed, give up & abort :'(")
 			}
 			select {
@@ -183,4 +192,29 @@ func main() {
 	<-s.Done()
 
 	log.Warnf("[%p] dashboard is exiting ...", s)
+}
+
+// credentialState reports whether a credential option is in effect without
+// rendering its value, so process logs never carry the secret.
+func credentialState(v string) string {
+	if v == "" {
+		return "<unset>"
+	}
+	return "<set>"
+}
+
+// logLockHolder reports which instance holds the product lock. It is a
+// best-effort diagnostic: a failed read must never turn the conflict into
+// anything else, and only the lock holder fields are logged.
+func logLockHolder(store *models.Store, err error) {
+	info, showErr := store.ShowLock()
+	switch {
+	case showErr != nil:
+		log.WarnErrorf(err, "another dashboard holds the lock; reading the holder failed")
+	case info == nil || info.Topom == nil:
+		log.WarnErrorf(err, "another dashboard holds the lock; the holder is not readable")
+	default:
+		log.WarnErrorf(err, "another dashboard holds the lock: admin_addr=%s owner_id=%s create_revision=%d",
+			info.Topom.AdminAddr, info.Topom.OwnerID, info.CreateRevision)
+	}
 }

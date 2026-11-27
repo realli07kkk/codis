@@ -4,12 +4,35 @@
 package main
 
 import (
+	"errors"
 	"flag"
 	"fmt"
+	"strconv"
 
 	"github.com/CodisLabs/codis/cmd/internal/cli"
 	coordarg "github.com/CodisLabs/codis/cmd/internal/coordinator"
 )
+
+// int64Option is a typed flag value for a signed 64-bit option. The value is
+// kept as a number so the command handler cannot re-interpret the text; the
+// range rule is checked when the command is selected.
+type int64Option struct {
+	Value    int64
+	Provided bool
+}
+
+// String implements flag.Value.
+func (v *int64Option) String() string { return strconv.FormatInt(v.Value, 10) }
+
+// Set implements flag.Value.
+func (v *int64Option) Set(s string) error {
+	n, err := strconv.ParseInt(s, 10, 64)
+	if err != nil {
+		return errors.New("must be an integer")
+	}
+	v.Value, v.Provided = n, true
+	return nil
+}
 
 // adminConfig is the typed result of parsing the codis-admin command line.
 // Command holds the selected command (a positional overview selector or a
@@ -54,10 +77,13 @@ type adminConfig struct {
 	Locked        cli.Bool
 	ResetStats    cli.Bool
 	ForceGC       cli.Bool
+	ShowLock      cli.Bool
 	RemoveLock    cli.Bool
 	ConfigDump    cli.Bool
-	ConfigDumpV1  cli.Bool
 	DashboardList cli.Bool
+
+	// ExpectedRevision is the create_revision --remove-lock must delete.
+	ExpectedRevision int64Option
 
 	SlotsAssign cli.Bool
 	SlotsStatus cli.Bool
@@ -112,7 +138,6 @@ type adminConfig struct {
 
 	Coordinator    coordarg.Flags
 	CoordinatorArg coordarg.Args
-	HasCoordinator bool
 
 	Command string
 }
@@ -123,7 +148,6 @@ var adminFlagAliases = map[string]string{
 	"t": "token",
 	"g": "gid",
 	"v": "v",
-	"1": "1",
 }
 
 func newAdminFlagSet(cfg *adminConfig) *flag.FlagSet {
@@ -165,9 +189,10 @@ func newAdminFlagSet(cfg *adminConfig) *flag.FlagSet {
 	fs.Var(&cfg.Locked, "locked", "lock filled slots")
 	fs.Var(&cfg.ResetStats, "reset-stats", "reset proxy stats")
 	fs.Var(&cfg.ForceGC, "forcegc", "force GC")
-	fs.Var(&cfg.RemoveLock, "remove-lock", "force remove product lock")
+	fs.Var(&cfg.ShowLock, "show-lock", "show the product lock")
+	fs.Var(&cfg.RemoveLock, "remove-lock", "remove the product lock with the expected revision")
+	fs.Var(&cfg.ExpectedRevision, "expected-revision", "create_revision the lock to remove must have")
 	fs.Var(&cfg.ConfigDump, "config-dump", "dump product config")
-	fs.Var(&cfg.ConfigDumpV1, "1", "dump config in v1 format")
 	fs.Var(&cfg.DashboardList, "dashboard-list", "list dashboards")
 
 	fs.Var(&cfg.SlotsAssign, "slots-assign", "assign slots")
@@ -520,22 +545,27 @@ func parseAdminDashboardMode(cfg *adminConfig, parsed *cli.Args, positional stri
 }
 
 func parseAdminTailMode(cfg *adminConfig, parsed *cli.Args) error {
-	commands := []string{"remove-lock", "config-dump", "config-convert", "config-restore", "dashboard-list"}
+	commands := []string{"show-lock", "remove-lock", "config-dump", "config-convert", "config-restore", "dashboard-list"}
 	cmd, err := parsed.ExactlyOne(commands...)
 	if err != nil {
-		return fmt.Errorf("exactly one of --remove-lock, --config-dump, --config-convert, --config-restore, --dashboard-list is required")
+		return fmt.Errorf("exactly one of --show-lock, --remove-lock, --config-dump, --config-convert, --config-restore, --dashboard-list is required")
 	}
 	cfg.Command = cmd
 
 	allowed := []string{"v"}
 	switch cmd {
-	case "remove-lock":
-		allowed = append(allowed, "remove-lock", "product")
+	case "show-lock":
+		allowed = append(allowed, "show-lock", "product")
 		if err := requireOptions(parsed, "product"); err != nil {
 			return err
 		}
+	case "remove-lock":
+		allowed = append(allowed, "remove-lock", "product", "expected-revision", "confirm")
+		if err := requireRemoveLockOptions(parsed, cfg); err != nil {
+			return err
+		}
 	case "config-dump":
-		allowed = append(allowed, "config-dump", "product", "1")
+		allowed = append(allowed, "config-dump", "product")
 		if err := requireOptions(parsed, "product"); err != nil {
 			return err
 		}
@@ -554,18 +584,32 @@ func parseAdminTailMode(cfg *adminConfig, parsed *cli.Args) error {
 		return parsed.Only(allowed...)
 	}
 
-	allowed = append(allowed, coordarg.FlagNames()...)
-	if err := parsed.Only(allowed...); err != nil {
-		return err
-	}
+	// The removed backends must be reported by Parse, which names the last
+	// supporting commit, before the generic option check can reject them.
 	coordinator, ok, err := cfg.Coordinator.Parse()
 	if err != nil {
 		return err
 	}
-	if !ok {
-		return fmt.Errorf("exactly one of --zookeeper, --filesystem, --consul is required")
+	allowed = append(allowed, coordarg.FlagNames()...)
+	if err := parsed.Only(allowed...); err != nil {
+		return err
 	}
-	cfg.CoordinatorArg, cfg.HasCoordinator = coordinator, true
+	if !ok {
+		return fmt.Errorf("at least one of --etcd, --etcd-config is required")
+	}
+	cfg.CoordinatorArg = coordinator
+	return nil
+}
+
+// requireRemoveLockOptions enforces the three options an operator lock removal
+// needs. The message names the options and never echoes their values.
+func requireRemoveLockOptions(parsed *cli.Args, cfg *adminConfig) error {
+	if !parsed.IsSet("product") || !parsed.IsSet("expected-revision") || !parsed.IsSet("confirm") {
+		return fmt.Errorf("option --remove-lock requires --product, --expected-revision and --confirm")
+	}
+	if cfg.ExpectedRevision.Value <= 0 {
+		return fmt.Errorf("invalid --expected-revision: must be a positive integer")
+	}
 	return nil
 }
 

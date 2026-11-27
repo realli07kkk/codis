@@ -5,10 +5,10 @@ package main
 
 import (
 	"encoding/json"
+	stderrors "errors"
 	"fmt"
 	"os"
 	"path/filepath"
-	"time"
 
 	coordarg "github.com/CodisLabs/codis/cmd/internal/coordinator"
 	"github.com/CodisLabs/codis/pkg/models"
@@ -25,10 +25,12 @@ func (t *cmdAdmin) Main(cfg *adminConfig) {
 	t.coordinator = cfg.CoordinatorArg
 
 	switch cfg.Command {
+	case "show-lock":
+		t.handleShowLock(cfg)
 	case "remove-lock":
 		t.handleRemoveLock(cfg)
 	case "config-dump":
-		t.handleConfigDump(cfg)
+		t.handleConfigDump()
 	case "config-convert":
 		t.handleConfigConvert(cfg)
 	case "config-restore":
@@ -39,10 +41,9 @@ func (t *cmdAdmin) Main(cfg *adminConfig) {
 }
 
 func (t *cmdAdmin) newTopomClient() models.Client {
-	coordinator := t.coordinator
-	c, err := models.NewClient(coordinator.Name, coordinator.Addr, coordinator.Auth, time.Minute)
+	c, err := t.coordinator.NewClient("")
 	if err != nil {
-		log.PanicErrorf(err, "create '%s' client to '%s' failed", coordinator.Name, coordinator.Addr)
+		log.PanicErrorf(err, "create etcd client failed")
 	}
 	return c
 }
@@ -55,72 +56,91 @@ func (t *cmdAdmin) newTopomStore() *models.Store {
 	return models.NewStore(client, t.product)
 }
 
-func (t *cmdAdmin) handleRemoveLock(cfg *adminConfig) {
+// lockInfoJSON is the machine readable view of the product lock. The field
+// order matches the operator contract.
+type lockInfoJSON struct {
+	Product        string `json:"product"`
+	AdminAddr      string `json:"admin_addr"`
+	OwnerID        string `json:"owner_id"`
+	CreateRevision int64  `json:"create_revision"`
+	ModRevision    int64  `json:"mod_revision"`
+	Lease          int64  `json:"lease"`
+}
+
+// handleShowLock prints the current lock, or null when the product has none.
+func (t *cmdAdmin) handleShowLock(cfg *adminConfig) {
 	store := t.newTopomStore()
 	defer store.Close()
 
-	log.Debugf("force remove-lock")
-	if err := store.Release(); err != nil {
-		log.PanicErrorf(err, "force remove-lock failed")
+	info, err := store.ShowLock()
+	if err != nil {
+		log.PanicErrorf(err, "show lock of product %s failed", t.product)
 	}
-	log.Debugf("force remove-lock OK")
-}
-
-func (t *cmdAdmin) handleConfigDump(cfg *adminConfig) {
-	switch {
-	case cfg.ConfigDumpV1.Value:
-		t.dumpConfigV1()
-	default:
-		t.dumpConfigV3()
+	if info == nil {
+		fmt.Println("null")
+		return
 	}
-}
-
-type ConfigV3 struct {
-	Slots []*models.SlotMapping `json:"slots,omitempty"`
-	Group []*models.Group       `json:"group,omitempty"`
-	Proxy []*models.Proxy       `json:"proxy,omitempty"`
-}
-
-func (t *cmdAdmin) dumpConfigV1() {
-	client := t.newTopomClient()
-	defer client.Close()
-
-	prefix := filepath.Join("/zk/codis", fmt.Sprintf("db_%s", t.product))
-	config := t.dumpConfigV1Recursively(client, prefix)
-	if m, ok := config.(map[string]any); !ok || m == nil {
-		log.Panicf("cann't find product = %s [v1]", t.product)
+	out := lockInfoJSON{
+		Product:        t.product,
+		CreateRevision: info.CreateRevision,
+		ModRevision:    info.ModRevision,
+		Lease:          info.Lease,
 	}
-	b, err := json.MarshalIndent(config, "", "    ")
+	if info.Topom != nil {
+		out.AdminAddr = info.Topom.AdminAddr
+		out.OwnerID = info.Topom.OwnerID
+	}
+	b, err := json.MarshalIndent(out, "", "    ")
 	if err != nil {
 		log.PanicErrorf(err, "json marshal failed")
 	}
 	fmt.Println(string(b))
 }
 
-func (t *cmdAdmin) dumpConfigV1Recursively(client models.Client, path string) any {
-	files, err := client.List(path, false)
-	if err != nil {
-		log.PanicErrorf(err, "list path = %s failed", path)
-	}
-	if len(files) != 0 {
-		var m = make(map[string]any)
-		for _, path := range files {
-			m[filepath.Base(path)] = t.dumpConfigV1Recursively(client, path)
+// handleRemoveLock deletes the lock only if it still has the create_revision
+// the operator named. Every outcome is reported, and a lock this request
+// cannot prove it deleted is always left in place.
+func (t *cmdAdmin) handleRemoveLock(cfg *adminConfig) {
+	expected := cfg.ExpectedRevision.Value
+
+	store := t.newTopomStore()
+	defer store.Close()
+
+	err := store.RemoveLock(expected)
+	switch {
+	case err == nil:
+		fmt.Printf("removed lock of product %s (create_revision %d)\n", t.product, expected)
+	case stderrors.Is(err, models.ErrLockGone):
+		log.Panicf("lock of product %s no longer exists (expected create_revision %d); nothing can be confirmed as deleted by this request",
+			t.product, expected)
+	case stderrors.Is(err, models.ErrLockOwnershipChanged):
+		info, showErr := store.ShowLock()
+		switch {
+		case showErr != nil:
+			log.PanicErrorf(err, "lock of product %s is not the expected one and the current holder cannot be read; left intact", t.product)
+		case info == nil || info.Topom == nil:
+			log.PanicErrorf(err, "lock of product %s is not the expected one and has since disappeared; left intact", t.product)
+		default:
+			log.PanicErrorf(err, "lock is now held by another instance (create_revision %d, owner_id %s, admin_addr %s); left intact",
+				info.CreateRevision, info.Topom.OwnerID, info.Topom.AdminAddr)
 		}
-		return m
+	case stderrors.Is(err, models.ErrResultUnknown):
+		log.Panicf("result unknown: %v; re-run --show-lock for product %s", err, t.product)
+	case models.IsRejected(err):
+		log.Panicf("rejected: %v", err)
+	default:
+		log.PanicErrorf(err, "remove lock of product %s failed", t.product)
 	}
-	b, err := client.Read(path, false)
-	if err != nil {
-		log.PanicErrorf(err, "read file = %s failed", path)
-	}
-	if len(b) != 0 {
-		var v any
-		if err := json.Unmarshal(b, &v); err != nil {
-			log.PanicErrorf(err, "json unmarshal failed")
-		}
-		return v
-	}
-	return nil
+}
+
+func (t *cmdAdmin) handleConfigDump() {
+	t.dumpConfigV3()
+}
+
+type ConfigV3 struct {
+	Slots []*models.SlotMapping `json:"slots,omitempty"`
+	Group []*models.Group       `json:"group,omitempty"`
+	Proxy []*models.Proxy       `json:"proxy,omitempty"`
 }
 
 func (t *cmdAdmin) dumpConfigV3() {

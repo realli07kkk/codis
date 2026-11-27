@@ -4,9 +4,11 @@
 package main
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/CodisLabs/codis/cmd/internal/cli"
+	coordarg "github.com/CodisLabs/codis/cmd/internal/coordinator"
 )
 
 // parseAdminUsage drives the typed parser against the package-level
@@ -120,18 +122,36 @@ func adminStringArg(cfg *adminConfig, flag string) cli.String {
 		return cfg.ConfigConvert
 	case "--config-restore":
 		return cfg.ConfigRestore
-	case "--zookeeper":
-		return cfg.Coordinator.Zookeeper
-	case "--zookeeper-auth":
-		return cfg.Coordinator.ZookeeperAuth
-	case "--filesystem":
-		return cfg.Coordinator.Filesystem
-	case "--consul":
-		return cfg.Coordinator.Consul
-	case "--consul-auth":
-		return cfg.Coordinator.ConsulAuth
 	default:
 		panic("unknown admin string flag " + flag)
+	}
+}
+
+// adminMustEtcd pins the shared connection options of the commands that read
+// the metadata directly.
+func adminMustEtcd(t *testing.T, cfg *adminConfig, value string) {
+	t.Helper()
+	if !cfg.Coordinator.Etcd.Provided {
+		t.Fatalf("--etcd not provided, want %q", value)
+	}
+	if got := cfg.Coordinator.Etcd.Value; got != value {
+		t.Fatalf("--etcd = %q, want %q", got, value)
+	}
+	if cfg.Coordinator.EtcdConfig.Provided {
+		t.Fatal("--etcd-config reported as provided")
+	}
+}
+
+func adminMustEtcdConfig(t *testing.T, cfg *adminConfig, value string) {
+	t.Helper()
+	if !cfg.Coordinator.EtcdConfig.Provided {
+		t.Fatalf("--etcd-config not provided, want %q", value)
+	}
+	if got := cfg.Coordinator.EtcdConfig.Value; got != value {
+		t.Fatalf("--etcd-config = %q, want %q", got, value)
+	}
+	if cfg.Coordinator.Etcd.Provided {
+		t.Fatal("--etcd reported as provided")
 	}
 }
 
@@ -157,12 +177,12 @@ func adminBoolArg(cfg *adminConfig, flag string) cli.Bool {
 		return cfg.ResetStats
 	case "--forcegc":
 		return cfg.ForceGC
+	case "--show-lock":
+		return cfg.ShowLock
 	case "--remove-lock":
 		return cfg.RemoveLock
 	case "--config-dump":
 		return cfg.ConfigDump
-	case "-1":
-		return cfg.ConfigDumpV1
 	case "--dashboard-list":
 		return cfg.DashboardList
 	case "--slots-assign":
@@ -260,7 +280,7 @@ func adminBoolArg(cfg *adminConfig, flag string) cli.Bool {
 var adminBoolFlags = []string{
 	"-v", "--start", "--shutdown", "--offline", "--locked", "--all", "--confirm",
 	"--force", "--remove-proxy", "--reinit-proxy", "--enable", "--disable",
-	"--include-expired", "--remove-lock", "--config-dump", "--dashboard-list", "-1",
+	"--include-expired", "--show-lock", "--remove-lock", "--config-dump", "--dashboard-list",
 	"--slots-assign", "--slots-status", "--list-proxy", "--create-proxy",
 	"--online-proxy", "--proxy-status", "--list-group", "--create-group",
 	"--remove-group", "--resync-group", "--group-add", "--group-del",
@@ -536,24 +556,46 @@ func TestAdminACLAndRebalanceCommands(t *testing.T) {
 	adminMustBool(t, adminBoolArg(cfg, "--sentinel-del"), "--sentinel-del", false)
 }
 
-// TestAdminTailCommands pins the cmdAdmin dispatch keys.
+// TestAdminTailCommands pins the cmdAdmin dispatch keys of the commands that
+// access the metadata directly.
 func TestAdminTailCommands(t *testing.T) {
-	cfg := parseAdminUsage(t, "--remove-lock", "--product=test-product",
-		"--zookeeper=127.0.0.1:2181", "--zookeeper-auth=user:pass")
-	adminMustBool(t, adminBoolArg(cfg, "--remove-lock"), "--remove-lock", true)
+	cfg := parseAdminUsage(t, "--show-lock", "--product=test-product", "--etcd=http://127.0.0.1:2379")
+	if cfg.Command != "show-lock" {
+		t.Fatalf("command = %q, want show-lock", cfg.Command)
+	}
+	adminMustBool(t, adminBoolArg(cfg, "--show-lock"), "--show-lock", true)
 	adminMustString(t, adminStringArg(cfg, "--product"), "--product", "test-product")
-	adminMustString(t, adminStringArg(cfg, "--zookeeper"), "--zookeeper", "127.0.0.1:2181")
-	adminMustString(t, adminStringArg(cfg, "--zookeeper-auth"), "--zookeeper-auth", "user:pass")
+	adminMustEtcd(t, cfg, "http://127.0.0.1:2379")
+	adminMustBool(t, adminBoolArg(cfg, "--remove-lock"), "--remove-lock", false)
 	adminMustUnset(t, adminStringArg(cfg, "--proxy"), "--proxy")
 	adminMustUnset(t, adminStringArg(cfg, "--dashboard"), "--dashboard")
 
-	cfg = parseAdminUsage(t, "--config-dump", "--product=test-product", "--consul=127.0.0.1:8500")
-	adminMustBool(t, adminBoolArg(cfg, "--config-dump"), "--config-dump", true)
-	adminMustBool(t, adminBoolArg(cfg, "-1"), "-1", false)
-	cfg = parseAdminUsage(t, "--config-dump", "--product=test-product", "--consul=127.0.0.1:8500", "-1")
-	adminMustBool(t, adminBoolArg(cfg, "-1"), "-1", true)
+	cfg = parseAdminUsage(t, "--remove-lock", "--product=test-product",
+		"--expected-revision=417", "--confirm", "--etcd-config=/etc/etcd.toml")
+	if cfg.Command != "remove-lock" {
+		t.Fatalf("command = %q, want remove-lock", cfg.Command)
+	}
+	adminMustBool(t, adminBoolArg(cfg, "--remove-lock"), "--remove-lock", true)
+	adminMustString(t, adminStringArg(cfg, "--product"), "--product", "test-product")
+	adminMustEtcdConfig(t, cfg, "/etc/etcd.toml")
+	adminMustBool(t, adminBoolArg(cfg, "--confirm"), "--confirm", true)
+	if !cfg.ExpectedRevision.Provided || cfg.ExpectedRevision.Value != 417 {
+		t.Fatalf("--expected-revision = %d (provided %v), want 417", cfg.ExpectedRevision.Value, cfg.ExpectedRevision.Provided)
+	}
+	adminMustBool(t, adminBoolArg(cfg, "--show-lock"), "--show-lock", false)
 
+	cfg = parseAdminUsage(t, "--config-dump", "--product=test-product", "--etcd=http://127.0.0.1:2379")
+	if cfg.Command != "config-dump" {
+		t.Fatalf("command = %q, want config-dump", cfg.Command)
+	}
+	adminMustBool(t, adminBoolArg(cfg, "--config-dump"), "--config-dump", true)
+	adminMustEtcd(t, cfg, "http://127.0.0.1:2379")
+
+	// --config-convert never touches the backend, so it needs no shared flag.
 	cfg = parseAdminUsage(t, "--config-convert=/tmp/config.json")
+	if cfg.Command != "config-convert" {
+		t.Fatalf("command = %q, want config-convert", cfg.Command)
+	}
 	adminMustString(t, adminStringArg(cfg, "--config-convert"), "--config-convert", "/tmp/config.json")
 	adminMustUnset(t, adminStringArg(cfg, "--config-restore"), "--config-restore")
 	adminMustUnset(t, adminStringArg(cfg, "--product"), "--product")
@@ -561,27 +603,31 @@ func TestAdminTailCommands(t *testing.T) {
 	adminMustUnset(t, adminStringArg(cfg, "--dashboard"), "--dashboard")
 	adminMustBool(t, adminBoolArg(cfg, "--config-dump"), "--config-dump", false)
 
-	cfg = parseAdminUsage(t, "--config-restore=/tmp/config.json", "--product=test-product", "--consul=127.0.0.1:8500")
+	cfg = parseAdminUsage(t, "--config-restore=/tmp/config.json", "--product=test-product", "--etcd-config=/etc/etcd.toml")
 	adminMustString(t, adminStringArg(cfg, "--config-restore"), "--config-restore", "/tmp/config.json")
 	adminMustBool(t, adminBoolArg(cfg, "--confirm"), "--confirm", false)
-	cfg = parseAdminUsage(t, "--config-restore=/tmp/config.json", "--product=test-product", "--consul=127.0.0.1:8500", "--confirm")
+	adminMustEtcdConfig(t, cfg, "/etc/etcd.toml")
+	cfg = parseAdminUsage(t, "--config-restore=/tmp/config.json", "--product=test-product",
+		"--etcd=http://127.0.0.1:2379", "--confirm")
 	adminMustBool(t, adminBoolArg(cfg, "--confirm"), "--confirm", true)
 
-	cfg = parseAdminUsage(t, "--dashboard-list", "--filesystem=/tmp/codis")
+	cfg = parseAdminUsage(t, "--dashboard-list", "--etcd=http://127.0.0.1:2379")
 	adminMustBool(t, adminBoolArg(cfg, "--dashboard-list"), "--dashboard-list", true)
 	adminMustUnset(t, adminStringArg(cfg, "--product"), "--product")
 	adminMustBool(t, adminBoolArg(cfg, "--remove-lock"), "--remove-lock", false)
 
 	tests := [][]string{
 		{"--remove-lock", "--product=test-product"},
-		{"--remove-lock", "--filesystem=/tmp/codis"},
-		{"--remove-lock", "--product=test-product", "--zookeeper=z", "--consul=c"},
-		{"--config-dump", "--consul=c"},
-		{"--config-dump", "--product=p"},
+		{"--remove-lock", "--product=test-product", "--expected-revision=1", "--etcd=http://127.0.0.1:2379"},
+		{"--remove-lock", "--product=test-product", "--confirm", "--etcd=http://127.0.0.1:2379"},
+		{"--remove-lock", "--product=test-product", "--expected-revision=0", "--confirm", "--etcd=http://127.0.0.1:2379"},
+		{"--remove-lock", "--expected-revision=1", "--confirm", "--etcd=http://127.0.0.1:2379"},
+		{"--show-lock", "--etcd=http://127.0.0.1:2379"},
+		{"--config-dump", "--etcd=http://x:2379"},
 		{"--config-convert=/tmp/config.json", "--product=p"},
 		{"--config-restore=/tmp/config.json", "--product=p"},
 		{"--dashboard-list"},
-		{"--dashboard-list", "--product=p", "--zookeeper=z"},
+		{"--dashboard-list", "--product=p", "--etcd=http://127.0.0.1:2379"},
 	}
 	for _, argv := range tests {
 		if err := parseAdminUsageError(t, argv...); err == nil {
@@ -590,48 +636,56 @@ func TestAdminTailCommands(t *testing.T) {
 	}
 }
 
-// TestAdminTailCoordinatorChoices covers the three-way coordinator choice on
-// the backend-facing commands (--remove-lock/--config-dump/--config-restore/
-// --dashboard-list), including the per-coordinator auth flags.
-func TestAdminTailCoordinatorChoices(t *testing.T) {
-	tests := []struct {
-		name string
-		argv []string
-		want map[string]string
-	}{
-		{"zookeeper auth", []string{"--zookeeper=zk", "--zookeeper-auth=user:pass"}, map[string]string{"--zookeeper": "zk", "--zookeeper-auth": "user:pass"}},
-		{"filesystem", []string{"--filesystem=/tmp/codis"}, map[string]string{"--filesystem": "/tmp/codis"}},
-		{"consul auth", []string{"--consul=consul", "--consul-auth=token"}, map[string]string{"--consul": "consul", "--consul-auth": "token"}},
+// TestAdminTailRequiresSharedCoordinator pins that the five commands that read
+// the metadata need an explicit --etcd or --etcd-config, and that the removed
+// backends fail with the last supporting commit without echoing values.
+func TestAdminTailRequiresSharedCoordinator(t *testing.T) {
+	const wantErr = "at least one of --etcd, --etcd-config is required"
+	tests := [][]string{
+		{"--show-lock", "--product=p"},
+		{"--remove-lock", "--product=p", "--expected-revision=1", "--confirm"},
+		{"--config-dump", "--product=p"},
+		{"--config-restore=/tmp/config.json", "--product=p"},
+		{"--dashboard-list"},
 	}
-	allFlags := []string{"--zookeeper", "--zookeeper-auth", "--filesystem", "--consul", "--consul-auth"}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			argv := append([]string{"--remove-lock", "--product=test-product"}, tt.argv...)
-			cfg := parseAdminUsage(t, argv...)
-			adminMustBool(t, adminBoolArg(cfg, "--remove-lock"), "--remove-lock", true)
-			adminMustString(t, adminStringArg(cfg, "--product"), "--product", "test-product")
-			for _, flag := range allFlags {
-				if value, ok := tt.want[flag]; ok {
-					adminMustString(t, adminStringArg(cfg, flag), flag, value)
-				} else {
-					adminMustUnset(t, adminStringArg(cfg, flag), flag)
-				}
-			}
-		})
+	for _, argv := range tests {
+		err := parseAdminUsageError(t, argv...)
+		if err == nil {
+			t.Fatalf("argv %v: expected parse error", argv)
+		}
+		if !strings.Contains(err.Error(), wantErr) {
+			t.Fatalf("argv %v: error = %v, want %q", argv, err, wantErr)
+		}
 	}
 
-	sources := [][]string{
-		{"--zookeeper=zk", "--zookeeper-auth=user:pass"},
-		{"--filesystem=/tmp/codis"},
-		{"--consul=consul", "--consul-auth=token"},
+	// Both shared options may be given; --etcd wins at connection time.
+	cfg := parseAdminUsage(t, "--show-lock", "--product=p",
+		"--etcd=http://a:2379", "--etcd-config=/etc/etcd.toml")
+	if !cfg.Coordinator.Etcd.Provided || cfg.Coordinator.Etcd.Value != "http://a:2379" {
+		t.Fatalf("--etcd = %q (provided %v)", cfg.Coordinator.Etcd.Value, cfg.Coordinator.Etcd.Provided)
 	}
-	for i := 0; i < len(sources); i++ {
-		for j := i + 1; j < len(sources); j++ {
-			argv := []string{"--remove-lock", "--product=test-product"}
-			argv = append(argv, sources[i]...)
-			argv = append(argv, sources[j]...)
-			if err := parseAdminUsageError(t, argv...); err == nil {
-				t.Fatalf("argv %v: expected parse error for conflicting coordinators", argv)
+	if !cfg.Coordinator.EtcdConfig.Provided || cfg.Coordinator.EtcdConfig.Value != "/etc/etcd.toml" {
+		t.Fatalf("--etcd-config = %q (provided %v)", cfg.Coordinator.EtcdConfig.Value, cfg.Coordinator.EtcdConfig.Provided)
+	}
+
+	removed := [][]string{
+		{"--show-lock", "--product=p", "--zookeeper=zk"},
+		{"--show-lock", "--product=p", "--filesystem=/tmp/codis"},
+		{"--remove-lock", "--product=p", "--expected-revision=1", "--confirm", "--consul=consul"},
+		{"--show-lock", "--product=p", "--zookeeper=zk", "--zookeeper-auth=user:secret-pass"},
+		{"--show-lock", "--product=p", "--consul=consul", "--consul-auth=secret-token"},
+	}
+	for _, argv := range removed {
+		err := parseAdminUsageError(t, argv...)
+		if err == nil {
+			t.Fatalf("argv %v: expected parse error", argv)
+		}
+		if !strings.Contains(err.Error(), coordarg.DeprecatedCoordinatorSHA) {
+			t.Fatalf("argv %v: error %q does not name the deprecated commit", argv, err)
+		}
+		for _, secret := range []string{"secret-pass", "secret-token"} {
+			if strings.Contains(err.Error(), secret) {
+				t.Fatalf("argv %v: error echoes the value: %q", argv, err)
 			}
 		}
 	}
@@ -805,11 +859,12 @@ func TestAdminUsageLinesParse(t *testing.T) {
 		{"--dashboard=127.0.0.1:18080", "--sentinel-del", "--addr=127.0.0.1:26379", "--force"},
 		{"--dashboard=127.0.0.1:18080", "--sentinel-resync"},
 
-		{"--remove-lock", "--product=test-product", "--zookeeper=127.0.0.1:2181", "--zookeeper-auth=user:pass"},
-		{"--config-dump", "--product=test-product", "--consul=127.0.0.1:8500", "--consul-auth=token", "-1"},
+		{"--show-lock", "--product=test-product", "--etcd=http://127.0.0.1:2379"},
+		{"--remove-lock", "--product=test-product", "--expected-revision=417", "--confirm", "--etcd-config=/etc/etcd.toml"},
+		{"--config-dump", "--product=test-product", "--etcd=http://127.0.0.1:2379"},
 		{"--config-convert=/tmp/config.json"},
-		{"--config-restore=/tmp/config.json", "--product=test-product", "--consul=127.0.0.1:8500", "--consul-auth=token", "--confirm"},
-		{"--dashboard-list", "--filesystem=/tmp/codis"},
+		{"--config-restore=/tmp/config.json", "--product=test-product", "--etcd=http://127.0.0.1:2379", "--confirm"},
+		{"--dashboard-list", "--etcd-config=/etc/etcd.toml"},
 	}
 	want := []string{
 		"", "config", "start", "shutdown", "log-level", "fillslots", "reset-stats", "forcegc",
@@ -821,7 +876,8 @@ func TestAdminUsageLinesParse(t *testing.T) {
 		"slot-action", "slot-action", "slot-action", "rebalance", "acl", "acl-set",
 		"acl-sync", "rdb-analysis-remote-fetch", "pitr-create", "pitr-list", "pitr-get",
 		"pitr-cancel", "pitr-remove", "sentinel-add", "sentinel-del", "sentinel-resync",
-		"remove-lock", "config-dump", "config-convert", "config-restore", "dashboard-list",
+		"show-lock", "remove-lock", "config-dump", "config-convert", "config-restore",
+		"dashboard-list",
 	}
 	if len(want) != len(lines) {
 		t.Fatalf("test table mismatch: %d usage lines, %d expected commands", len(lines), len(want))

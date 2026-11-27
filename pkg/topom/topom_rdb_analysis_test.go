@@ -104,8 +104,8 @@ func TestRDBAnalysisManagerUploadGeneratesUUIDV7JobID(t *testing.T) {
 func TestRDBAnalysisConfigAllowsOldConfigWithoutRDBFields(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "dashboard.toml")
 	assert.MustNoError(t, os.WriteFile(path, []byte(`
-coordinator_name = "filesystem"
-coordinator_addr = "/tmp/codis"
+coordinator_name = "etcd"
+coordinator_addr = "http://127.0.0.1:2379"
 product_name = "codis-demo"
 product_auth = ""
 admin_addr = "127.0.0.1:0"

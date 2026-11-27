@@ -206,10 +206,9 @@ func TestProxyStringFlagsBindValues(t *testing.T) {
 // TestProxyShortAliases verifies the short spellings that map onto their long
 // flag values.
 func TestProxyShortAliases(t *testing.T) {
-	cfg := parseProxyUsage(t, "-c", "/etc/codis.conf", "-l", "/tmp/proxy.log", "--zookeeper=zk")
+	cfg := parseProxyUsage(t, "-c", "/etc/codis.conf", "-l", "/tmp/proxy.log")
 	proxyMustString(t, cfg.Config, "--config", "/etc/codis.conf")
 	proxyMustString(t, cfg.Log, "--log", "/tmp/proxy.log")
-	proxyMustString(t, cfg.Coordinator.Zookeeper, "--zookeeper", "zk")
 }
 
 // TestProxyCoordinatorChoices covers the six mutually exclusive online modes
@@ -222,11 +221,6 @@ func TestProxyCoordinatorChoices(t *testing.T) {
 		want map[string]string
 	}{
 		{"dashboard", []string{"--dashboard=127.0.0.1:18080"}, map[string]string{"--dashboard": "127.0.0.1:18080"}},
-		{"zookeeper", []string{"--zookeeper=127.0.0.1:2181"}, map[string]string{"--zookeeper": "127.0.0.1:2181"}},
-		{"zookeeper auth", []string{"--zookeeper=127.0.0.1:2181", "--zookeeper-auth=user:pass"}, map[string]string{"--zookeeper": "127.0.0.1:2181", "--zookeeper-auth": "user:pass"}},
-		{"filesystem", []string{"--filesystem=/tmp/codis"}, map[string]string{"--filesystem": "/tmp/codis"}},
-		{"consul", []string{"--consul=127.0.0.1:8500"}, map[string]string{"--consul": "127.0.0.1:8500"}},
-		{"consul auth", []string{"--consul=127.0.0.1:8500", "--consul-auth=token"}, map[string]string{"--consul": "127.0.0.1:8500", "--consul-auth": "token"}},
 		{"fillslots", []string{"--fillslots=/tmp/slots.json"}, map[string]string{"--fillslots": "/tmp/slots.json"}},
 	}
 	for _, tt := range tests {

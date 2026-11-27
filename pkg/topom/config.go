@@ -5,6 +5,10 @@ package topom
 
 import (
 	"bytes"
+	stderrors "errors"
+	"net/url"
+	"os"
+	"strings"
 
 	"github.com/BurntSushi/toml"
 
@@ -16,6 +20,13 @@ import (
 	"github.com/CodisLabs/codis/pkg/utils/timesize"
 )
 
+// CoordinatorNameEtcd is the only accepted coordinator_name.
+const CoordinatorNameEtcd = "etcd"
+
+// deprecatedCoordinatorSHA is the last commit that supported the zookeeper,
+// filesystem and consul coordinators; configuration errors point at it.
+const deprecatedCoordinatorSHA = "c635ade0424a1448fb251f32b88d64ca7cf9a555"
+
 const DefaultConfig = `
 ##################################################
 #                                                #
@@ -23,16 +34,12 @@ const DefaultConfig = `
 #                                                #
 ##################################################
 
-# Set Coordinator, only accept "zookeeper" & "filesystem" & "consul".
-# for zookeeper, coorinator_auth accept "user:password"; for consul, coordinator_auth accepts ACL token.
-# Quick Start
-coordinator_name = "filesystem"
-coordinator_addr = "/tmp/codis"
-#coordinator_name = "zookeeper"
-#coordinator_addr = "127.0.0.1:2181"
-#coordinator_name = "consul"
-#coordinator_addr = "127.0.0.1:8500"
-#coordinator_auth = ""
+# Set Coordinator. etcd is the only supported coordinator.
+# Endpoints come from, in order: --etcd, the endpoints field of the
+# --etcd-config file, this coordinator_addr, then http://127.0.0.1:2379.
+# Credentials and TLS material belong in the --etcd-config file.
+coordinator_name = "etcd"
+coordinator_addr = "http://127.0.0.1:2379"
 
 # Set Codis Product Name/Auth.
 product_name = "codis-demo"
@@ -97,7 +104,10 @@ sentinel_client_reconfig_script = ""
 type Config struct {
 	CoordinatorName string `toml:"coordinator_name" json:"coordinator_name"`
 	CoordinatorAddr string `toml:"coordinator_addr" json:"coordinator_addr"`
-	CoordinatorAuth string `toml:"coordinator_auth" json:"-"`
+
+	// coordinatorAuthSet records that coordinator_auth was written in the
+	// TOML file, even when its value is empty.
+	coordinatorAuthSet bool
 
 	AdminAddr string `toml:"admin_addr" json:"admin_addr"`
 
@@ -159,11 +169,30 @@ func NewDefaultConfig() *Config {
 }
 
 func (c *Config) LoadFromFile(path string) error {
-	_, err := toml.DecodeFile(path, c)
+	blob, err := os.ReadFile(path)
 	if err != nil {
-		return errors.Trace(err)
+		return errors.New("invalid config file: file is not readable")
 	}
+	md, err := toml.Decode(string(blob), c)
+	if err != nil {
+		return tomlDecodeError(err)
+	}
+	c.coordinatorAuthSet = md.IsDefined("coordinator_auth")
 	return c.Validate()
+}
+
+// tomlDecodeError keeps only the position of a malformed TOML document. The
+// underlying message may quote the offending line, which can hold a credential,
+// so neither the message nor the raw document is echoed back.
+func tomlDecodeError(err error) error {
+	var perr toml.ParseError
+	if stderrors.As(err, &perr) {
+		if perr.LastKey != "" {
+			return errors.Errorf("invalid config file: malformed toml at line %d for field %q", perr.Position.Line, perr.LastKey)
+		}
+		return errors.Errorf("invalid config file: malformed toml at line %d", perr.Position.Line)
+	}
+	return errors.New("invalid config file: malformed toml")
 }
 
 const redactedSecret = "<redacted>"
@@ -182,7 +211,6 @@ func (c *Config) Redacted() *Config {
 		return nil
 	}
 	x := *c
-	x.CoordinatorAuth = redactSecret(x.CoordinatorAuth)
 	x.ProductAuth = redactSecret(x.ProductAuth)
 	x.BackendAuthPassword = redactSecret(x.BackendAuthPassword)
 	x.RDBAnalysisRemoteFetchAuth = redactSecret(x.RDBAnalysisRemoteFetchAuth)
@@ -216,11 +244,16 @@ func (c *Config) BackendAuthIdentity() redisutils.RedisAuthIdentity {
 }
 
 func (c *Config) Validate() error {
-	if c.CoordinatorName == "" {
-		return errors.New("invalid coordinator_name")
+	if c.CoordinatorName != CoordinatorNameEtcd {
+		return errors.Errorf("invalid coordinator_name: only %q is supported; zookeeper/filesystem/consul coordinators were last supported at %s",
+			CoordinatorNameEtcd, deprecatedCoordinatorSHA)
 	}
-	if c.CoordinatorAddr == "" {
-		return errors.New("invalid coordinator_addr")
+	if c.coordinatorAuthSet {
+		return errors.Errorf("coordinator_auth is no longer supported; put credentials in the --etcd-config file (old coordinators were last supported at %s)",
+			deprecatedCoordinatorSHA)
+	}
+	if err := validateCoordinatorAddr(c.CoordinatorAddr); err != nil {
+		return err
 	}
 	if c.AdminAddr == "" {
 		return errors.New("invalid admin_addr")
@@ -296,6 +329,49 @@ func (c *Config) Validate() error {
 	}
 	if c.SentinelFailoverTimeout <= 0 {
 		return errors.New("invalid sentinel_failover_timeout")
+	}
+	return nil
+}
+
+// validateCoordinatorAddr applies the etcd endpoints rules to coordinator_addr:
+// one or more comma separated http(s) URLs of one cluster, no embedded
+// credentials, no path or query, no mixed schemes, no empty entry. Error texts
+// name the rule and never echo the address. The rules are repeated here because
+// pkg/topom must not import pkg/models/etcd (architecture D2).
+func validateCoordinatorAddr(addr string) error {
+	if strings.TrimSpace(addr) == "" {
+		return errors.New("invalid coordinator_addr: at least one endpoint is required")
+	}
+	scheme := ""
+	for _, raw := range strings.Split(addr, ",") {
+		item := strings.TrimSpace(raw)
+		if item == "" {
+			return errors.New("invalid coordinator_addr: empty entry")
+		}
+		u, err := url.Parse(item)
+		if err != nil {
+			return errors.New("invalid coordinator_addr: malformed URL")
+		}
+		if u.Scheme != "http" && u.Scheme != "https" {
+			return errors.New("invalid coordinator_addr: scheme must be http or https")
+		}
+		if u.User != nil {
+			return errors.New("invalid coordinator_addr: credentials are not allowed in the URL")
+		}
+		if u.Host == "" {
+			return errors.New("invalid coordinator_addr: missing host")
+		}
+		if u.RawQuery != "" || u.Fragment != "" {
+			return errors.New("invalid coordinator_addr: query and fragment are not allowed")
+		}
+		if p := strings.TrimSuffix(u.Path, "/"); p != "" {
+			return errors.New("invalid coordinator_addr: path is not allowed")
+		}
+		if scheme == "" {
+			scheme = u.Scheme
+		} else if scheme != u.Scheme {
+			return errors.New("invalid coordinator_addr: cannot mix http and https")
+		}
 	}
 	return nil
 }

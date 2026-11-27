@@ -4,9 +4,14 @@
 package main
 
 import (
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/CodisLabs/codis/cmd/internal/cli"
+	coordarg "github.com/CodisLabs/codis/cmd/internal/coordinator"
+	"github.com/CodisLabs/codis/pkg/topom"
 )
 
 // parseDashboardUsage drives the typed parser, mirroring main() except that
@@ -74,12 +79,6 @@ func dashboardStringArg(cfg *dashboardConfig, flag string) cli.String {
 		return cfg.HostAdmin
 	case "--pidfile":
 		return cfg.Pidfile
-	case "--zookeeper":
-		return cfg.Coordinator.Zookeeper
-	case "--filesystem":
-		return cfg.Coordinator.Filesystem
-	case "--consul":
-		return cfg.Coordinator.Consul
 	case "--product_name":
 		return cfg.ProductName
 	case "--product_auth":
@@ -91,11 +90,8 @@ func dashboardStringArg(cfg *dashboardConfig, flag string) cli.String {
 
 var dashboardStringFlags = []string{
 	"--ncpu", "--config", "--log", "--log-level", "--host-admin", "--pidfile",
-	"--zookeeper", "--filesystem", "--consul",
 	"--product_name", "--product_auth",
 }
-
-var dashboardCoordinatorFlags = []string{"--zookeeper", "--filesystem", "--consul"}
 
 func TestDashboardOneShotFlagsParseAsBools(t *testing.T) {
 	tests := []struct {
@@ -125,8 +121,8 @@ func TestDashboardOneShotFlagsParseAsBools(t *testing.T) {
 func TestDashboardOneShotFlagsAreExclusive(t *testing.T) {
 	tests := [][]string{
 		{"--default-config", "--version"},
-		{"--default-config", "--zookeeper=zk"},
-		{"--version", "--zookeeper=zk", "--remove-lock"},
+		{"--default-config", "--etcd=http://127.0.0.1:2379"},
+		{"--version", "--etcd=http://127.0.0.1:2379"},
 		{"--version", "--config=/tmp/topom.conf"},
 	}
 	for _, argv := range tests {
@@ -137,13 +133,14 @@ func TestDashboardOneShotFlagsAreExclusive(t *testing.T) {
 }
 
 // TestDashboardStringFlagsAbsentAreNil pins the "not provided" contract for
-// every value-taking flag. The dashboard usage intentionally has no
-// --*-auth options; those are covered by
-// TestDashboardRejectsCoordinatorAuthFlags below.
+// every value-taking flag. The connection options are checked separately.
 func TestDashboardStringFlagsAbsentAreNil(t *testing.T) {
 	cfg := parseDashboardUsage(t)
 	for _, flag := range dashboardStringFlags {
 		dashboardMustUnset(t, dashboardStringArg(cfg, flag), flag)
+	}
+	if cfg.Coordinator.Etcd.Provided || cfg.Coordinator.EtcdConfig.Provided {
+		t.Fatalf("connection options are provided by default: %+v", cfg.Coordinator)
 	}
 }
 
@@ -151,14 +148,12 @@ func TestDashboardStringFlagsBindValues(t *testing.T) {
 	argv := []string{
 		"--ncpu=4", "--config=/etc/topom.conf", "--log=/tmp/dashboard.log",
 		"--log-level=WARN", "--host-admin=:18080", "--pidfile=/tmp/dashboard.pid",
-		"--zookeeper=127.0.0.1:2181", "--product_name=test-product",
-		"--product_auth=product-secret",
+		"--product_name=test-product", "--product_auth=product-secret",
 	}
 	want := map[string]string{
 		"--ncpu": "4", "--config": "/etc/topom.conf", "--log": "/tmp/dashboard.log",
 		"--log-level": "WARN", "--host-admin": ":18080", "--pidfile": "/tmp/dashboard.pid",
-		"--zookeeper": "127.0.0.1:2181", "--product_name": "test-product",
-		"--product_auth": "product-secret",
+		"--product_name": "test-product", "--product_auth": "product-secret",
 	}
 	cfg := parseDashboardUsage(t, argv...)
 	for flag, value := range want {
@@ -166,84 +161,174 @@ func TestDashboardStringFlagsBindValues(t *testing.T) {
 	}
 	dashboardMustBool(t, cfg.DefaultConfig, "--default-config", false)
 	dashboardMustBool(t, cfg.Version, "--version", false)
-	dashboardMustBool(t, cfg.RemoveLock, "--remove-lock", false)
-	dashboardMustUnset(t, dashboardStringArg(cfg, "--filesystem"), "--filesystem")
-	dashboardMustUnset(t, dashboardStringArg(cfg, "--consul"), "--consul")
 }
 
 func TestDashboardShortAliases(t *testing.T) {
-	cfg := parseDashboardUsage(t, "-c", "/etc/topom.conf", "-l", "/tmp/dashboard.log", "--zookeeper=zk")
+	cfg := parseDashboardUsage(t, "-c", "/etc/topom.conf", "-l", "/tmp/dashboard.log")
 	dashboardMustString(t, cfg.Config, "--config", "/etc/topom.conf")
 	dashboardMustString(t, cfg.Log, "--log", "/tmp/dashboard.log")
-	dashboardMustString(t, cfg.Coordinator.Zookeeper, "--zookeeper", "zk")
 }
 
-// TestDashboardCoordinatorChoices covers the three mutual-exclusive coordinator
-// addresses accepted by codis-dashboard.
-func TestDashboardCoordinatorChoices(t *testing.T) {
-	tests := []struct {
-		name string
-		argv []string
-		want map[string]string
-	}{
-		{"zookeeper", []string{"--zookeeper=127.0.0.1:2181"}, map[string]string{"--zookeeper": "127.0.0.1:2181"}},
-		{"filesystem", []string{"--filesystem=/tmp/codis"}, map[string]string{"--filesystem": "/tmp/codis"}},
-		{"consul", []string{"--consul=127.0.0.1:8500"}, map[string]string{"--consul": "127.0.0.1:8500"}},
+func TestDashboardConnectionFlagsBind(t *testing.T) {
+	cfg := parseDashboardUsage(t, "--etcd=http://10.0.0.1:2379,http://10.0.0.2:2379")
+	if !cfg.Coordinator.Etcd.Provided {
+		t.Fatal("--etcd not recorded")
 	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			cfg := parseDashboardUsage(t, tt.argv...)
-			for _, flag := range dashboardCoordinatorFlags {
-				if value, ok := tt.want[flag]; ok {
-					dashboardMustString(t, dashboardStringArg(cfg, flag), flag, value)
-				} else {
-					dashboardMustUnset(t, dashboardStringArg(cfg, flag), flag)
-				}
-			}
-		})
+	if got := cfg.Coordinator.Etcd.Value; got != "http://10.0.0.1:2379,http://10.0.0.2:2379" {
+		t.Fatalf("--etcd = %q", got)
+	}
+	if cfg.Coordinator.EtcdConfig.Provided {
+		t.Fatal("--etcd-config reported as provided")
+	}
+
+	cfg = parseDashboardUsage(t, "--etcd-config=/etc/etcd.toml")
+	if !cfg.Coordinator.EtcdConfig.Provided {
+		t.Fatal("--etcd-config not recorded")
+	}
+	if got := cfg.Coordinator.EtcdConfig.Value; got != "/etc/etcd.toml" {
+		t.Fatalf("--etcd-config = %q", got)
+	}
+	if cfg.Coordinator.Etcd.Provided {
+		t.Fatal("--etcd reported as provided")
 	}
 }
 
-func TestDashboardCoordinatorChoicesRejectMultipleSources(t *testing.T) {
-	sources := [][]string{
-		{"--zookeeper=zk"},
-		{"--filesystem=/tmp/codis"},
-		{"--consul=consul"},
+// TestDashboardEtcdOverridesCoordinatorAddr pins the documented precedence:
+// an explicit --etcd wins over the dashboard coordinator_addr.
+func TestDashboardEtcdOverridesCoordinatorAddr(t *testing.T) {
+	cfg := parseDashboardUsage(t, "--etcd=http://etcd-from-flag:2379")
+	built, err := cfg.CoordinatorArg.Build("http://coordinator-addr:2379")
+	if err != nil {
+		t.Fatalf("Build() failed: %v", err)
 	}
-	for i := 0; i < len(sources); i++ {
-		for j := i + 1; j < len(sources); j++ {
-			argv := append(append([]string{}, sources[i]...), sources[j]...)
-			if err := parseDashboardUsageError(t, argv...); err == nil {
-				t.Fatalf("argv %v: expected parse error for conflicting coordinators", argv)
-			}
-		}
+	if len(built.Endpoints) != 1 || built.Endpoints[0] != "http://etcd-from-flag:2379" {
+		t.Fatalf("endpoints = %v, want the --etcd value", built.Endpoints)
 	}
 }
 
-// TestDashboardRejectsCoordinatorAuthFlags documents current behavior: unlike
-// codis-proxy/codis-admin/codis-fe, the dashboard usage line has no
-// --*-auth options, so coordinator credentials can only come from --config.
-// This is pinned so a flag migration does not silently change CLI acceptance.
-func TestDashboardRejectsCoordinatorAuthFlags(t *testing.T) {
+// TestDashboardCoordinatorAddrFallback pins that coordinator_addr is used when
+// neither --etcd nor --etcd-config names endpoints.
+func TestDashboardCoordinatorAddrFallback(t *testing.T) {
+	cfg := parseDashboardUsage(t)
+	built, err := cfg.CoordinatorArg.Build("http://coordinator-addr:2379")
+	if err != nil {
+		t.Fatalf("Build() failed: %v", err)
+	}
+	if len(built.Endpoints) != 1 || built.Endpoints[0] != "http://coordinator-addr:2379" {
+		t.Fatalf("endpoints = %v, want coordinator_addr", built.Endpoints)
+	}
+}
+
+// TestDashboardEtcdConfigIsAdopted pins that the connection file is loaded and
+// its endpoints take precedence over coordinator_addr.
+func TestDashboardEtcdConfigIsAdopted(t *testing.T) {
+	dir := t.TempDir()
+	file := filepath.Join(dir, "etcd.toml")
+	content := "endpoints = [\"https://etcd-from-file:2379\"]\n" +
+		"username = \"codis\"\npassword = \"file-secret\"\n"
+	if err := os.WriteFile(file, []byte(content), 0600); err != nil {
+		t.Fatalf("write connection file: %v", err)
+	}
+
+	cfg := parseDashboardUsage(t, "--etcd-config="+file)
+	built, err := cfg.CoordinatorArg.Build("http://coordinator-addr:2379")
+	if err != nil {
+		t.Fatalf("Build() failed: %v", err)
+	}
+	if len(built.Endpoints) != 1 || built.Endpoints[0] != "https://etcd-from-file:2379" {
+		t.Fatalf("endpoints = %v, want the file endpoints", built.Endpoints)
+	}
+	if built.Username != "codis" {
+		t.Fatalf("username = %q, want the file value", built.Username)
+	}
+	if strings.Contains(built.String(), "file-secret") {
+		t.Fatalf("formatted config leaks the password: %s", built.String())
+	}
+}
+
+// TestDashboardEtcdConfigInvalidIsRejectedBeforeConnect pins that a broken
+// connection file is reported by Build, i.e. before any connection attempt.
+func TestDashboardEtcdConfigInvalidIsRejectedBeforeConnect(t *testing.T) {
+	dir := t.TempDir()
+	file := filepath.Join(dir, "etcd.toml")
+	if err := os.WriteFile(file, []byte("endpoints = [\"127.0.0.1:2379\"]\n"), 0600); err != nil {
+		t.Fatalf("write connection file: %v", err)
+	}
+	cfg := parseDashboardUsage(t, "--etcd-config="+file)
+	if _, err := cfg.CoordinatorArg.Build("http://coordinator-addr:2379"); err == nil {
+		t.Fatal("Build() accepted an invalid connection file")
+	}
+
+	cfg = parseDashboardUsage(t, "--etcd-config="+filepath.Join(dir, "missing.toml"))
+	if _, err := cfg.CoordinatorArg.Build("http://coordinator-addr:2379"); err == nil {
+		t.Fatal("Build() accepted a missing connection file")
+	}
+}
+
+// TestDashboardEtcdEmptyIsRejected pins that an explicitly empty --etcd is an
+// error instead of a silent fallback to another address.
+func TestDashboardEtcdEmptyIsRejected(t *testing.T) {
+	cfg := parseDashboardUsage(t, "--etcd=")
+	if !cfg.Coordinator.Etcd.Provided {
+		t.Fatal("--etcd= not recorded as provided")
+	}
+	_, err := cfg.CoordinatorArg.Build("http://coordinator-addr:2379")
+	if err == nil {
+		t.Fatal("Build() accepted an empty --etcd")
+	}
+	if !strings.Contains(err.Error(), "endpoints") {
+		t.Fatalf("error = %v, want an endpoints error", err)
+	}
+}
+
+// TestDashboardRejectsRemovedCoordinatorFlags pins that the removed backends
+// fail with the last supporting commit and never echo the supplied value.
+func TestDashboardRejectsRemovedCoordinatorFlags(t *testing.T) {
 	tests := [][]string{
-		{"--zookeeper=zk", "--zookeeper-auth=user:pass"},
-		{"--consul=consul", "--consul-auth=token"},
-		{"--zookeeper-auth=user:pass"},
+		{"--zookeeper=127.0.0.1:2181"},
+		{"--zookeeper=127.0.0.1:2181", "--zookeeper-auth=user:secret-pass"},
+		{"--filesystem=/tmp/codis"},
+		{"--consul=127.0.0.1:8500", "--consul-auth=secret-token"},
 	}
 	for _, argv := range tests {
-		if err := parseDashboardUsageError(t, argv...); err == nil {
-			t.Fatalf("argv %v: expected parse error, dashboard has no coordinator auth flags", argv)
+		err := parseDashboardUsageError(t, argv...)
+		if err == nil {
+			t.Fatalf("argv %v: expected parse error", argv)
+		}
+		if !strings.Contains(err.Error(), coordarg.DeprecatedCoordinatorSHA) {
+			t.Fatalf("argv %v: error %q does not name the deprecated commit", argv, err)
+		}
+		for _, secret := range []string{"secret-pass", "secret-token"} {
+			if strings.Contains(err.Error(), secret) {
+				t.Fatalf("argv %v: error echoes the value: %q", argv, err)
+			}
 		}
 	}
 }
 
-// TestDashboardRemoveLockIsBool pins the typed boolean behavior used by main().
-func TestDashboardRemoveLockIsBool(t *testing.T) {
-	cfg := parseDashboardUsage(t, "--zookeeper=zk")
-	dashboardMustBool(t, cfg.RemoveLock, "--remove-lock", false)
-
-	cfg = parseDashboardUsage(t, "--zookeeper=zk", "--remove-lock")
-	dashboardMustBool(t, cfg.RemoveLock, "--remove-lock", true)
+// TestDashboardRemoveLockIsGone pins that the dashboard no longer offers
+// --remove-lock; lock recovery is an operator action of codis-admin.
+func TestDashboardRemoveLockIsGone(t *testing.T) {
+	err := parseDashboardUsageError(t, "--remove-lock")
+	if err == nil {
+		t.Fatal("--remove-lock is still accepted")
+	}
+	if !strings.Contains(err.Error(), "remove-lock") {
+		t.Fatalf("error = %v, want an unknown flag error", err)
+	}
+	if strings.Contains(dashboardUsage, "remove-lock") {
+		t.Fatal("dashboard usage still documents --remove-lock")
+	}
+	for _, removed := range []string{"--zookeeper", "--filesystem", "--consul"} {
+		if strings.Contains(dashboardUsage, removed) {
+			t.Fatalf("dashboard usage still documents %s", removed)
+		}
+	}
+	for _, kept := range []string{"--etcd", "--etcd-config", "coordinator_addr"} {
+		if !strings.Contains(dashboardUsage, kept) {
+			t.Fatalf("dashboard usage does not document %s", kept)
+		}
+	}
 }
 
 func TestDashboardHelp(t *testing.T) {
@@ -253,5 +338,35 @@ func TestDashboardHelp(t *testing.T) {
 	}
 	if !help || cfg != nil {
 		t.Fatalf("cfg = %+v, help = %v; want nil, true", cfg, help)
+	}
+}
+
+// TestDashboardDefaultConfigFileLoads pins that the packaged
+// config/dashboard.toml is byte-identical to what --default-config prints
+// (the Makefile default-configs target regenerates it that way) and that the
+// current binary can load and validate it. Validate also rejects a
+// coordinator_auth key, so the load proves the shipped file carries none.
+func TestDashboardDefaultConfigFileLoads(t *testing.T) {
+	const path = "../../config/dashboard.toml"
+	blob, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read %s: %v", path, err)
+	}
+	if string(blob) != topom.DefaultConfig {
+		t.Fatalf("%s is stale: regenerate it with 'codis-dashboard --default-config'", path)
+	}
+
+	c := topom.NewDefaultConfig()
+	if err := c.LoadFromFile(path); err != nil {
+		t.Fatalf("load %s: %v", path, err)
+	}
+	if err := c.Validate(); err != nil {
+		t.Fatalf("validate %s: %v", path, err)
+	}
+	if c.CoordinatorName != topom.CoordinatorNameEtcd {
+		t.Fatalf("coordinator_name = %q, want %q", c.CoordinatorName, topom.CoordinatorNameEtcd)
+	}
+	if c.CoordinatorAddr != "http://127.0.0.1:2379" {
+		t.Fatalf("coordinator_addr = %q, want the built-in etcd endpoint", c.CoordinatorAddr)
 	}
 }

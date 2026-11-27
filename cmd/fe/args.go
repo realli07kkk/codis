@@ -22,9 +22,11 @@ type feConfig struct {
 	DashboardList cli.String
 	Listen        cli.String
 
-	Coordinator    coordarg.Flags
-	CoordinatorArg coordarg.Args
-	HasCoordinator bool
+	// Coordinator holds the shared --etcd/--etcd-config options. Etcd is the
+	// parsed selection: it is filled exactly when the dynamic source was
+	// chosen, that is when --dashboard-list was not given.
+	Coordinator coordarg.Flags
+	Etcd        coordarg.Args
 }
 
 var feFlagAliases = map[string]string{
@@ -63,17 +65,24 @@ func parseFEArgs(args []string) (*feConfig, bool, error) {
 		return cfg, false, nil
 	}
 
-	if !cfg.Listen.Provided {
-		return nil, false, fmt.Errorf("option --listen is required")
-	}
-	if _, err := parsed.ExactlyOne("dashboard-list", "zookeeper", "filesystem", "consul"); err != nil {
-		return nil, false, err
-	}
-
-	coordinator, ok, err := cfg.Coordinator.Parse()
+	etcd, etcdSet, err := cfg.Coordinator.Parse()
 	if err != nil {
 		return nil, false, err
 	}
-	cfg.CoordinatorArg, cfg.HasCoordinator = coordinator, ok
+
+	if !cfg.Listen.Provided {
+		return nil, false, fmt.Errorf("option --listen is required")
+	}
+	// The static dashboard list and the dynamic etcd source are mutually
+	// exclusive. Giving both shared options counts as one source: --etcd
+	// supplies the addresses while --etcd-config supplies the connection
+	// options of the same selection.
+	if cfg.DashboardList.Provided && etcdSet {
+		return nil, false, fmt.Errorf("option --dashboard-list is mutually exclusive with --etcd/--etcd-config, use exactly one dashboard source")
+	}
+	if !cfg.DashboardList.Provided && !etcdSet {
+		return nil, false, fmt.Errorf("exactly one dashboard source is required: --dashboard-list or --etcd/--etcd-config")
+	}
+	cfg.Etcd = etcd
 	return cfg, false, nil
 }

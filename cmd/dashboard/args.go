@@ -23,11 +23,9 @@ type dashboardConfig struct {
 	Pidfile     cli.String
 	ProductName cli.String
 	ProductAuth cli.String
-	RemoveLock  cli.Bool
 
 	Coordinator    coordarg.Flags
 	CoordinatorArg coordarg.Args
-	HasCoordinator bool
 }
 
 var dashboardFlagAliases = map[string]string{
@@ -47,8 +45,7 @@ func newDashboardFlagSet(cfg *dashboardConfig) *flag.FlagSet {
 	fs.Var(&cfg.Pidfile, "pidfile", "write process id to file")
 	fs.Var(&cfg.ProductName, "product_name", "set product name")
 	fs.Var(&cfg.ProductAuth, "product_auth", "set product auth")
-	fs.Var(&cfg.RemoveLock, "remove-lock", "force remove the product lock")
-	cfg.Coordinator.BindAddresses(fs)
+	cfg.Coordinator.Bind(fs)
 	return fs
 }
 
@@ -72,10 +69,10 @@ func parseDashboardArgs(args []string) (*dashboardConfig, bool, error) {
 		return cfg, false, nil
 	}
 
-	coordinator, ok, err := cfg.Coordinator.Parse()
+	coordinator, _, err := cfg.Coordinator.Parse()
 	if err != nil {
 		return nil, false, err
 	}
-	cfg.CoordinatorArg, cfg.HasCoordinator = coordinator, ok
+	cfg.CoordinatorArg = coordinator
 	return cfg, false, nil
 }
