@@ -28,6 +28,20 @@ type Client interface {
 	CreateEphemeralInOrder(path string, data []byte) (<-chan struct{}, string, error)
 }
 
+// LockClient is implemented by coordinators that support the revision-conditioned
+// operations required by the persistent topom lock (contract §2).
+type LockClient interface {
+	Client
+	// CreateWithRevision: Txn(Version(key)==0) → Put. succeeded=false when the key exists.
+	// createRevision is the key's create_revision on success.
+	CreateWithRevision(path string, data []byte) (succeeded bool, createRevision int64, err error)
+	// ReadWithRevision: missing key → (nil, 0, 0, 0, nil).
+	ReadWithRevision(path string) (data []byte, createRevision, modRevision, lease int64, err error)
+	// DeleteByCreateRevision: Txn(CreateRevision(key)==createRevision) → Delete.
+	// succeeded=false when the key is missing or has another create_revision.
+	DeleteByCreateRevision(path string, createRevision int64) (succeeded bool, err error)
+}
+
 func NewClient(coordinator string, addrlist string, auth string, timeout time.Duration) (Client, error) {
 	switch coordinator {
 	case "zk", "zookeeper":

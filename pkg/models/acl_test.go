@@ -1,22 +1,24 @@
 // Copyright 2016 CodisLabs. All Rights Reserved.
 // Licensed under the MIT (MIT-LICENSE.txt) license.
 
-package models
+// acl_test.go exercises the exported ACL model and store API, so the store
+// cases run over the in-memory coordinator fake instead of a real backend.
+package models_test
 
 import (
-	"os"
-	"path/filepath"
+	"encoding/json"
 	"testing"
 
-	"github.com/CodisLabs/codis/pkg/models/fs"
+	"github.com/CodisLabs/codis/pkg/models"
+	"github.com/CodisLabs/codis/pkg/models/modelstest"
 )
 
 func TestACLModelEncodeDecode(t *testing.T) {
-	acl := &ACL{
+	acl := &models.ACL{
 		Revision:  12,
 		Enabled:   true,
 		UpdatedAt: "2026-06-04T00:00:00Z",
-		Users: []*ACLUser{{
+		Users: []*models.ACLUser{{
 			Name:           "app_ro",
 			Enabled:        true,
 			PasswordHashes: []string{"0123456789abcdef"},
@@ -24,8 +26,8 @@ func TestACLModelEncodeDecode(t *testing.T) {
 		}},
 	}
 
-	var decoded ACL
-	if err := jsonDecode(&decoded, acl.Encode()); err != nil {
+	var decoded models.ACL
+	if err := json.Unmarshal(acl.Encode(), &decoded); err != nil {
 		t.Fatal(err)
 	}
 	if decoded.Revision != acl.Revision || !decoded.Enabled || decoded.UpdatedAt != acl.UpdatedAt {
@@ -36,20 +38,29 @@ func TestACLModelEncodeDecode(t *testing.T) {
 	}
 }
 
+func encodeACLUser(t *testing.T, u *models.ACLUser) []byte {
+	t.Helper()
+	raw, err := json.Marshal(u)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return raw
+}
+
 // DB-bound users must round-trip the db pointer, and legacy JSON (no db field)
 // must decode to a nil DB so existing records behave as unbound.
 func TestACLUserDBBindingEncodeDecode(t *testing.T) {
 	db3 := 3
-	bound := &ACLUser{
+	bound := &models.ACLUser{
 		Name:           "app1",
 		Enabled:        true,
 		DB:             &db3,
 		PasswordHashes: []string{"hash1"},
 		Rules:          []string{"+@all", "~*"},
 	}
-	raw := jsonEncode(bound)
-	var decodedBound ACLUser
-	if err := jsonDecode(&decodedBound, raw); err != nil {
+	raw := encodeACLUser(t, bound)
+	var decodedBound models.ACLUser
+	if err := json.Unmarshal(raw, &decodedBound); err != nil {
 		t.Fatal(err)
 	}
 	if decodedBound.DB == nil || *decodedBound.DB != 3 {
@@ -58,8 +69,8 @@ func TestACLUserDBBindingEncodeDecode(t *testing.T) {
 
 	// Legacy record without a db field — must decode as unbound (DB==nil).
 	legacy := []byte(`{"name":"legacy","enabled":true,"password_hashes":["h"],"rules":["+@read"]}`)
-	var decodedLegacy ACLUser
-	if err := jsonDecode(&decodedLegacy, legacy); err != nil {
+	var decodedLegacy models.ACLUser
+	if err := json.Unmarshal(legacy, &decodedLegacy); err != nil {
 		t.Fatal(err)
 	}
 	if decodedLegacy.DB != nil {
@@ -68,13 +79,13 @@ func TestACLUserDBBindingEncodeDecode(t *testing.T) {
 
 	// Explicit db=0 must survive round-trip distinct from unbound.
 	db0 := 0
-	zero := &ACLUser{Name: "zero", Enabled: true, DB: &db0, Rules: []string{"+@all"}}
-	zeroRaw := jsonEncode(zero)
+	zero := &models.ACLUser{Name: "zero", Enabled: true, DB: &db0, Rules: []string{"+@all"}}
+	zeroRaw := encodeACLUser(t, zero)
 	if string(zeroRaw) == "" {
 		t.Fatal("empty encode")
 	}
-	var decodedZero ACLUser
-	if err := jsonDecode(&decodedZero, zeroRaw); err != nil {
+	var decodedZero models.ACLUser
+	if err := json.Unmarshal(zeroRaw, &decodedZero); err != nil {
 		t.Fatal(err)
 	}
 	if decodedZero.DB == nil || *decodedZero.DB != 0 {
@@ -83,25 +94,18 @@ func TestACLUserDBBindingEncodeDecode(t *testing.T) {
 }
 
 func TestStoreACLPathAndUpdate(t *testing.T) {
-	root := filepath.Join(os.TempDir(), "codis-acl-store-test")
-	_ = os.RemoveAll(root)
-	defer os.RemoveAll(root)
-
-	client, err := fsclient.New(root)
-	if err != nil {
-		t.Fatal(err)
-	}
+	client := modelstest.NewState().NewClient()
 	defer client.Close()
 
-	store := NewStore(client, "codis-demo")
+	store := models.NewStore(client, "codis-demo")
 	if got, want := store.ACLPath(), "/codis3/codis-demo/acl"; got != want {
 		t.Fatalf("ACLPath = %q, want %q", got, want)
 	}
 
-	acl := &ACL{
+	acl := &models.ACL{
 		Revision: 1,
 		Enabled:  true,
-		Users: []*ACLUser{{
+		Users: []*models.ACLUser{{
 			Name:           "default",
 			Enabled:        true,
 			PasswordHashes: []string{"hash"},
